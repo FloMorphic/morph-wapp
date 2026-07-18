@@ -1,0 +1,63 @@
+/* FloMorphic theming for Vue Flow — bind the library chrome to design tokens. */
+
+.vue-flow {
+  background: var(--canvas-bg);
+}
+
+/* Edges */
+.vue-flow__edge-path,
+.vue-flow__connection-path {
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+.vue-flow__edge.selected .vue-flow__edge-path,
+.vue-flow__edge:hover .vue-flow__edge-path {
+  stroke: var(--accent);
+}
+.vue-flow__edge-text {
+  fill: var(--fg-muted);
+  font-size: 10px;
+}
+
+/* Connection handles */
+.vue-flow__handle {
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+}
+.vue-flow__handle:hover {
+  background: var(--accent);
+}
+
+/* Controls */
+.vue-flow__controls {
+  box-shadow: var(--shadow-md);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.vue-flow__controls-button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  fill: var(--fg-muted);
+}
+.vue-flow__controls-button:hover {
+  background: var(--surface-2);
+  fill: var(--accent);
+}
+
+/* Minimap */
+.vue-flow__minimap {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Selection box */
+.vue-flow__nodesselection-rect,
+.vue-flow__selection {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+}

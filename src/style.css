@@ -1,0 +1,211 @@
+@import 'tailwindcss';
+
+/*
+  FloMorphic design system
+  ------------------------
+  Tailwind v4 (CSS-first). Semantic tokens live as runtime CSS variables so the
+  same utility (e.g. `bg-surface`) resolves correctly in light and dark. Dark
+  mode is driven by a `.dark` class on <html> (see composables/useTheme.ts),
+  falling back to the OS preference on first visit.
+*/
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* Base surfaces */
+  --bg: #f7f7f9;
+  --surface: #ffffff;
+  --surface-2: #f3f3f6;
+  --elevated: #ffffff;
+
+  /* Foreground text */
+  --fg: #0b0a10;
+  --fg-muted: #5c5566;
+  --fg-subtle: #8b8595;
+
+  /* Lines & borders */
+  --line: #e6e5ea;
+  --line-strong: #d6d5db;
+
+  /* Brand accent (Inflowenger violet) */
+  --accent: #8b2fe0;
+  --accent-hover: #7a25c9;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(139, 47, 224, 0.1);
+  --accent-border: rgba(139, 47, 224, 0.4);
+
+  /* Status */
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+
+  /* Canvas */
+  --canvas-bg: #f4f4f7;
+  --canvas-dots: #d9d9e0;
+
+  --shadow-sm: 0 1px 2px rgba(16, 12, 24, 0.06);
+  --shadow-md: 0 4px 14px rgba(16, 12, 24, 0.1);
+  --shadow-lg: 0 12px 34px rgba(16, 12, 24, 0.16);
+
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #0d0e13;
+  --surface: #16171d;
+  --surface-2: #1c1e26;
+  --elevated: #20222b;
+
+  --fg: #f2f2f5;
+  --fg-muted: #9ca0ac;
+  --fg-subtle: #6c707c;
+
+  --line: #2a2c36;
+  --line-strong: #383b47;
+
+  --accent: #c084fc;
+  --accent-hover: #cd9bfd;
+  --accent-fg: #16060f;
+  --accent-soft: rgba(192, 132, 252, 0.14);
+  --accent-border: rgba(192, 132, 252, 0.45);
+
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+
+  --canvas-bg: #101117;
+  --canvas-dots: #2b2d38;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
+}
+
+/* Expose the semantic tokens to Tailwind utilities. `inline` keeps them as
+   var() references so the runtime light/dark values above take effect. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
+
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-border: var(--accent-border);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+
+  --radius-xl: 14px;
+}
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--fg-subtle);
+    background-clip: content-box;
+  }
+}
+
+/* ---- Reusable component classes (kept small; Tailwind utilities do the rest) ---- */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors select-none disabled:opacity-45 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  .btn-ghost {
+    @apply text-fg-muted;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--accent-soft);
+    color: var(--fg);
+  }
+  .btn-outline {
+    @apply text-fg-muted border;
+    border-color: var(--line-strong);
+    background: var(--surface);
+  }
+  .btn-outline:hover:not(:disabled) {
+    border-color: var(--accent-border);
+    color: var(--accent);
+  }
+
+  .card {
+    @apply rounded-xl border bg-surface;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .input {
+    @apply w-full rounded-lg border bg-surface px-3 py-2 text-sm text-fg outline-none transition-colors;
+    border-color: var(--line-strong);
+  }
+  .input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .input::placeholder {
+    color: var(--fg-subtle);
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+}

@@ -1,0 +1,95 @@
+import type { FlowRecord, PaginatedList, PaginationParams, VueFlowGraph } from '@/types/api'
+import { apiEnabled, http, list } from './client'
+import { readCollection, writeCollection } from '@/lib/localStore'
+import { createId, now } from '@/lib/id'
+
+/**
+ * Flow repository. Uses the inspector-api `/flow` endpoints when a backend is
+ * configured, otherwise persists to localStorage so the app works standalone.
+ * Both paths return identical {@link FlowRecord} shapes.
+ */
+
+const LOCAL_KEY = 'flows'
+
+export interface SaveFlowInput {
+  id?: string
+  title: string
+  view_flow: VueFlowGraph
+}
+
+// ---- Local backend ----------------------------------------------------------
+
+function localList(params?: PaginationParams): PaginatedList<FlowRecord> {
+  const all = readCollection<FlowRecord>(LOCAL_KEY).sort((a, b) => b.updatedAt - a.updatedAt)
+  const search = params?.search?.toLowerCase()
+  const filtered = search ? all.filter((f) => f.title.toLowerCase().includes(search)) : all
+  const perPage = params?.per_page ?? 12
+  const start = params?.cursor ? Number(params.cursor) || 0 : 0
+  const page = filtered.slice(start, start + perPage)
+  const nextIndex = start + perPage
+  return { list: page, next: nextIndex < filtered.length ? String(nextIndex) : '' }
+}
+
+function localGet(id: string): FlowRecord {
+  const found = readCollection<FlowRecord>(LOCAL_KEY).find((f) => f.id === id)
+  if (!found) throw new Error(`Workflow ${id} not found`)
+  return found
+}
+
+function localSave(input: SaveFlowInput): FlowRecord {
+  const all = readCollection<FlowRecord>(LOCAL_KEY)
+  const ts = now()
+  if (input.id) {
+    const idx = all.findIndex((f) => f.id === input.id)
+    if (idx >= 0) {
+      const updated: FlowRecord = { ...all[idx], title: input.title, view_flow: input.view_flow, updatedAt: ts }
+      all[idx] = updated
+      writeCollection(LOCAL_KEY, all)
+      return updated
+    }
+  }
+  const record: FlowRecord = {
+    id: input.id ?? createId('flow'),
+    title: input.title,
+    view_flow: input.view_flow,
+    createdAt: ts,
+    updatedAt: ts,
+  }
+  all.push(record)
+  writeCollection(LOCAL_KEY, all)
+  return record
+}
+
+function localRemove(id: string): void {
+  writeCollection(
+    LOCAL_KEY,
+    readCollection<FlowRecord>(LOCAL_KEY).filter((f) => f.id !== id),
+  )
+}
+
+// ---- Public API -------------------------------------------------------------
+
+export const flowsApi = {
+  isRemote: apiEnabled,
+
+  list(params?: PaginationParams): Promise<PaginatedList<FlowRecord>> {
+    if (apiEnabled()) return list<FlowRecord>('/flow', params)
+    return Promise.resolve(localList(params))
+  },
+
+  get(id: string): Promise<FlowRecord> {
+    if (apiEnabled()) return http.get<FlowRecord>(`/flow/id/${id}`)
+    return Promise.resolve(localGet(id))
+  },
+
+  save(input: SaveFlowInput): Promise<FlowRecord> {
+    if (apiEnabled()) return http.post<FlowRecord>('/flow', input)
+    return Promise.resolve(localSave(input))
+  },
+
+  remove(id: string): Promise<void> {
+    if (apiEnabled()) return http.delete<void>(`/flow/id/${id}`)
+    localRemove(id)
+    return Promise.resolve()
+  },
+}
