@@ -107,3 +107,75 @@ export interface ProcessRequestInput {
   flowId: string
   contextId: string
 }
+
+/* ---- Project extensions (FloMorphic-specific) ----
+ * Not the inspector's ExtensionRecord: a project extension is a source repo the
+ * backend clones and runs with the given env so it can join the inflow
+ * ecosystem. Once running it surfaces plugin nodes in the workflow palette.
+ */
+export type ExtensionStatus = 'registered' | 'installing' | 'running' | 'stopped' | 'error'
+
+export interface EnvVar {
+  key: string
+  value: string
+}
+
+export interface ProjectExtension {
+  id: string
+  name: string
+  /** Git repository to clone (e.g. https://github.com/org/inflow-plugin-x). */
+  repo: string
+  /** Optional branch / tag / commit. */
+  ref: string
+  description: string
+  env: EnvVar[]
+  status: ExtensionStatus
+  createdAt: number
+  updatedAt: number
+}
+
+/* ---- Memory stores (FloMorphic-specific) ----
+ * Named, reusable stores referenced by the Memory node in a workflow. Two
+ * shapes with different config: a Vector store (needs an embedding model +
+ * token) and a Document store (needs a table/column schema).
+ */
+export type MemoryType = 'vector' | 'document'
+
+export type VectorMetric = 'cosine' | 'dot' | 'euclidean'
+
+export interface VectorMemoryConfig {
+  /** Embedding provider, e.g. 'openai', 'anthropic', 'inflow', 'local'. */
+  provider: string
+  /** Embedding model, e.g. 'text-embedding-3-small'. */
+  embeddingModel: string
+  /** API token / key for the embedding model. */
+  token: string
+  dimensions: number
+  metric: VectorMetric
+  namespace: string
+}
+
+export type ColumnType = 'string' | 'text' | 'number' | 'boolean' | 'object' | 'array' | 'timestamp'
+
+export interface TableColumn {
+  name: string
+  type: ColumnType
+  /** Marks the primary key / lookup column. */
+  primary?: boolean
+}
+
+export interface DocumentMemoryConfig {
+  table: string
+  columns: TableColumn[]
+}
+
+export interface MemoryStore {
+  id: string
+  name: string
+  type: MemoryType
+  description: string
+  vector?: VectorMemoryConfig
+  document?: DocumentMemoryConfig
+  createdAt: number
+  updatedAt: number
+}

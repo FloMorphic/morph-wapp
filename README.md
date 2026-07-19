@@ -49,16 +49,21 @@ The canvas ships higher-level, AI-native nodes grouped by intent — each annota
 compile target:
 
 - **Triggers** — Manual Trigger `→ Void`, Webhook `→ Plugin`, Schedule `→ Plugin`
-- **AI Harness** — Agent `→ Plugin·Loop`, Model Call `→ Plugin`, Tool `→ Plugin·Extrinsic`,
-  Retriever `→ Plugin`, Memory `→ Plugin·Code`, Guardrail `→ Code·Contract`
-- **Logic & Flow** — Condition `→ Contract`, Transform `→ Code`, Loop `→ GoTo·Contract`,
-  Human Approval `→ Plugin·Loop`, Merge `→ Void`
+- **AI Harness** — LLM (with bound tools) `→ Plugin`, Tool `→ Plugin·Extrinsic`,
+  MCP client `→ Plugin`, Retriever `→ Plugin`, Memory `→ Plugin·Code`, Guardrail `→ Code·Contract`
+- **Logic & Flow** — Condition `→ Contract`, Transform `→ Code`,
+  Human in the Loop `→ Extrinsic`, Merge `→ Void`
 - **Integrations** — HTTP Request `→ Plugin`, Extrinsic `→ Extrinsic`, Plugin `→ Plugin`,
   Sub-workflow `→ GoTo`, Output `→ Code·Void`
 
 Every node shares three universal fields, mirrored on the compiled node: **title** (label),
 **key** (where its output is written into context), and **scope** (the JSONPath slice of context
 it reads / writes).
+
+> **There is no Loop node — by design.** A loop is not a primitive here; it emerges from
+> connections. An **LLM** node appends to the message stack on the context, a **Condition**
+> (Contract) checks whether the task is satisfied, and if not an edge routes back to the LLM.
+> That cycle *is* the loop.
 
 ## Features (base plate)
 
@@ -69,8 +74,16 @@ it reads / writes).
 - 💾 **Runs standalone or connected** — with no backend it persists workflows to `localStorage`;
   point it at `inspector-api` and the same code path talks to the real runtime.
 - 🌗 **Light / dark / system theming** — Tailwind v4 with runtime CSS design tokens.
-- 🧭 **Full app shell** — collapsible sidebar, routing, and scaffolded sections for AI Harness,
-  Plugins, Contexts, Resources and Spaces.
+- 🧩 **Extensions manager** — register an extension from a Git repo + env; the backend clones and
+  runs it so it joins the inflow ecosystem and contributes plugin nodes to the palette.
+- 🧠 **Memory stores** — define reusable **Vector** stores (embedding model + token, dimensions,
+  metric) and **Document** stores (table + column schema); the Memory node references one by id.
+- 🧭 **Full app shell** — collapsible sidebar, routing, and sections for Workflows, Extensions,
+  Memory and Contexts.
+
+> Workflow and memory-store lists are served by the backend API (`/flow`, `/memory`,
+> `/extension`). With no backend configured the app falls back to browser-local persistence so it
+> still runs standalone.
 - 📦 **Portable SPA** — hash routing + relative base, so it serves from any static host, a
   sub-path, `file://`, or an Electron shell — local or online.
 
@@ -119,7 +132,7 @@ src/
 ├── router/         # Hash-history routes
 ├── stores/         # Pinia: workflows, ui (theme + sidebar)
 ├── types/          # Wire types mirroring the Go backend models
-└── views/          # Route pages (Workflows, Editor, Harness, Plugins, …)
+└── views/          # Route pages (Workflows, Editor, Extensions, Memory, Contexts, …)
 ```
 
 ## Tech decisions

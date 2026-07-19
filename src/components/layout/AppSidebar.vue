@@ -23,19 +23,14 @@ const groups: NavGroup[] = [
     label: 'Build',
     items: [
       { to: '/workflows', label: 'Workflows', icon: 'workflow', section: 'workflows' },
-      { to: '/harness', label: 'AI Harness', icon: 'harness', section: 'harness' },
-      { to: '/plugins', label: 'Plugins', icon: 'plugin', section: 'plugins' },
+      { to: '/extensions', label: 'Extensions', icon: 'extensions', section: 'extensions' },
     ],
   },
   {
     label: 'Data',
-    items: [{ to: '/contexts', label: 'Contexts', icon: 'context', section: 'contexts' }],
-  },
-  {
-    label: 'Infra',
     items: [
-      { to: '/resources', label: 'Resources', icon: 'resources', section: 'resources' },
-      { to: '/spaces', label: 'Spaces', icon: 'spaces', section: 'spaces' },
+      { to: '/memory', label: 'Memory', icon: 'memory', section: 'memory' },
+      { to: '/contexts', label: 'Contexts', icon: 'context', section: 'contexts' },
     ],
   },
 ]

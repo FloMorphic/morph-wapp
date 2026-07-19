@@ -2,15 +2,20 @@
  * The FloMorphic node catalog.
  *
  * FloMorphic is a *product* layer on top of the Inflowenger runtime. Its canvas
- * nodes are high-level, intent-driven building blocks (agents, models, tools,
- * loops, guardrails …) — declarative front-end nodes that the backend COMPILES
- * DOWN to Inflowenger's small set of primitives:
+ * nodes are high-level, intent-driven building blocks (LLMs, tools, MCP clients,
+ * guardrails, human-in-the-loop …) — declarative front-end nodes that the
+ * backend COMPILES DOWN to Inflowenger's small set of primitives:
  *
  *   Void · Code · Contract · Extrinsic · Plugin · GoTo
  *
- * So the palette here speaks the language of *what you want to build*, while the
- * `primitives` field on each spec records what it lowers to on compile. That's
- * the difference from `inflow-inspector`, which edits the raw primitives.
+ * So the palette speaks the language of *what you want to build*, while the
+ * `primitives` field records what each node lowers to on compile.
+ *
+ * There is deliberately no "Loop" node: loops are not a primitive here. They
+ * emerge from connections + a Condition (Contract). An LLM node appends to the
+ * message stack on the context; a Condition checks whether the task is
+ * satisfied and, if not, routes an edge back to the LLM — that cycle *is* the
+ * loop.
  *
  * Every node shares three universal fields, mirrored on the compiled node:
  *   - title: human label
@@ -22,16 +27,15 @@ export type NodeKind =
   | 'trigger'
   | 'webhook'
   | 'schedule'
-  | 'agent'
-  | 'model'
+  | 'llm'
   | 'tool'
+  | 'mcp'
   | 'retriever'
   | 'memory'
   | 'guardrail'
   | 'condition'
   | 'transform'
-  | 'loop'
-  | 'approval'
+  | 'humanInLoop'
   | 'merge'
   | 'http'
   | 'extrinsic'
@@ -121,44 +125,24 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
   }),
 
   // ---- AI Harness ----
-  agent: spec({
-    kind: 'agent',
-    type: 'agent',
-    label: 'AI Agent',
-    icon: 'node-agent',
+  llm: spec({
+    kind: 'llm',
+    type: 'llm',
+    label: 'LLM',
+    icon: 'node-llm',
     color: '#8b2fe0',
     group: 'ai',
-    tagline: 'Autonomous reasoning',
+    tagline: 'LLM with bound tools',
     description:
-      'A tool-using agent that reasons in a loop until it reaches a goal. Compiles to a Plugin harness wrapped in a Loop system.',
-    primitives: 'Plugin · Loop',
-    defaults: () => ({
-      title: 'AI Agent',
-      key: 'agent',
-      scope: '$',
-      model: 'claude-sonnet-5',
-      instructions: 'You are a helpful assistant.',
-      tools: [],
-      maxSteps: 8,
-    }),
-    preview: (d) => String(d.model ?? 'model'),
-  }),
-  model: spec({
-    kind: 'model',
-    type: 'model',
-    label: 'Model Call',
-    icon: 'node-model',
-    color: '#6366f1',
-    group: 'ai',
-    tagline: 'Single LLM call',
-    description: 'One structured call to a language model. Compiles to a Plugin invocation against the AI Harness.',
+      'Call a language model with tools bound to it. It reads the message stack from context and appends its reply. Wire Tool / MCP nodes to bind capabilities; route its output through a Condition to loop.',
     primitives: 'Plugin',
     defaults: () => ({
-      title: 'Model Call',
-      key: 'completion',
+      title: 'LLM',
+      key: 'messages',
       scope: '$',
       model: 'claude-sonnet-5',
-      prompt: '',
+      system: 'You are a helpful assistant.',
+      tools: [],
       temperature: 0.7,
     }),
     preview: (d) => String(d.model ?? 'model'),
@@ -170,18 +154,32 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     icon: 'node-tool',
     color: '#06b6d4',
     group: 'ai',
-    tagline: 'Callable capability',
-    description: 'A capability an agent (or the flow) can invoke. Compiles to a Plugin or Extrinsic call.',
+    tagline: 'Bindable capability',
+    description: 'A capability an LLM can call. Wire it into an LLM node to bind it. Compiles to a Plugin or Extrinsic call.',
     primitives: 'Plugin · Extrinsic',
     defaults: () => ({ title: 'Tool', key: 'toolResult', scope: '$', name: '', schema: {} }),
     preview: (d) => String(d.name || 'unbound tool'),
+  }),
+  mcp: spec({
+    kind: 'mcp',
+    type: 'mcp',
+    label: 'MCP',
+    icon: 'node-mcp',
+    color: '#0ea5e9',
+    group: 'ai',
+    tagline: 'MCP client',
+    description:
+      'Connect to an MCP server through a plugin-backed client, exposing its tools and resources to the flow (and to bound LLM nodes).',
+    primitives: 'Plugin',
+    defaults: () => ({ title: 'MCP', key: 'mcp', scope: '$', server: '', transport: 'stdio' }),
+    preview: (d) => String(d.server || 'no server'),
   }),
   retriever: spec({
     kind: 'retriever',
     type: 'retriever',
     label: 'Retriever',
     icon: 'node-retriever',
-    color: '#0ea5e9',
+    color: '#0284c7',
     group: 'ai',
     tagline: 'RAG search',
     description: 'Fetch relevant context from a knowledge source (vector / keyword). Backed by a Plugin adapter.',
@@ -196,11 +194,12 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     icon: 'node-memory',
     color: '#f59e0b',
     group: 'ai',
-    tagline: 'Read / write memory',
-    description: 'Persist or recall conversation and working memory. Compiles to a Plugin store plus Code merge.',
+    tagline: 'Read / write a store',
+    description:
+      'Read from or write to a defined Memory store (vector or document). Define stores under Data → Memory, then reference one here by id. Compiles to a Plugin store plus Code merge.',
     primitives: 'Plugin · Code',
-    defaults: () => ({ title: 'Memory', key: 'memory', scope: '$', op: 'read', namespace: 'default' }),
-    preview: (d) => `${String(d.op ?? 'read')} · ${String(d.namespace ?? '')}`,
+    defaults: () => ({ title: 'Memory', key: 'memory', scope: '$', memoryId: '', op: 'read' }),
+    preview: (d) => `${String(d.op ?? 'read')}${d.memoryId ? ' · ' + String(d.memoryId) : ' · no store'}`,
   }),
   guardrail: spec({
     kind: 'guardrail',
@@ -226,9 +225,9 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     icon: 'node-condition',
     color: '#d97706',
     group: 'logic',
-    tagline: 'Branch on a rule',
+    tagline: 'Branch — and build loops',
     description:
-      'Evaluate a rule and fire the matching branch(es). Compiles directly to a Contract; every branch/switch/router is one.',
+      'Evaluate a rule and fire the matching branch(es). Compiles directly to a Contract. Route a branch back to an earlier node to build a loop (e.g. keep calling the LLM until the task is satisfied).',
     primitives: 'Contract',
     branching: true,
     defaults: () => ({
@@ -236,8 +235,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       key: 'decision',
       scope: '$',
       language: 'javascript',
-      source: "// return an array of tags to fire matching branches\nreturn ['default']\n",
-      tags: ['default'],
+      source: "// return an array of tags to fire matching branches\n// e.g. return done ? ['done'] : ['retry']\nreturn ['done']\n",
+      tags: ['done', 'retry'],
     }),
     preview: (d) => (Array.isArray(d.tags) && d.tags.length ? (d.tags as string[]).join(', ') : 'decision'),
   }),
@@ -260,33 +259,19 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     }),
     preview: (d) => `${String(d.language ?? 'javascript')} → ${d.key || 'result'}`,
   }),
-  loop: spec({
-    kind: 'loop',
-    type: 'loop',
-    label: 'Loop',
-    icon: 'node-loop',
-    color: '#7c3aed',
-    group: 'logic',
-    tagline: 'Iterate until done',
-    description:
-      'Repeat a sub-path until a success condition holds — agent turns, self-review, retries. A native Loop system compiling to GoTo + Contract.',
-    primitives: 'GoTo · Contract',
-    defaults: () => ({ title: 'Loop', key: 'iteration', scope: '$', until: 'done', maxIterations: 10 }),
-    preview: (d) => `until ${String(d.until ?? 'done')}`,
-  }),
-  approval: spec({
-    kind: 'approval',
-    type: 'approval',
-    label: 'Human Approval',
-    icon: 'node-approval',
+  humanInLoop: spec({
+    kind: 'humanInLoop',
+    type: 'humanInLoop',
+    label: 'Human in the Loop',
+    icon: 'node-human',
     color: '#a855f7',
     group: 'logic',
-    tagline: 'Human in the loop',
-    description: 'Pause for a human decision, then continue. Compiles to a Plugin gate inside a Loop system.',
-    primitives: 'Plugin · Loop',
-    branching: true,
-    defaults: () => ({ title: 'Human Approval', key: 'approval', scope: '$', prompt: 'Approve this step?', tags: ['approved', 'rejected'] }),
-    preview: (d) => (Array.isArray(d.tags) ? (d.tags as string[]).join(' / ') : 'approved / rejected'),
+    tagline: 'Ask a human',
+    description:
+      'Record a message / conversation with an expert or user and wait for their reply before continuing. Compiles to an Extrinsic that logs the exchange to a chat channel.',
+    primitives: 'Extrinsic',
+    defaults: () => ({ title: 'Human in the Loop', key: 'humanReply', scope: '$', channel: 'expert', prompt: '' }),
+    preview: (d) => `channel: ${String(d.channel ?? 'expert')}`,
   }),
   merge: spec({
     kind: 'merge',
@@ -308,7 +293,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     type: 'http',
     label: 'HTTP Request',
     icon: 'node-http',
-    color: '#0284c7',
+    color: '#0891b2',
     group: 'io',
     tagline: 'Call an API',
     description: 'Call any REST/HTTP endpoint and inject the response into context. Backed by a Plugin adapter.',
@@ -338,10 +323,10 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'io',
     tagline: 'External process',
     description:
-      'Hand execution to a live external process with its own state, connections and UI. The most powerful primitive — the escape hatch to the outside world.',
+      'Hand execution to a live external process (an installed Extension) with its own state, connections and UI. The most powerful primitive — the escape hatch to the outside world.',
     primitives: 'Plugin',
-    defaults: () => ({ title: 'Plugin', key: 'output', scope: '$', pluginId: '', action: '', settings: {} }),
-    preview: (d) => String(d.pluginId || 'unbound plugin'),
+    defaults: () => ({ title: 'Plugin', key: 'output', scope: '$', extensionId: '', action: '', settings: {} }),
+    preview: (d) => String(d.extensionId || 'unbound plugin'),
   }),
   subflow: spec({
     kind: 'subflow',
@@ -356,8 +341,6 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     defaults: () => ({ title: 'Sub-workflow', key: '', scope: '$', flowId: '' }),
     preview: (d) => (d.flowId ? `→ ${String(d.flowId)}` : 'no target flow'),
   }),
-
-  // ---- Output ----
   output: spec({
     kind: 'output',
     type: 'output',
@@ -376,8 +359,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
 
 export const PALETTE_GROUPS: { id: PaletteGroupId; label: string; kinds: NodeKind[] }[] = [
   { id: 'triggers', label: 'Triggers', kinds: ['trigger', 'webhook', 'schedule'] },
-  { id: 'ai', label: 'AI Harness', kinds: ['agent', 'model', 'tool', 'retriever', 'memory', 'guardrail'] },
-  { id: 'logic', label: 'Logic & Flow', kinds: ['condition', 'transform', 'loop', 'approval', 'merge'] },
+  { id: 'ai', label: 'AI Harness', kinds: ['llm', 'tool', 'mcp', 'retriever', 'memory', 'guardrail'] },
+  { id: 'logic', label: 'Logic & Flow', kinds: ['condition', 'transform', 'humanInLoop', 'merge'] },
   { id: 'io', label: 'Integrations', kinds: ['http', 'extrinsic', 'plugin', 'subflow', 'output'] },
 ]
 
