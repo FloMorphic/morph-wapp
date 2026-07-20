@@ -53,7 +53,7 @@ function formatDate(ts?: number): string {
         </span>
         <input v-model="searchInput" class="input pl-9" placeholder="Search workflows…" @input="onSearch" />
       </div>
-      <span class="text-xs text-fg-subtle">{{ store.isRemote ? 'inspector-api' : 'local storage' }}</span>
+      <span class="text-xs text-fg-subtle">{{ store.isRemote ? 'morph-api' : 'local storage' }}</span>
     </div>
 
     <div v-if="store.loading" class="py-16 text-center text-sm text-fg-muted">Loading workflows…</div>

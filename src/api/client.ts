@@ -1,4 +1,4 @@
-import type { ApiEnvelope, PaginatedList, PaginationParams } from '@/types/api'
+import type { ApiEnvelope, Page, PaginationParams } from '@/types/api'
 
 /**
  * Minimal typed HTTP client for the Inflowenger `inspector-api`.
@@ -84,7 +84,7 @@ export const http = {
   delete: <T>(path: string) => request<T>('DELETE', path),
 }
 
-/** Convenience for the cursor-paginated list endpoints. */
-export function list<T>(path: string, params?: PaginationParams): Promise<PaginatedList<T>> {
-  return http.get<PaginatedList<T>>(path, params as Record<string, unknown>)
+/** Convenience for the page-paginated list endpoints. */
+export function list<T>(path: string, params?: PaginationParams): Promise<Page<T>> {
+  return http.get<Page<T>>(path, params as Record<string, unknown>)
 }

@@ -1,14 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { FlowRecord, VueFlowGraph } from '@/types/api'
-import { flowsApi, type SaveFlowInput } from '@/api/flows'
+import type { PromptTemplate } from '@/types/api'
+import { promptsApi, type SavePromptInput } from '@/api/prompts'
 
 /**
- * Workflow list state (the Workflows index page). The editor loads/saves single
- * records directly through {@link flowsApi} to keep its lifecycle self-contained.
+ * Prompt-template list state (the Prompts index page). Page-based pagination
+ * matching the morph-api `/prompt` endpoints.
  */
-export const useWorkflowsStore = defineStore('workflows', () => {
-  const items = ref<FlowRecord[]>([])
+export const usePromptsStore = defineStore('prompts', () => {
+  const items = ref<PromptTemplate[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const search = ref('')
@@ -18,13 +18,13 @@ export const useWorkflowsStore = defineStore('workflows', () => {
   const total = ref(0)
   const perPage = ref(12)
 
-  const isRemote = flowsApi.isRemote()
+  const isRemote = promptsApi.isRemote()
 
   async function fetchPage(target = 1): Promise<void> {
     loading.value = true
     error.value = null
     try {
-      const res = await flowsApi.list({ page: target, per_page: perPage.value, search: search.value })
+      const res = await promptsApi.list({ page: target, per_page: perPage.value, search: search.value })
       items.value = res.list
       page.value = res.page
       totalPages.value = res.total_pages
@@ -56,19 +56,16 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     await refresh()
   }
 
+  async function save(input: SavePromptInput): Promise<PromptTemplate> {
+    const rec = await promptsApi.save(input)
+    await fetchPage(page.value)
+    return rec
+  }
+
   async function remove(id: string): Promise<void> {
-    await flowsApi.remove(id)
-    // Stepping back a page if we just deleted the last row on it.
+    await promptsApi.remove(id)
     const targetPage = items.value.length === 1 && page.value > 1 ? page.value - 1 : page.value
     await fetchPage(targetPage)
-  }
-
-  async function save(input: SaveFlowInput): Promise<FlowRecord> {
-    return flowsApi.save(input)
-  }
-
-  function get(id: string): Promise<FlowRecord> {
-    return flowsApi.get(id)
   }
 
   return {
@@ -87,10 +84,9 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     next,
     prev,
     setSearch,
-    remove,
     save,
-    get,
+    remove,
   }
 })
 
-export type { VueFlowGraph, SaveFlowInput }
+export type { SavePromptInput }

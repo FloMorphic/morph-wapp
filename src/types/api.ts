@@ -1,5 +1,5 @@
 /**
- * Wire types mirroring the Inflowenger `inspector-api` backend.
+ * Wire types mirroring the FloMorphic `flomorphic-api` (morph-api) backend.
  * Kept 1:1 with the Go models so the API client is drop-in when a backend is
  * configured (see src/api). When no backend is set, the same shapes are
  * persisted locally (see src/lib/localStore.ts).
@@ -11,14 +11,22 @@ export interface ApiEnvelope<T> {
   error: unknown
 }
 
-/** Cursor-paginated list payload: `{ data: { list, next } }`. */
-export interface PaginatedList<T> {
+/**
+ * Page-based list payload:
+ * `{ data: { list, total, page, per_page, total_pages } }`.
+ * The backend counts matching rows in SQL, so the pager knows its bounds up front.
+ */
+export interface Page<T> {
   list: T[]
-  next: string
+  total: number
+  page: number
+  per_page: number
+  total_pages: number
 }
 
 export interface PaginationParams {
-  cursor?: string
+  /** 1-based page number. */
+  page?: number
   per_page?: number
   search?: string
 }
@@ -178,4 +186,73 @@ export interface MemoryStore {
   document?: DocumentMemoryConfig
   createdAt: number
   updatedAt: number
+}
+
+/* ---- Prompt templates (FloMorphic-specific) ----
+ * A reusable prompt template referenced by AI nodes. `template` is the prompt
+ * text with `{{variable}}` placeholders; `variables` documents those
+ * placeholders; `tags` group templates for search. Backed by `/prompt`.
+ */
+export interface PromptVariable {
+  name: string
+  description?: string
+  default?: string
+  required?: boolean
+}
+
+export interface PromptTemplate {
+  id: string
+  title: string
+  description: string
+  template: string
+  variables: PromptVariable[]
+  tags: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+/* ---- Human-in-the-Loop tasks (FloMorphic-specific) ----
+ * A HumanTask is created by the backend `hitl` svc handler when a running
+ * workflow reaches a `humanInLoop` node — never through the UI (there is no
+ * create/upsert). The web app lists them, opens one as a chat-style
+ * conversation, answers its questions, and closes it. Backed by `/hitl`.
+ *
+ *   open     → created, awaiting answers
+ *   answered → every question answered (flow may continue)
+ *   closed   → force-finished by the human (workflow ends at this step)
+ */
+export type HumanTaskStatus = 'open' | 'answered' | 'closed'
+
+export interface HumanTaskQuestion {
+  id: string
+  text: string
+  answer: string
+  answeredAt: number
+}
+
+/** One turn of the free-form chat thread used to understand the task context.
+ * The assistant reply is produced client-side; the backend only stores it. */
+export interface HumanTaskMessage {
+  id: string
+  role: 'human' | 'assistant' | 'system'
+  text: string
+  at: number
+}
+
+export interface HumanTask {
+  id: string
+  title: string
+  status: HumanTaskStatus
+  /** Process instance the task belongs to. */
+  pid: string
+  flowId: string
+  nodeId: string
+  contextId: string
+  questions: HumanTaskQuestion[]
+  messages: HumanTaskMessage[]
+  /** Raw node-data snapshot recorded at creation. */
+  data?: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+  closedAt: number
 }

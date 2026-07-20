@@ -49,6 +49,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Contexts', section: 'contexts' },
       },
       {
+        path: 'prompts',
+        name: 'prompts',
+        component: () => import('@/views/PromptsView.vue'),
+        meta: { title: 'Prompts', section: 'prompts' },
+      },
+      {
+        path: 'human-tasks',
+        name: 'human-tasks',
+        component: () => import('@/views/HumanTasksView.vue'),
+        meta: { title: 'Human Tasks', section: 'human-tasks' },
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/SettingsView.vue'),

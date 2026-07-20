@@ -31,7 +31,12 @@ const groups: NavGroup[] = [
     items: [
       { to: '/memory', label: 'Memory', icon: 'memory', section: 'memory' },
       { to: '/contexts', label: 'Contexts', icon: 'context', section: 'contexts' },
+      { to: '/prompts', label: 'Prompts', icon: 'prompt', section: 'prompts' },
     ],
+  },
+  {
+    label: 'Operate',
+    items: [{ to: '/human-tasks', label: 'Human Task', icon: 'node-human', section: 'human-tasks' }],
   },
 ]
 

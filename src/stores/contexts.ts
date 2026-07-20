@@ -1,14 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { FlowRecord, VueFlowGraph } from '@/types/api'
-import { flowsApi, type SaveFlowInput } from '@/api/flows'
+import type { ContextRecord } from '@/types/api'
+import { contextsApi, type SaveContextInput } from '@/api/contexts'
 
 /**
- * Workflow list state (the Workflows index page). The editor loads/saves single
- * records directly through {@link flowsApi} to keep its lifecycle self-contained.
+ * Context list state (the Contexts index page). Page-based pagination matching
+ * the morph-api `/context` endpoints. Single records are saved through
+ * {@link contextsApi} directly.
  */
-export const useWorkflowsStore = defineStore('workflows', () => {
-  const items = ref<FlowRecord[]>([])
+export const useContextsStore = defineStore('contexts', () => {
+  const items = ref<ContextRecord[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const search = ref('')
@@ -18,13 +19,13 @@ export const useWorkflowsStore = defineStore('workflows', () => {
   const total = ref(0)
   const perPage = ref(12)
 
-  const isRemote = flowsApi.isRemote()
+  const isRemote = contextsApi.isRemote()
 
   async function fetchPage(target = 1): Promise<void> {
     loading.value = true
     error.value = null
     try {
-      const res = await flowsApi.list({ page: target, per_page: perPage.value, search: search.value })
+      const res = await contextsApi.list({ page: target, per_page: perPage.value, search: search.value })
       items.value = res.list
       page.value = res.page
       totalPages.value = res.total_pages
@@ -56,19 +57,20 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     await refresh()
   }
 
+  async function save(input: SaveContextInput): Promise<ContextRecord> {
+    const rec = await contextsApi.save(input)
+    await fetchPage(page.value)
+    return rec
+  }
+
   async function remove(id: string): Promise<void> {
-    await flowsApi.remove(id)
-    // Stepping back a page if we just deleted the last row on it.
+    await contextsApi.remove(id)
     const targetPage = items.value.length === 1 && page.value > 1 ? page.value - 1 : page.value
     await fetchPage(targetPage)
   }
 
-  async function save(input: SaveFlowInput): Promise<FlowRecord> {
-    return flowsApi.save(input)
-  }
-
-  function get(id: string): Promise<FlowRecord> {
-    return flowsApi.get(id)
+  function get(id: string): Promise<ContextRecord> {
+    return contextsApi.get(id)
   }
 
   return {
@@ -87,10 +89,10 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     next,
     prev,
     setSearch,
-    remove,
     save,
+    remove,
     get,
   }
 })
 
-export type { VueFlowGraph, SaveFlowInput }
+export type { SaveContextInput }

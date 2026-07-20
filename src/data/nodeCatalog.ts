@@ -268,10 +268,13 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'logic',
     tagline: 'Ask a human',
     description:
-      'Record a message / conversation with an expert or user and wait for their reply before continuing. Compiles to an Extrinsic that logs the exchange to a chat channel.',
+      'Pause the flow for a person: pose one or more questions and wait for their answers before continuing (or a human closes the task to finish here). Compiles to an Extrinsic against the backend `hitl` service, which records a Human Task surfaced under Operate → Human Task.',
     primitives: 'Extrinsic',
-    defaults: () => ({ title: 'Human in the Loop', key: 'humanReply', scope: '$', channel: 'expert', prompt: '' }),
-    preview: (d) => `channel: ${String(d.channel ?? 'expert')}`,
+    defaults: () => ({ title: 'Human in the Loop', key: 'humanReply', scope: '$', questions: [''] }),
+    preview: (d) => {
+      const qs = Array.isArray(d.questions) ? (d.questions as unknown[]).filter((q) => String(q ?? '').trim()) : []
+      return qs.length ? `${qs.length} question${qs.length === 1 ? '' : 's'}` : 'no questions'
+    },
   }),
   merge: spec({
     kind: 'merge',

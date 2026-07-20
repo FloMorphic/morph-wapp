@@ -1,4 +1,4 @@
-import type { FlowRecord, PaginatedList, PaginationParams, VueFlowGraph } from '@/types/api'
+import type { FlowRecord, Page, PaginationParams, VueFlowGraph } from '@/types/api'
 import { apiEnabled, http, list } from './client'
 import { readCollection, writeCollection } from '@/lib/localStore'
 import { createId, now } from '@/lib/id'
@@ -19,15 +19,21 @@ export interface SaveFlowInput {
 
 // ---- Local backend ----------------------------------------------------------
 
-function localList(params?: PaginationParams): PaginatedList<FlowRecord> {
+function localList(params?: PaginationParams): Page<FlowRecord> {
   const all = readCollection<FlowRecord>(LOCAL_KEY).sort((a, b) => b.updatedAt - a.updatedAt)
   const search = params?.search?.toLowerCase()
   const filtered = search ? all.filter((f) => f.title.toLowerCase().includes(search)) : all
   const perPage = params?.per_page ?? 12
-  const start = params?.cursor ? Number(params.cursor) || 0 : 0
-  const page = filtered.slice(start, start + perPage)
-  const nextIndex = start + perPage
-  return { list: page, next: nextIndex < filtered.length ? String(nextIndex) : '' }
+  const page = Math.max(1, params?.page ?? 1)
+  const start = (page - 1) * perPage
+  const list = filtered.slice(start, start + perPage)
+  return {
+    list,
+    total: filtered.length,
+    page,
+    per_page: perPage,
+    total_pages: Math.max(1, Math.ceil(filtered.length / perPage)),
+  }
 }
 
 function localGet(id: string): FlowRecord {
@@ -72,7 +78,7 @@ function localRemove(id: string): void {
 export const flowsApi = {
   isRemote: apiEnabled,
 
-  list(params?: PaginationParams): Promise<PaginatedList<FlowRecord>> {
+  list(params?: PaginationParams): Promise<Page<FlowRecord>> {
     if (apiEnabled()) return list<FlowRecord>('/flow', params)
     return Promise.resolve(localList(params))
   },
