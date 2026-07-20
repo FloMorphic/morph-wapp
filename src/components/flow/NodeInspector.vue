@@ -2,7 +2,9 @@
 import { computed } from 'vue'
 import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
+import NodeSettingsSelector from '@/components/flow/NodeSettingsSelector.vue'
 import { specForType, type BaseNodeData } from '@/data/nodeCatalog'
+import { SETTINGS_DATA_KEYS } from '@/lib/nodeSettings'
 
 /**
  * Generic, catalog-driven property panel. It edits the selected node's `data`
@@ -17,6 +19,8 @@ const spec = computed(() => (props.node ? specForType(props.node.type) : undefin
 
 const UNIVERSAL = ['title', 'key', 'scope']
 const MULTILINE = new Set(['source', 'instructions', 'prompt', 'template', 'payload'])
+// Managed by the settings selector at the top of the panel, not as generic fields.
+const HIDDEN = new Set<string>(SETTINGS_DATA_KEYS)
 
 type FieldType = 'text' | 'number' | 'boolean' | 'code' | 'json'
 
@@ -41,7 +45,7 @@ function humanize(name: string): string {
 const fields = computed<Field[]>(() => {
   if (!props.node) return []
   const data = props.node.data as BaseNodeData
-  const keys = [...UNIVERSAL, ...Object.keys(data).filter((k) => !UNIVERSAL.includes(k))]
+  const keys = [...UNIVERSAL, ...Object.keys(data).filter((k) => !UNIVERSAL.includes(k) && !HIDDEN.has(k))]
   return keys.map((name) => ({ name, label: humanize(name), type: fieldType(name, data[name]) }))
 })
 
@@ -88,6 +92,8 @@ function onJsonInput(name: string, raw: string) {
 
     <div class="flex-1 space-y-4 overflow-y-auto p-4">
       <p class="text-xs leading-relaxed text-fg-muted">{{ spec.description }}</p>
+
+      <NodeSettingsSelector v-if="node" :key="node.id" :node="node" />
 
       <div v-for="field in fields" :key="field.name" class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">{{ field.label }}</label>

@@ -21,6 +21,11 @@ const spec = computed(() => specForType(props.type))
 const accent = computed(() => spec.value?.color ?? 'var(--fg-subtle)')
 const title = computed(() => props.data?.title || spec.value?.label || 'Node')
 const preview = computed(() => spec.value?.preview?.(props.data) ?? spec.value?.tagline ?? '')
+// The selected settings profile, denormalized onto node data by the drawer.
+const settingsName = computed(() => {
+  const name = (props.data as Record<string, unknown>)?.settingsName
+  return typeof name === 'string' ? name.trim() : ''
+})
 
 const hasTarget = computed(() => !spec.value?.entry)
 const hasSource = computed(() => !spec.value?.terminal)
@@ -47,6 +52,15 @@ const hasSource = computed(() => !spec.value?.terminal)
         <p class="truncate text-[13px] font-semibold leading-tight text-fg">{{ title }}</p>
         <p class="truncate text-[11px] leading-tight text-fg-subtle">{{ spec?.label }}</p>
       </div>
+      <span
+        v-if="settingsName"
+        class="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold"
+        :style="{ background: `color-mix(in srgb, ${accent} 14%, transparent)`, color: accent, maxWidth: '80px' }"
+        :title="`Settings: ${settingsName}`"
+      >
+        <Icon name="settings" :size="10" />
+        <span class="truncate">{{ settingsName }}</span>
+      </span>
     </div>
 
     <div class="flex items-center justify-between gap-2 border-t px-3 py-1.5">

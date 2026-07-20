@@ -37,6 +37,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Extensions', section: 'extensions' },
       },
       {
+        path: 'node-settings',
+        name: 'node-settings',
+        component: () => import('@/views/NodeSettingsView.vue'),
+        meta: { title: 'Node Settings', section: 'node-settings' },
+      },
+      {
         path: 'memory',
         name: 'memory',
         component: () => import('@/views/MemoryView.vue'),

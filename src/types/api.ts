@@ -116,6 +116,30 @@ export interface ProcessRequestInput {
   contextId: string
 }
 
+/* ---- Node settings profiles (FloMorphic-specific) ----
+ * A reusable, named key/value config bound to a node — identified by
+ * `nodeUniqId`, the node kind / plugin identity shared by every instance of that
+ * node (all `llm` nodes, or all instances of one bound plugin). A node may own
+ * several profiles (e.g. a distinct URL + token per environment); a canvas node
+ * instance references one by id via its `data.settingsId`. `settings` is a
+ * free-form key/value object (access token, provider, endpoints, …). Backed by
+ * `/settings`.
+ */
+export interface NodeSetting {
+  id: string
+  /** The node kind / plugin identity this profile is bound to. */
+  nodeUniqId: string
+  /** The node's kind (e.g. "llm", "plugin", "http"). Set by the frontend from
+   * the node being edited — not entered by the user — so the profile records
+   * what kind of node it belongs to (nodeUniqId identifies which one). */
+  nodeType: string
+  /** Profile name shown in the selector (e.g. "OpenAI prod"). */
+  title: string
+  settings: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+}
+
 /* ---- Project extensions (FloMorphic-specific) ----
  * Not the inspector's ExtensionRecord: a project extension is a source repo the
  * backend clones and runs with the given env so it can join the inflow

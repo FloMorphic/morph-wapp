@@ -24,6 +24,7 @@ const groups: NavGroup[] = [
     items: [
       { to: '/workflows', label: 'Workflows', icon: 'workflow', section: 'workflows' },
       { to: '/extensions', label: 'Extensions', icon: 'extensions', section: 'extensions' },
+      { to: '/node-settings', label: 'Node Settings', icon: 'settings', section: 'node-settings' },
     ],
   },
   {
