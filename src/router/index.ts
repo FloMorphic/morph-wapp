@@ -67,10 +67,22 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Human Tasks', section: 'human-tasks' },
       },
       {
+        path: 'processes',
+        name: 'processes',
+        component: () => import('@/views/ProcessesView.vue'),
+        meta: { title: 'Processes', section: 'processes' },
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/SettingsView.vue'),
         meta: { title: 'Settings', section: 'settings' },
+      },
+      {
+        path: 'settings/node-registry',
+        name: 'node-registry',
+        component: () => import('@/views/NodeRegistryView.vue'),
+        meta: { title: 'Node Registry', section: 'settings' },
       },
     ],
   },

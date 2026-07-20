@@ -68,7 +68,27 @@ export interface FlowRecord {
   view_flow: VueFlowGraph
 }
 
-export type ExtensionType = 'plugin' | 'extrinsic'
+/* ---- Palette extensions / node registry (backed by `/extension`) ----
+ * Every row is one node in the canvas palette. `kind` separates admin-managed
+ * builtins (seeded on first run; UI hard-coded in the front end) from
+ * user-imported inflowv1 plugins (`extension`, whose settings form and actions
+ * are fetched live over NATS via `pluginId`). This is NOT the ProjectExtension
+ * repo-clone flow below — it is the node definition the palette lists.
+ */
+export type ExtensionKind = 'builtin' | 'extension'
+
+/** The generic inflow / palette node type an extension compiles to. `extrinsic`
+ * and `plugin` are the two ways a node reaches the outside world; the rest are
+ * the builtin generics mirrored from the compiler's node kinds. */
+export type ExtensionType =
+  | 'plugin'
+  | 'extrinsic'
+  | 'startNode'
+  | 'pluginNative'
+  | 'code'
+  | 'contract'
+  | 'goto'
+  | 'void'
 
 export interface ExtensionIcon {
   class: string
@@ -88,9 +108,14 @@ export interface ExtensionBind {
 
 export interface ExtensionRecord {
   id: string
+  kind: ExtensionKind
   type: ExtensionType
   name: string
   description: string
+  /** inflowv1 PLUGIN_ID for `extension` nodes — used to build
+   * `inflow.v1.<pluginId>.…` subjects when fetching intro/settings/actions/forms
+   * live. Empty for builtins. */
+  pluginId: string
   icon: ExtensionIcon
   params: FormParameters
   bindTo: ExtensionBind
@@ -114,6 +139,61 @@ export interface ContextRecord {
 export interface ProcessRequestInput {
   flowId: string
   contextId: string
+}
+
+/* ---- Process runs (FloMorphic-specific) ----
+ * A Process is one execution of a workflow on the inflow engine. Rows are
+ * written by the backend when a process request is sent and closed out from the
+ * engine's `proc.finish` event — the UI does not create them directly (it
+ * launches via POST /process, then reads / stops). Backed by `/process`.
+ *
+ * Identity is `indexId`, an auto-increment integer echoed into the engine
+ * request meta, so a run is addressable independently of its `pid` (a single
+ * `pid` can back several rows — a human-in-the-loop pause finishes one row as
+ * `waiting` and the answer starts a fresh row that resumes the same `pid`).
+ *
+ *   scheduled → recorded, waiting to reach its launch time (not yet dispatched)
+ *   running   → dispatched, the engine is executing it
+ *   waiting   → parked mid-run (e.g. a human-in-the-loop step)
+ *   finished  → ran to completion
+ *   stopped   → cancelled by a user or a timeout
+ *   failed    → aborted on an error (`error` is set)
+ */
+export type ProcessStatus = 'scheduled' | 'running' | 'waiting' | 'finished' | 'stopped' | 'failed'
+
+export interface Process {
+  /** Auto-increment integer identity (the "indexId"). */
+  indexId: number
+  /** Engine process uuid — not unique across rows (see the type doc). */
+  pid: string
+  flowId: string
+  contextId: string
+  startNodeId: string
+  status: ProcessStatus
+  resourceUrl?: string
+  /** The ProcessRequest snapshot sent to the engine. */
+  request?: Record<string, unknown>
+  /** Backend-only object kept alongside the run (e.g. parked next-node list). */
+  meta?: Record<string, unknown>
+  error?: string
+  /** Epoch millis a scheduled run should launch at; 0 for an immediate run. */
+  scheduledAt: number
+  startedAt: number
+  finishedAt: number
+  durationMs: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** POST /process body — launch a workflow run. The engine request meta is
+ * assembled server-side (its indexId is only known after the row is inserted),
+ * so it is intentionally absent here. */
+export interface StartProcessInput {
+  flowId: string
+  contextId: string
+  startNodeId?: string
+  meta?: Record<string, unknown>
+  scheduledAt?: number
 }
 
 /* ---- Node settings profiles (FloMorphic-specific) ----

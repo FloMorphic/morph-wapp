@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import WorkflowCanvas from '@/components/flow/WorkflowCanvas.vue'
 import NodeInspector from '@/components/flow/NodeInspector.vue'
+import FlowProcessesButton from '@/components/flow/FlowProcessesButton.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { useWorkflowsStore } from '@/stores/workflows'
@@ -94,6 +95,7 @@ async function save() {
       <span v-if="dirty" class="text-[11px] text-fg-subtle">Unsaved changes</span>
 
       <div class="ml-auto flex items-center gap-2">
+        <FlowProcessesButton :flow-id="currentId" />
         <Button icon="refresh" title="Fit view" @click="canvas?.fitView({ padding: 0.3 })">
           <span class="hidden sm:inline">Fit</span>
         </Button>

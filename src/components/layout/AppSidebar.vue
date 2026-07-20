@@ -37,7 +37,10 @@ const groups: NavGroup[] = [
   },
   {
     label: 'Operate',
-    items: [{ to: '/human-tasks', label: 'Human Task', icon: 'node-human', section: 'human-tasks' }],
+    items: [
+      { to: '/human-tasks', label: 'Human Task', icon: 'node-human', section: 'human-tasks' },
+      { to: '/processes', label: 'Processes', icon: 'monitor', section: 'processes' },
+    ],
   },
 ]
 

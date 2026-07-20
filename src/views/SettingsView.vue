@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import PageShell from '@/components/ui/PageShell.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -62,6 +63,27 @@ function clearLocal() {
           </div>
           <code class="max-w-[50%] truncate font-mono text-xs text-fg-muted">{{ apiBase || 'no backend configured' }}</code>
         </div>
+      </section>
+
+      <!-- Node registry -->
+      <section class="card p-5">
+        <h2 class="text-sm font-semibold text-fg">Node registry</h2>
+        <p class="mb-4 mt-1 text-[13px] text-fg-muted">
+          Define the nodes that make up the canvas palette — admin-managed builtins (seeded on first run) and
+          user-imported inflowv1 plugin extensions.
+        </p>
+        <RouterLink
+          :to="{ name: 'node-registry' }"
+          class="flex items-center justify-between rounded-lg border bg-surface-2 px-4 py-3 transition-colors hover:border-accent-border"
+        >
+          <div class="flex items-center gap-2.5">
+            <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-soft text-accent">
+              <Icon name="node-plugin" :size="16" />
+            </span>
+            <span class="text-sm font-medium text-fg">Manage builtin &amp; extension nodes</span>
+          </div>
+          <Icon name="chevron-right" :size="18" class="text-fg-subtle" />
+        </RouterLink>
       </section>
 
       <!-- Local data -->
