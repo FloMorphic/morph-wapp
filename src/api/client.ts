@@ -26,6 +26,14 @@ let authToken: string | null = null
 export function setAuthToken(token: string | null): void {
   authToken = token
 }
+/** The token currently sent as a bearer, if any. Used by the log socket so it
+ *  authenticates the same way the HTTP client does. */
+export function getAuthToken(): string | null {
+  return authToken
+}
+
+/** The configured backend base URL (no trailing slash), or '' when disabled. */
+export const apiBaseUrl = (): string => BASE
 
 export const apiEnabled = (): boolean => BASE.length > 0
 

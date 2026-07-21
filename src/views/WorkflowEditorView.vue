@@ -1,17 +1,29 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import WorkflowCanvas from '@/components/flow/WorkflowCanvas.vue'
 import NodeSettingDetails from '@/components/flow/NodeSettingDetails.vue'
 import FlowProcessesButton from '@/components/flow/FlowProcessesButton.vue'
+import FlowLogDrawer from '@/components/flow/FlowLogDrawer.vue'
+import RunFlowButton from '@/components/flow/RunFlowButton.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { useWorkflowsStore } from '@/stores/workflows'
+import { useFlowLogsStore } from '@/stores/flowLogs'
 
 const props = defineProps<{ id?: string }>()
 const router = useRouter()
 const store = useWorkflowsStore()
+const logs = useFlowLogsStore()
+
+// One shared socket powers both the log drawer and the toolbar's live-run
+// badge. Connect while the editor is open (against a backend) and drop it on
+// leave — this replaces the old 8s /process polling.
+onMounted(() => {
+  if (logs.isRemote) logs.connect()
+})
+onUnmounted(() => logs.disconnect())
 
 const canvas = ref<InstanceType<typeof WorkflowCanvas> | null>(null)
 const selected = ref<GraphNode | null>(null)
@@ -96,16 +108,24 @@ async function save() {
 
       <div class="ml-auto flex items-center gap-2">
         <FlowProcessesButton :flow-id="currentId" />
+        <Button
+          v-if="logs.isRemote"
+          icon="monitor"
+          :title="logs.isOpen ? 'Hide runtime logs' : 'Show runtime logs'"
+          @click="logs.toggle()"
+        >
+          <span class="hidden sm:inline">Logs</span>
+          <span
+            v-if="logs.errorCount > 0"
+            class="ml-1 inline-flex min-w-4 items-center justify-center rounded-full bg-danger-soft px-1.5 text-[11px] font-semibold text-danger"
+          >
+            {{ logs.errorCount }}
+          </span>
+        </Button>
         <Button icon="refresh" title="Fit view" @click="canvas?.fitView({ padding: 0.3 })">
           <span class="hidden sm:inline">Fit</span>
         </Button>
-        <Button
-          icon="play"
-          :disabled="!store.isRemote"
-          :title="store.isRemote ? 'Run this workflow' : 'Running requires a connected inspector-api backend'"
-        >
-          Run
-        </Button>
+        <RunFlowButton :flow-id="currentId" :dirty="dirty" />
         <Button variant="primary" icon="save" :disabled="saving" @click="save">
           {{ saving ? 'Saving…' : 'Save' }}
         </Button>
@@ -118,6 +138,7 @@ async function save() {
     <div class="flex min-h-0 flex-1">
       <div class="relative min-w-0 flex-1">
         <WorkflowCanvas ref="canvas" @select="onSelect" @dirty="dirty = true" />
+        <FlowLogDrawer />
       </div>
       <NodeSettingDetails :node="selected" @close="selected = null" @delete="onDelete" />
     </div>

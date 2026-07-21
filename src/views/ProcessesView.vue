@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useProcessesStore } from '@/stores/processes'
-import type { Process, ProcessStatus } from '@/types/api'
+import { useContextsStore } from '@/stores/contexts'
+import type { ContextRecord, Process, ProcessStatus } from '@/types/api'
 import PageShell from '@/components/ui/PageShell.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Button from '@/components/ui/Button.vue'
@@ -15,7 +16,44 @@ import {
 } from '@/lib/process'
 
 const store = useProcessesStore()
+const contexts = useContextsStore()
 onMounted(() => store.refresh())
+
+// A process only records the contextId; open the referenced document on demand
+// so an operator can inspect the state a run was seeded with without leaving the
+// list.
+const contextModalOpen = ref(false)
+const contextLoading = ref(false)
+const contextError = ref<string | null>(null)
+const activeContext = ref<ContextRecord | null>(null)
+const activeContextId = ref('')
+
+async function openContext(contextId: string, e?: Event) {
+  e?.stopPropagation()
+  if (!contextId) return
+  contextModalOpen.value = true
+  activeContextId.value = contextId
+  activeContext.value = null
+  contextError.value = null
+  contextLoading.value = true
+  try {
+    activeContext.value = await contexts.get(contextId)
+  } catch (err) {
+    contextError.value = (err as Error).message
+  } finally {
+    contextLoading.value = false
+  }
+}
+
+/** Pretty-print the context document (a JSON string) for read-only display. */
+function prettyContext(raw: string | undefined): string {
+  if (!raw) return '—'
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
 
 const searchInput = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -126,6 +164,7 @@ function pretty(value: unknown): string {
             <th class="px-4 py-2.5 font-semibold">#</th>
             <th class="px-4 py-2.5 font-semibold">Status</th>
             <th class="px-4 py-2.5 font-semibold">Flow</th>
+            <th class="px-4 py-2.5 font-semibold">Context</th>
             <th class="px-4 py-2.5 font-semibold">PID</th>
             <th class="px-4 py-2.5 font-semibold">Started</th>
             <th class="px-4 py-2.5 font-semibold">Duration</th>
@@ -146,6 +185,18 @@ function pretty(value: unknown): string {
               </span>
             </td>
             <td class="px-4 py-2.5 font-mono text-fg-muted">{{ p.flowId || '—' }}</td>
+            <td class="px-4 py-2.5 font-mono">
+              <button
+                v-if="p.contextId"
+                class="inline-flex items-center gap-1 text-accent transition hover:underline"
+                title="Open context document"
+                @click="openContext(p.contextId, $event)"
+              >
+                <Icon name="context" :size="13" />
+                {{ p.contextId }}
+              </button>
+              <span v-else class="text-fg-subtle">—</span>
+            </td>
             <td class="px-4 py-2.5 font-mono text-fg-subtle">{{ p.pid ? p.pid.slice(0, 8) : '—' }}</td>
             <td class="px-4 py-2.5 text-fg-muted">{{ formatProcessTime(p.startedAt || p.scheduledAt) || '—' }}</td>
             <td class="px-4 py-2.5 text-fg-muted">{{ formatDuration(p) }}</td>
@@ -202,7 +253,18 @@ function pretty(value: unknown): string {
           <dt class="text-fg-subtle">Flow</dt>
           <dd class="col-span-2 font-mono text-fg">{{ store.active.flowId || '—' }}</dd>
           <dt class="text-fg-subtle">Context</dt>
-          <dd class="col-span-2 font-mono text-fg">{{ store.active.contextId || '—' }}</dd>
+          <dd class="col-span-2 font-mono">
+            <button
+              v-if="store.active.contextId"
+              class="inline-flex items-center gap-1 text-accent transition hover:underline"
+              title="Open context document"
+              @click="openContext(store.active.contextId, $event)"
+            >
+              <Icon name="context" :size="13" />
+              {{ store.active.contextId }}
+            </button>
+            <span v-else class="text-fg">—</span>
+          </dd>
           <dt class="text-fg-subtle">Start node</dt>
           <dd class="col-span-2 font-mono text-fg">{{ store.active.startNodeId || '—' }}</dd>
           <dt class="text-fg-subtle">PID</dt>
@@ -242,6 +304,27 @@ function pretty(value: unknown): string {
         </Button>
         <Button v-else-if="store.active" icon="trash" :disabled="busy" @click="removeRun(store.active)">Delete</Button>
         <Button variant="ghost" @click="store.close()">Close</Button>
+      </template>
+    </Modal>
+
+    <!-- Context viewer — the document a run was seeded with, opened by id -->
+    <Modal
+      :open="contextModalOpen"
+      :title="activeContext ? activeContext.title || 'Context' : 'Context'"
+      :subtitle="activeContextId"
+      @close="contextModalOpen = false"
+    >
+      <div v-if="contextLoading" class="py-8 text-center text-sm text-fg-muted">Loading context…</div>
+      <p v-else-if="contextError" class="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{{ contextError }}</p>
+      <div v-else-if="activeContext" class="space-y-3 text-[13px]">
+        <pre class="max-h-[60vh] overflow-auto rounded-lg border bg-surface-2 p-3 text-[12px] leading-relaxed">{{ prettyContext(activeContext.context) }}</pre>
+      </div>
+
+      <template #footer>
+        <RouterLink :to="{ name: 'contexts' }" class="text-[13px] text-accent hover:underline">
+          Manage contexts
+        </RouterLink>
+        <Button variant="ghost" @click="contextModalOpen = false">Close</Button>
       </template>
     </Modal>
   </PageShell>

@@ -160,7 +160,7 @@
 /* ---- Reusable component classes (kept small; Tailwind utilities do the rest) ---- */
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors select-none disabled:opacity-45 disabled:cursor-not-allowed;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors select-none disabled:opacity-45 disabled:cursor-not-allowed;
   }
   .btn-primary {
     background: var(--accent);

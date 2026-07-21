@@ -1,21 +1,27 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { Process } from '@/types/api'
 import { processesApi } from '@/api/processes'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
 import { processStatusClass, formatProcessTime, formatDuration, isStoppable } from '@/lib/process'
+import { useFlowLogsStore } from '@/stores/flowLogs'
 
 /**
  * Toolbar affordance for the workflow editor: the runs currently live on the
  * flow being edited. Keeps its own small state (not the Processes page store) so
- * the two never fight, and refreshes on a light interval so the count stays
- * current while the flow is open. Only meaningful against a connected backend —
- * hidden in local (no-engine) mode.
+ * the two never fight. Only meaningful against a connected backend — hidden in
+ * local (no-engine) mode.
+ *
+ * The list is seeded from `/process` (which catches runs that were already
+ * live before the editor opened) and then re-fetched whenever the runtime log
+ * socket reports a start/finish on this flow — event-driven, so there is no
+ * standing poll (the old 8s interval is gone).
  */
 const props = defineProps<{ flowId?: string }>()
 
+const logs = useFlowLogsStore()
 const remote = processesApi.isRemote()
 const runs = ref<Process[]>([])
 const total = ref(0)
@@ -24,8 +30,9 @@ const error = ref<string | null>(null)
 const showPanel = ref(false)
 const busy = ref(false)
 
-const REFRESH_MS = 8000
-let timer: ReturnType<typeof setInterval> | undefined
+// Socket-derived count of running processes on this flow. Drives the refresh:
+// when it changes, a run just started or finished, so re-sync with the backend.
+const liveOnFlow = computed(() => logs.liveCountForFlow(props.flowId))
 
 async function load() {
   if (!remote || !props.flowId) {
@@ -65,12 +72,10 @@ async function stopRun(p: Process) {
   }
 }
 
-onMounted(() => {
-  load()
-  if (remote) timer = setInterval(load, REFRESH_MS)
-})
-onUnmounted(() => timer && clearInterval(timer))
+onMounted(load)
 watch(() => props.flowId, load)
+// A start/finish on this flow arrived over the socket — resync with the backend.
+watch(liveOnFlow, load)
 </script>
 
 <template>
@@ -98,7 +103,7 @@ watch(() => props.flowId, load)
     >
       <div class="space-y-3">
         <div class="flex items-center justify-between">
-          <p class="text-[12px] text-fg-subtle">Auto-refreshes every {{ REFRESH_MS / 1000 }}s.</p>
+          <p class="text-[12px] text-fg-subtle">Updates live as runs start and finish.</p>
           <Button icon="refresh" :disabled="loading" @click="load">Refresh</Button>
         </div>
 

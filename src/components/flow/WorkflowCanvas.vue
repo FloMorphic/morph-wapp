@@ -99,9 +99,37 @@ function parseExtPayload(raw?: string): NodeExtRef | undefined {
 }
 
 // ---- Parent-facing API ----
+// Saved graphs can come back carrying Vue Flow runtime-only fields (dimensions,
+// computedPosition, handleBounds, initialized, selected, …). If those are fed
+// back into v-model they're treated as authoritative measured values, so every
+// node renders at size 0 / position 0,0 and edges have nothing to attach to.
+// Strip everything back to the clean, serialisable shape getGraph() produces.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sanitizeNode(n: any) {
+  return {
+    id: n.id,
+    type: n.type,
+    position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
+    data: n.data,
+  }
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sanitizeEdge(e: any) {
+  return {
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    sourceHandle: e.sourceHandle || null,
+    targetHandle: e.targetHandle || null,
+    type: e.type || 'default',
+    markerEnd: MarkerType.ArrowClosed,
+    data: e.data,
+  }
+}
+
 function loadGraph(graph: VueFlowGraph, seedStart = false) {
   nodes.value = graph?.nodes?.length
-    ? [...graph.nodes]
+    ? graph.nodes.map(sanitizeNode)
     : seedStart
       ? [
           {
@@ -112,7 +140,7 @@ function loadGraph(graph: VueFlowGraph, seedStart = false) {
           },
         ]
       : []
-  edges.value = graph?.edges ? [...graph.edges] : []
+  edges.value = graph?.edges ? graph.edges.map(sanitizeEdge) : []
   nextTick(() => {
     const p = graph?.position
     if (p && typeof p.x === 'number') setViewport({ x: p.x, y: p.y, zoom: p.zoom })
@@ -164,7 +192,6 @@ defineExpose({ addNode, loadGraph, getGraph, removeSelected, fitView })
       :default-viewport="{ zoom: 1 }"
       :min-zoom="0.2"
       :max-zoom="2.5"
-      fit-view-on-init
       class="h-full w-full"
       @nodes-change="emit('dirty')"
       @edges-change="emit('dirty')"
