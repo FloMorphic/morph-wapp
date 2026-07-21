@@ -30,6 +30,7 @@ const expanded = ref(false)
 function data(): Record<string, unknown> {
   return props.node.data as Record<string, unknown>
 }
+
 const selectedId = computed<string>(() => String(data().settingsId ?? ''))
 const selected = computed(() => profiles.value.find((p) => p.id === selectedId.value) ?? null)
 

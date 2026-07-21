@@ -1,4 +1,12 @@
-import type { ExtensionKind, ExtensionRecord, ExtensionType, Page, PaginationParams } from '@/types/api'
+import type {
+  ExtensionKind,
+  ExtensionRecord,
+  ExtensionType,
+  Page,
+  PaginationParams,
+  PluginCredRequest,
+  PluginCredResponse,
+} from '@/types/api'
 import { apiEnabled, http, list } from './client'
 import { readCollection, writeCollection } from '@/lib/localStore'
 import { createId, now } from '@/lib/id'
@@ -141,6 +149,14 @@ export const nodeRegistryApi = {
     if (apiEnabled()) return http.get<Record<string, string>>('/extension/extrinsics')
     return Promise.resolve({})
   },
+
+  /** Mint a runtime credential for a plugin-backed node so its inflowv1 plugin
+   * can be run to serve the node's functionality. Used by the "get credential"
+   * button on plugin nodes (builtin llm/mcp/cast carry a hard-coded pluginId
+   * from the seed; user extension nodes carry their imported pluginId).
+   * Requires a backend + the plugin runtime. */
+  pluginCred: (req: PluginCredRequest) =>
+    http.post<PluginCredResponse>('/extension/plugin/cred', req),
 
   // ---- Live inflowv1 fetches (extension nodes only) -----------------------
   // These proxy the connected plugin over NATS on the backend; they only work

@@ -26,6 +26,19 @@ export function nodeUniqId(type: string, data?: Record<string, unknown>): string
   return type
 }
 
+/**
+ * Whether a node uses a settings profile. Only Plugin nodes take their runtime
+ * config from a profile: the builtins flagged `plugin` in the catalog
+ * (llm / mcp / cast) and any user-dropped inflowv1 plugin node (carries a
+ * `pluginId`). Every other kind is configured by its own fields, so the drawer
+ * hides the profile picker for them.
+ */
+export function usesSettingsProfile(type: string, data?: Record<string, unknown>): boolean {
+  const plugin = data?.pluginId
+  if (typeof plugin === 'string' && plugin.trim()) return true
+  return specForType(type)?.plugin === true
+}
+
 /** Human label for a node's settings bucket, for the overview page grouping. */
 export function nodeUniqLabel(nodeUniqId: string): string {
   if (nodeUniqId.startsWith('ext:')) return `Plugin · ${nodeUniqId.slice(4)}`

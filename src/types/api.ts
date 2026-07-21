@@ -122,15 +122,35 @@ export interface ExtensionRecord {
   type: ExtensionType
   name: string
   description: string
-  /** inflowv1 PLUGIN_ID for `extension` nodes — used to build
-   * `inflow.v1.<pluginId>.…` subjects when fetching intro/settings/actions/forms
-   * live. Empty for builtins. */
+  /** inflowv1 PLUGIN_ID. For user `extension` nodes it identifies the imported
+   * plugin; for the plugin-backed builtins (llm / mcp / cast) it is a value
+   * hard-coded in the server seed. Used to build `inflow.v1.<pluginId>.…`
+   * subjects and to mint the plugin's runtime credential. Empty for the
+   * non-plugin builtins. */
   pluginId: string
   icon: ExtensionIcon
   params: FormParameters
   bindTo: ExtensionBind
   createdAt: number
   updatedAt: number
+}
+
+/** How broad a minted plugin credential is: `multi` grants an open account
+ * credential, `strict` scopes it to the one plugin's inflowv1 subjects. */
+export type PluginCredAccess = 'multi' | 'strict'
+
+/** POST /extension/plugin/cred — request a runtime credential for a plugin. */
+export interface PluginCredRequest {
+  pluginId: string
+  name?: string
+  access?: PluginCredAccess
+  spaceId?: string
+}
+
+/** The minted credential and a ready-to-use env block for running the plugin. */
+export interface PluginCredResponse {
+  cred: string
+  env: string
 }
 
 export type ContextChangeType = 'flow' | 'manual'

@@ -29,6 +29,10 @@ const nodeTypes: Record<string, Component> = Object.fromEntries(
   (Object.keys(NODE_SPECS) as NodeKind[]).map((k) => [k, markRaw(FlowNode)]),
 )
 
+// Kinds with no result binding: their key / scope are meaningless and are
+// serialised as empty strings (see getGraph). Wait-for-All is a pure join.
+const NO_BINDING_KINDS = new Set<string>(['promissall'])
+
 const { onConnect, onNodeClick, onPaneClick, screenToFlowCoordinate, fitView, setViewport, viewport } =
   useVueFlow()
 
@@ -123,7 +127,9 @@ function getGraph(): VueFlowGraph {
     id: n.id,
     type: n.type,
     position: { x: n.position.x, y: n.position.y },
-    data: n.data,
+    // Wait-for-All (promissall) is a pure join with no result binding, so its
+    // key / scope are always sent empty regardless of any stale saved value.
+    data: NO_BINDING_KINDS.has(n.type) ? { ...n.data, key: '', scope: '' } : n.data,
   }))
   const cleanEdges: VueFlowGraph['edges'] = edges.value.map((e) => ({
     id: e.id,

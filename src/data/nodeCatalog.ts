@@ -68,6 +68,12 @@ export interface NodeSpec {
   description: string
   /** Inflowenger primitive(s) this node compiles down to (display label). */
   primitives: string
+  /**
+   * Lowers to a Plugin primitive (llm / mcp / cast). Plugin nodes take their
+   * runtime config from a settings profile, so the drawer shows the profile
+   * picker only for these (see {@link usesSettingsProfile} in lib/nodeSettings).
+   */
+  plugin?: boolean
   /** Entry node — no incoming handle. */
   entry?: boolean
   /** Terminal node — no outgoing handle. */
@@ -119,7 +125,9 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     description:
       'A fan-in / join point that waits for every inbound branch before continuing. Compiles to a Void node whose `depend` is the set of all inbound nodes.',
     primitives: 'Void',
-    defaults: () => ({ title: 'Wait for All', key: '', scope: '$' }),
+    // A pure join with no result binding: key / scope are hidden in the drawer
+    // and always serialised empty (see NodeSettingDetails / WorkflowCanvas).
+    defaults: () => ({ title: 'Wait for All', key: '', scope: '' }),
     preview: () => 'fan-in · all',
   }),
   until: spec({
@@ -170,6 +178,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     description:
       'Call a language model. Its required global config comes from a settings profile (the inflowv1 plugin settings); `body` holds the prompt template. Each bound function becomes an output port the model can route through. Compiles to a Plugin node.',
     primitives: 'Plugin',
+    plugin: true,
     defaults: () => ({
       title: 'LLM',
       key: 'messages',
@@ -236,6 +245,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     description:
       'Connect to an MCP server as a client, exposing its tools and resources to the flow. Its connection parameters (URL, auth, transport) come from its settings. Compiles to a Plugin node.',
     primitives: 'Plugin',
+    plugin: true,
     defaults: () => ({
       title: 'MCP',
       key: 'mcp',
@@ -305,10 +315,10 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'stores',
     tagline: 'Read / write documents',
     description:
-      'Search or upsert documents in a referenced Document memory store. The payload comes from the node `scope` / an input JSONPath. Compiles to an Extrinsic on `svc.store.doc.{ACTION}` (inflo-fusion listens on `svc.store.doc.*`).',
+      'Read (run a query) or write documents in a referenced Document memory store. A read runs `query` against the store; a write takes its payload from `input` (the node `scope` or an input JSONPath). Compiles to an Extrinsic on `svc.store.doc.{ACTION}` (inflo-fusion listens on `svc.store.doc.*`).',
     primitives: 'Extrinsic · svc.store.doc.*',
-    defaults: () => ({ title: 'Doc Store', key: 'docResult', scope: '$', storeId: '', action: 'search', input: '$' }),
-    preview: (d) => `${String(d.action ?? 'search')}${d.storeId ? ' · ' + String(d.storeId) : ' · no store'}`,
+    defaults: () => ({ title: 'Doc Store', key: 'docResult', scope: '$', storeId: '', action: 'read', query: '', input: '$' }),
+    preview: (d) => `${String(d.action ?? 'read')}${d.storeId ? ' · ' + String(d.storeId) : ' · no store'}`,
   }),
   vecstore: spec({
     kind: 'vecstore',
@@ -317,12 +327,12 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     icon: 'node-vecstore',
     color: '#0ea5e9',
     group: 'stores',
-    tagline: 'Search / index vectors',
+    tagline: 'Read / write vectors',
     description:
-      'Search or upsert into a referenced Vector memory store. The payload comes from the node `scope` / an input JSONPath. Compiles to an Extrinsic on `svc.store.vec.{ACTION}` (inflo-fusion listens on `svc.store.vec.*`).',
+      'Read (run a query) or write into a referenced Vector memory store. A read runs `query` against the store; a write takes its payload from `input` (the node `scope` or an input JSONPath). Compiles to an Extrinsic on `svc.store.vec.{ACTION}` (inflo-fusion listens on `svc.store.vec.*`).',
     primitives: 'Extrinsic · svc.store.vec.*',
-    defaults: () => ({ title: 'Vector Store', key: 'vecResult', scope: '$', storeId: '', action: 'search', input: '$' }),
-    preview: (d) => `${String(d.action ?? 'search')}${d.storeId ? ' · ' + String(d.storeId) : ' · no store'}`,
+    defaults: () => ({ title: 'Vector Store', key: 'vecResult', scope: '$', storeId: '', action: 'read', query: '', input: '$' }),
+    preview: (d) => `${String(d.action ?? 'read')}${d.storeId ? ' · ' + String(d.storeId) : ' · no store'}`,
   }),
   cast: spec({
     kind: 'cast',
@@ -335,6 +345,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     description:
       'Build a value by mapping each target key (from a referenced Document store schema) to a static value or a JSONPath resolved against the run-time context. Compiles to a Plugin node.',
     primitives: 'Plugin',
+    plugin: true,
     defaults: () => ({
       title: 'Cast',
       key: 'mapped',
@@ -365,10 +376,10 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     description:
       'Pause the flow for a person: pose one or more questions and wait for their answers before continuing (or a human closes the task to finish here). Compiles to an Extrinsic against the backend `hitl` service (`svc.hitl.add`), which records a Human Task surfaced under Operate → Human Task.',
     primitives: 'Extrinsic · svc.hitl.add',
-    defaults: () => ({ title: 'Human in the Loop', key: 'humanReply', scope: '$', questions: [''] }),
+    defaults: () => ({ title: 'Human in the Loop', key: 'humanReply', scope: '$', operationData: [] }),
     preview: (d) => {
-      const qs = Array.isArray(d.questions) ? (d.questions as unknown[]).filter((q) => String(q ?? '').trim()) : []
-      return qs.length ? `${qs.length} question${qs.length === 1 ? '' : 's'}` : 'no questions'
+      const n = asRows(d.operationData).length
+      return n ? `${n} field${n === 1 ? '' : 's'}` : 'no fields'
     },
   }),
 }
