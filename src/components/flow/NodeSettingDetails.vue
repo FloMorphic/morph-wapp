@@ -11,7 +11,7 @@ import type { MemoryType } from '@/types/api'
 
 // Kinds with a bespoke editor (NodeConfig). Their kind-specific data keys are
 // managed there, so the generic field list drops to the universal fields only.
-const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'goto'])
+const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'goto', 'until'])
 
 /**
  * Generic, catalog-driven property panel. It edits the selected node's `data`
@@ -25,9 +25,11 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'delete', node: GraphNode): v
 const spec = computed(() => (props.node ? specForType(props.node.type) : undefined))
 
 const UNIVERSAL = ['title', 'key', 'scope']
-// Kinds that carry no result binding: key / scope are meaningless (a Wait-for-All
-// join produces no value), so they are hidden in the drawer and sent empty.
-const NO_BINDING_KINDS = new Set(['promissall'])
+// Flow-control kinds that carry no result binding: key / scope are meaningless
+// for them (Start is a bare entry marker, Continue After just parks/resumes the
+// flow, Wait-for-All is a pure join), so they are hidden in the drawer and sent
+// empty.
+const NO_BINDING_KINDS = new Set(['startNode', 'until', 'promissall'])
 const MULTILINE = new Set(['source', 'instructions', 'prompt', 'template', 'payload'])
 // `storeId` is rendered with a bespoke store picker (NodeStoreField), so it is
 // kept out of the generic field list — along with the read/write action fields

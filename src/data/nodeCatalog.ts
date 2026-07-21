@@ -121,14 +121,21 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     icon: 'node-wait',
     color: '#64748b',
     group: 'flow',
-    tagline: 'Join inbound branches',
+    tagline: 'Await all parallel branches',
     description:
-      'A fan-in / join point that waits for every inbound branch before continuing. Compiles to a Void node whose `depend` is the set of all inbound nodes.',
+      'A synchronisation barrier — the flow equivalent of JavaScript `Promise.all`. ' +
+      'When a node fans out to several outbound branches, the Inflowenger runtime launches ' +
+      'them all in parallel and they run simultaneously. Most of the time each branch simply ' +
+      'flows on with the context it already has. But when a later step must not start until ' +
+      'every one of those parallel branches has finished, place a `Wait for All` in front of it: ' +
+      'it holds until all inbound branches complete, merges each of their results into the ' +
+      'shared context, and only then continues with the fully-updated context. ' +
+      'Compiles to a Void node whose `depend` is the set of all inbound nodes.',
     primitives: 'Void',
     // A pure join with no result binding: key / scope are hidden in the drawer
     // and always serialised empty (see NodeSettingDetails / WorkflowCanvas).
     defaults: () => ({ title: 'Wait for All', key: '', scope: '' }),
-    preview: () => 'fan-in · all',
+    preview: () => 'await all branches',
   }),
   until: spec({
     kind: 'until',
@@ -139,13 +146,16 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'flow',
     tagline: 'Resume at a later time',
     description:
-      'Park the flow and resume it at a scheduled time. Compiles to an Extrinsic against `svc.continue.at`, which records the captured outbound nodes and re-launches them at the given time.',
+      'Park the flow and resume it at a scheduled time. Compiles to an Extrinsic against `svc.continue.at`, which records the captured outbound nodes and re-launches them at the given time. The delay/at inputs resolve to a single unix time (absolute at compile time, or `now + delay` at run time).',
     primitives: 'Extrinsic · svc.continue.at',
-    defaults: () => ({ title: 'Continue After', key: '', scope: '$', mode: 'delay', delaySeconds: 3600, at: '' }),
-    preview: (d) =>
-      d.mode === 'at' && d.at
-        ? `at ${String(d.at)}`
-        : `+${String(d.delaySeconds ?? 0)}s`,
+    // mode is either a delay unit (seconds/minutes/hour/day, paired with `value`)
+    // or `at` (an absolute date/time in `at`). See NodeConfig's Continue After
+    // section and the backend NODE_UNTIL compiler case.
+    defaults: () => ({ title: 'Continue After', key: '', scope: '$', mode: 'hour', value: 1, at: '' }),
+    preview: (d) => {
+      if (d.mode === 'at') return d.at ? `at ${String(d.at)}` : 'at —'
+      return `+${String(d.value ?? 0)} ${String(d.mode ?? 'sec')}`
+    },
   }),
 
   goto: spec({

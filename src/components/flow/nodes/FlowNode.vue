@@ -67,6 +67,12 @@ watch(
 const hasKey = computed(() => !!props.data?.key)
 const hasScope = computed(() => !!props.data?.scope)
 
+// Flow-control kinds with no result binding (Start / Continue After / Wait-for-All)
+// have meaningless key / scope, so their on-node quick-edit buttons are hidden —
+// matching NO_BINDING_KINDS in NodeSettingDetails / WorkflowCanvas.
+const NO_BINDING_KINDS = new Set(['startNode', 'until', 'promissall'])
+const showBinding = computed(() => !NO_BINDING_KINDS.has(props.type))
+
 const editingTitle = ref(false)
 const titleDraft = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
@@ -164,8 +170,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
         <p class="truncate text-[11px] leading-tight text-fg-subtle">{{ spec?.label }}</p>
       </div>
 
-      <!-- Key / Scope quick-edit buttons (inspector-style, on-node). -->
-      <div class="flex shrink-0 items-center gap-1">
+      <!-- Key / Scope quick-edit buttons (inspector-style, on-node). Hidden for
+           flow-control nodes that carry no result binding. -->
+      <div v-if="showBinding" class="flex shrink-0 items-center gap-1">
         <button
           class="nodrag flex h-5 w-5 items-center justify-center rounded border transition-colors"
           :class="hasKey ? '' : 'opacity-0 group-hover:opacity-100'"

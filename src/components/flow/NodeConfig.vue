@@ -30,6 +30,7 @@ const type = computed(() => props.node.type)
 const isCode = computed(() => ['js', 'opa', 'rule'].includes(type.value))
 const isLlm = computed(() => type.value === 'llm')
 const isGoto = computed(() => type.value === 'goto')
+const isUntil = computed(() => type.value === 'until')
 const showLangToggle = computed(() => type.value === 'rule')
 const lang = computed<string>({
   get: () => {
@@ -128,6 +129,42 @@ const opaResult = computed<string>({
   get: () => (data().opa_result as string) || '',
   set: (v) => {
     data().opa_result = v
+  },
+})
+
+// ---- Continue After (until) ------------------------------------------------
+// The schedule is either a relative delay — a unit (`mode`) times an amount
+// (`value`) — or an absolute date/time (`mode === 'at'`, held in `at`). Both
+// resolve to a single unix time downstream: the backend compiler turns `at`
+// into an absolute epoch and a delay into `delaySeconds`, and the continue.at
+// svc handler schedules the resumed process from it.
+type UntilMode = 'seconds' | 'minutes' | 'hour' | 'day' | 'at'
+const UNTIL_UNITS: { id: UntilMode; label: string }[] = [
+  { id: 'seconds', label: 'Seconds' },
+  { id: 'minutes', label: 'Minutes' },
+  { id: 'hour', label: 'Hours' },
+  { id: 'day', label: 'Days' },
+]
+
+const untilMode = computed<UntilMode>({
+  get: () => (data().mode as UntilMode) || 'hour',
+  set: (v) => {
+    data().mode = v
+  },
+})
+const untilValue = computed<number>({
+  get: () => {
+    const v = Number(data().value)
+    return Number.isFinite(v) ? v : 0
+  },
+  set: (v) => {
+    data().value = Number(v) || 0
+  },
+})
+const untilAt = computed<string>({
+  get: () => (data().at as string) || '',
+  set: (v) => {
+    data().at = v
   },
 })
 
@@ -417,6 +454,65 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           </p>
         </div>
       </template>
+    </template>
+
+    <!-- ================= Continue After (until) ================= -->
+    <template v-else-if="isUntil">
+      <!-- Mode: a delay unit, or an absolute date/time -->
+      <div class="space-y-1.5">
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Resume</label>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="opt in UNTIL_UNITS"
+            :key="opt.id"
+            class="flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors"
+            :style="untilMode === opt.id
+              ? { background: 'var(--accent)', color: 'var(--accent-fg)', borderColor: 'var(--accent)' }
+              : { color: 'var(--fg-muted)' }"
+            @click="untilMode = opt.id"
+          >
+            {{ opt.label }}
+          </button>
+          <button
+            class="flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors"
+            :style="untilMode === 'at'
+              ? { background: 'var(--accent)', color: 'var(--accent-fg)', borderColor: 'var(--accent)' }
+              : { color: 'var(--fg-muted)' }"
+            @click="untilMode = 'at'"
+          >
+            <Icon name="node-until" :size="14" />
+            At a date
+          </button>
+        </div>
+      </div>
+
+      <!-- Delay amount (unit modes) -->
+      <div v-if="untilMode !== 'at'" class="space-y-1">
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Amount</label>
+        <div class="flex items-center gap-2">
+          <input
+            v-model.number="untilValue"
+            type="number"
+            min="0"
+            class="input w-28 font-mono text-xs"
+            placeholder="0"
+          />
+          <span class="text-[13px] text-fg-muted">{{ untilMode }} after this node runs</span>
+        </div>
+        <p class="text-[11px] leading-relaxed text-fg-subtle">
+          The flow parks here and a scheduled run resumes its outbound nodes
+          {{ untilValue }} {{ untilMode }} after the runtime reaches this node.
+        </p>
+      </div>
+
+      <!-- Absolute date/time (at mode) -->
+      <div v-else class="space-y-1">
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Date &amp; time</label>
+        <input v-model="untilAt" type="datetime-local" class="input font-mono text-xs" />
+        <p class="text-[11px] leading-relaxed text-fg-subtle">
+          The flow parks here and a scheduled run resumes its outbound nodes at this absolute time.
+        </p>
+      </div>
     </template>
   </div>
 </template>
