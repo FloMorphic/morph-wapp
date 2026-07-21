@@ -67,10 +67,10 @@ watch(
 const hasKey = computed(() => !!props.data?.key)
 const hasScope = computed(() => !!props.data?.scope)
 
-// Flow-control kinds with no result binding (Start / Continue After / Wait-for-All)
-// have meaningless key / scope, so their on-node quick-edit buttons are hidden —
-// matching NO_BINDING_KINDS in NodeSettingDetails / WorkflowCanvas.
-const NO_BINDING_KINDS = new Set(['startNode', 'until', 'promissall'])
+// Flow-control kinds with no result binding (Start / Continue After / Wait-for-All
+// / Goto) have meaningless key / scope, so their on-node quick-edit buttons are
+// hidden — matching NO_BINDING_KINDS in NodeSettingDetails / WorkflowCanvas.
+const NO_BINDING_KINDS = new Set(['startNode', 'until', 'promissall', 'goto'])
 const showBinding = computed(() => !NO_BINDING_KINDS.has(props.type))
 
 const editingTitle = ref(false)

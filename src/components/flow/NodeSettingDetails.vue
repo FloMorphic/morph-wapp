@@ -27,9 +27,9 @@ const spec = computed(() => (props.node ? specForType(props.node.type) : undefin
 const UNIVERSAL = ['title', 'key', 'scope']
 // Flow-control kinds that carry no result binding: key / scope are meaningless
 // for them (Start is a bare entry marker, Continue After just parks/resumes the
-// flow, Wait-for-All is a pure join), so they are hidden in the drawer and sent
-// empty.
-const NO_BINDING_KINDS = new Set(['startNode', 'until', 'promissall'])
+// flow, Wait-for-All is a pure join, Goto just redirects the flow), so they are
+// hidden in the drawer and sent empty.
+const NO_BINDING_KINDS = new Set(['startNode', 'until', 'promissall', 'goto'])
 const MULTILINE = new Set(['source', 'instructions', 'prompt', 'template', 'payload'])
 // `storeId` is rendered with a bespoke store picker (NodeStoreField), so it is
 // kept out of the generic field list — along with the read/write action fields

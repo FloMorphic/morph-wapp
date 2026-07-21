@@ -1,18 +1,22 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { NodeSetting } from '@/types/api'
 import { nodeSettingsApi } from '@/api/nodeSettings'
 import { nodeUniqLabel } from '@/lib/nodeSettings'
+import { settingsSchemaFor, type SettingsField } from '@/lib/settingsSchemas'
 import Modal from '@/components/ui/Modal.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
 
 /**
  * Create / edit one settings profile. Shared by the Node Settings overview page
- * and the node drawer's selector. `settings` is edited as key/value rows; each
- * value is stored as JSON when it parses (numbers, booleans, objects) and as a
- * plain string otherwise — so simple tokens stay simple while richer config is
- * still expressible.
+ * and the node drawer's selector.
+ *
+ * Node kinds with a finalized settings model (see settingsSchemas) get a typed
+ * form whose fields match the SDK contract exactly. Every other kind edits
+ * `settings` as free-form key/value rows; each value is stored as JSON when it
+ * parses (numbers, booleans, objects) and as a plain string otherwise — so
+ * simple tokens stay simple while richer config is still expressible.
  */
 const props = defineProps<{
   open: boolean
@@ -33,15 +37,28 @@ interface Row {
   value: string
 }
 
-const form = reactive<{ id?: string; nodeUniqId: string; nodeType: string; title: string; rows: Row[] }>({
+const form = reactive<{
+  id?: string
+  nodeUniqId: string
+  nodeType: string
+  title: string
+  /** Generic key/value editor state (kinds without a typed schema). */
+  rows: Row[]
+  /** Typed editor state (kinds with a schema): field key → string input. */
+  values: Record<string, string>
+}>({
   id: undefined,
   nodeUniqId: '',
   nodeType: '',
   title: '',
   rows: [{ key: '', value: '' }],
+  values: {},
 })
 const submitting = ref(false)
 const formError = ref<string | null>(null)
+
+// The typed schema for the profile being edited, or null → key/value editor.
+const schema = computed(() => settingsSchemaFor(form.nodeType))
 
 function stringifyValue(v: unknown): string {
   if (typeof v === 'string') return v
@@ -71,28 +88,69 @@ function rowsFromSettings(settings: Record<string, unknown>): Row[] {
   return rows.length ? rows : [{ key: '', value: '' }]
 }
 
+// Seed the typed editor: existing values win, otherwise the field default (as
+// text), otherwise empty. Every schema field gets a slot so v-model is stable.
+function valuesFromSettings(fields: SettingsField[], settings: Record<string, unknown>): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const f of fields) {
+    const existing = settings[f.key]
+    if (existing !== undefined && existing !== null && existing !== '') {
+      values[f.key] = stringifyValue(existing)
+    } else if (f.default !== undefined) {
+      values[f.key] = String(f.default)
+    } else {
+      values[f.key] = ''
+    }
+  }
+  return values
+}
+
 // Re-seed the form whenever the modal opens.
 watch(
   () => props.open,
   (open) => {
     if (!open) return
     formError.value = null
-    if (props.record) {
-      form.id = props.record.id
-      form.nodeUniqId = props.record.nodeUniqId
-      form.nodeType = props.record.nodeType ?? props.nodeType ?? ''
-      form.title = props.record.title
-      form.rows = rowsFromSettings(props.record.settings)
-    } else {
-      form.id = undefined
-      form.nodeUniqId = props.nodeUniqId ?? ''
-      form.nodeType = props.nodeType ?? ''
-      form.title = ''
-      form.rows = [{ key: '', value: '' }]
-    }
+    const record = props.record
+    const nodeType = record?.nodeType ?? props.nodeType ?? ''
+    const settings = record?.settings ?? {}
+    const activeSchema = settingsSchemaFor(nodeType)
+
+    form.id = record?.id
+    form.nodeUniqId = record?.nodeUniqId ?? props.nodeUniqId ?? ''
+    form.nodeType = nodeType
+    form.title = record?.title ?? ''
+    form.rows = record ? rowsFromSettings(settings) : [{ key: '', value: '' }]
+    form.values = activeSchema ? valuesFromSettings(activeSchema.fields, settings) : {}
   },
   { immediate: true },
 )
+
+// Build the typed profile's `settings` from the schema + entered values. Numbers
+// are coerced; blank optional fields (and max_tokens-style `0`s) are omitted so
+// the SDK falls back to its own defaults.
+function settingsFromSchema(fields: SettingsField[]): { settings: Record<string, unknown>; missing: string[] } {
+  const settings: Record<string, unknown> = {}
+  const missing: string[] = []
+  for (const f of fields) {
+    const raw = (form.values[f.key] ?? '').trim()
+    if (raw === '') {
+      if (f.required) missing.push(f.label)
+      continue
+    }
+    if (f.type === 'number') {
+      const n = Number(raw)
+      if (Number.isNaN(n)) {
+        missing.push(f.label)
+        continue
+      }
+      settings[f.key] = n
+    } else {
+      settings[f.key] = raw
+    }
+  }
+  return { settings, missing }
+}
 
 function addRow() {
   form.rows.push({ key: '', value: '' })
@@ -112,11 +170,23 @@ async function submit() {
     formError.value = 'Give the profile a name.'
     return
   }
-  const settings: Record<string, unknown> = {}
-  for (const row of form.rows) {
-    const key = row.key.trim()
-    if (!key) continue
-    settings[key] = parseValue(row.value)
+
+  let settings: Record<string, unknown>
+  const activeSchema = schema.value
+  if (activeSchema) {
+    const built = settingsFromSchema(activeSchema.fields)
+    if (built.missing.length) {
+      formError.value = `Required: ${built.missing.join(', ')}.`
+      return
+    }
+    settings = built.settings
+  } else {
+    settings = {}
+    for (const row of form.rows) {
+      const key = row.key.trim()
+      if (!key) continue
+      settings[key] = parseValue(row.value)
+    }
   }
   submitting.value = true
   try {
@@ -141,7 +211,7 @@ async function submit() {
   <Modal
     :open="open"
     :title="form.id ? 'Edit settings profile' : 'New settings profile'"
-    subtitle="A named key/value config reusable across every instance of this node."
+    :subtitle="schema ? schema.summary : 'A named key/value config reusable across every instance of this node.'"
     @close="emit('close')"
   >
     <div class="space-y-4">
@@ -167,7 +237,51 @@ async function submit() {
         </div>
       </div>
 
-      <div class="space-y-1.5">
+      <!-- Typed editor: kinds with a finalized settings model (e.g. LLM). -->
+      <div v-if="schema" class="space-y-3">
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Settings</label>
+        <div v-for="field in schema.fields" :key="field.key" class="space-y-1">
+          <div class="flex items-baseline justify-between gap-2">
+            <label class="text-xs font-medium text-fg">
+              {{ field.label }}
+              <span v-if="field.required" class="text-danger">*</span>
+            </label>
+            <span class="font-mono text-[10px] text-fg-subtle">{{ field.key }}</span>
+          </div>
+          <input
+            v-if="field.type === 'number'"
+            v-model="form.values[field.key]"
+            type="number"
+            class="input"
+            :min="field.min"
+            :max="field.max"
+            :step="field.step"
+            :placeholder="field.placeholder"
+          />
+          <select
+            v-else-if="field.type === 'select'"
+            v-model="form.values[field.key]"
+            class="input"
+          >
+            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+          <input
+            v-else
+            v-model="form.values[field.key]"
+            :type="field.type === 'password' ? 'password' : 'text'"
+            class="input"
+            :placeholder="field.placeholder"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p v-if="field.help" class="text-[11px] text-fg-subtle">{{ field.help }}</p>
+        </div>
+      </div>
+
+      <!-- Generic key/value editor: kinds without a typed schema. -->
+      <div v-else class="space-y-1.5">
         <div class="flex items-center justify-between">
           <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Settings</label>
           <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addRow">

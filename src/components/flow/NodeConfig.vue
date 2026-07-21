@@ -88,24 +88,30 @@ function setHandlerTags(h: Handler, raw: string) {
   h.tags = raw.split(',').map((t) => t.trim()).filter(Boolean)
 }
 
-// ---- LLM functions ({ id, name, title }[]) — routed output ports -----------
+// ---- LLM functions ({ id, name, title, description }[]) — routed output ports
+// `name` is the tool name AND the outbound-port route tag; `description` is the
+// model-facing text that tells the LLM when to call it (required — the model
+// picks tools by their description); `title` is a canvas display label only.
 interface Fn {
   id: string
   name: string
   title: string
+  description: string
 }
 function functions(): Fn[] {
   if (!Array.isArray(data().functions)) data().functions = []
   return data().functions as Fn[]
 }
 function addFunction() {
-  functions().push({ id: `fn-${Date.now()}`, name: '', title: '' })
+  functions().push({ id: `fn-${Date.now()}`, name: '', title: '', description: '' })
 }
 function removeFunction(i: number) {
   functions().splice(i, 1)
 }
 
-// ---- LLM prompt (stored on data.body.prompt) -------------------------------
+// ---- LLM system role prompt (stored on data.body.prompt) -------------------
+// The system role prompt doubles as the node's display title, so writing it
+// also mirrors the text into `data.title` (falling back to 'LLM' when empty).
 const prompt = computed<string>({
   get: () => {
     const body = (data().body as Record<string, unknown>) ?? {}
@@ -115,6 +121,7 @@ const prompt = computed<string>({
     const body = (data().body as Record<string, unknown>) ?? {}
     body.prompt = v
     data().body = body
+    data().title = v.trim() || 'LLM'
   },
 })
 
@@ -378,9 +385,9 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
 
     <!-- ================= LLM ================= -->
     <template v-else-if="isLlm">
-      <!-- Prompt template -->
+      <!-- System role prompt (also drives the node's display title) -->
       <div class="space-y-1">
-        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Prompt template</label>
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System role prompt</label>
         <textarea
           v-model="prompt"
           rows="5"
@@ -389,7 +396,8 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           placeholder="You are a helpful assistant. {{input}}"
         />
         <p class="text-[11px] leading-relaxed text-fg-subtle">
-          The model's global config (provider, key, model) comes from the Settings profile above.
+          Sets the model's system role and doubles as this node's title. The model's global config
+          (provider, key, model) comes from the Settings profile above.
         </p>
       </div>
 
@@ -404,15 +412,23 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
             <Icon name="plus" :size="13" /> Add
           </button>
         </div>
-        <div v-for="(f, i) in functions()" :key="f.id" class="flex items-center gap-2">
-          <input v-model="f.name" class="input w-32 font-mono text-xs" placeholder="name" />
-          <input v-model="f.title" class="input flex-1 text-xs" placeholder="title" />
-          <button
-            class="shrink-0 rounded-lg p-1.5 text-fg-subtle hover:bg-danger-soft hover:text-danger"
-            @click="removeFunction(i)"
-          >
-            <Icon name="x" :size="15" />
-          </button>
+        <div v-for="(f, i) in functions()" :key="f.id" class="space-y-1.5 rounded-lg border p-2">
+          <div class="flex items-center gap-2">
+            <input v-model="f.name" class="input w-32 font-mono text-xs" placeholder="name" />
+            <input v-model="f.title" class="input flex-1 text-xs" placeholder="title" />
+            <button
+              class="shrink-0 rounded-lg p-1.5 text-fg-subtle hover:bg-danger-soft hover:text-danger"
+              @click="removeFunction(i)"
+            >
+              <Icon name="x" :size="15" />
+            </button>
+          </div>
+          <textarea
+            v-model="f.description"
+            rows="2"
+            class="input w-full text-xs"
+            placeholder="description — tell the model when to call this function (required)"
+          />
         </div>
         <p v-if="functions().length === 0" class="text-[11px] text-fg-subtle">
           No functions bound — add one and the model can route to its output port.

@@ -31,8 +31,9 @@ const nodeTypes: Record<string, Component> = Object.fromEntries(
 
 // Flow-control kinds with no result binding: their key / scope are meaningless
 // and are serialised as empty strings (see getGraph). Start is a bare entry
-// marker, Continue After only parks/resumes the flow, Wait-for-All is a pure join.
-const NO_BINDING_KINDS = new Set<string>(['startNode', 'until', 'promissall'])
+// marker, Continue After only parks/resumes the flow, Wait-for-All is a pure
+// join, and Goto just redirects the flow.
+const NO_BINDING_KINDS = new Set<string>(['startNode', 'until', 'promissall', 'goto'])
 
 const { onConnect, onNodeClick, onPaneClick, screenToFlowCoordinate, fitView, setViewport, viewport } =
   useVueFlow()

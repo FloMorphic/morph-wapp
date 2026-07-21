@@ -123,7 +123,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'flow',
     tagline: 'Await all parallel branches',
     description:
-      'A synchronisation barrier — the flow equivalent of JavaScript `Promise.all`. ' +
+      'A synchronisation barrier — the flow equivalent of JavaScript `Promise.all` or WaitGroup in Golang .' +
       'When a node fans out to several outbound branches, the Inflowenger runtime launches ' +
       'them all in parallel and they run simultaneously. Most of the time each branch simply ' +
       'flows on with the context it already has. But when a later step must not start until ' +
@@ -169,6 +169,9 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     description:
       'Transfer control to a node in another (or the same) workflow, like a subroutine jump. Compiles to a GoTo.',
     primitives: 'GoTo',
+    // A pure redirect with no result binding: key / scope are hidden in the
+    // drawer and on the node, and always serialised empty (see NO_BINDING_KINDS
+    // in NodeSettingDetails / WorkflowCanvas / FlowNode).
     defaults: () => ({ title: 'Goto', key: '', scope: '$', goto: { flowId: '', from_nodeId: '', end_nodeId: '' } }),
     preview: (d) => {
       const g = (d.goto ?? {}) as Record<string, unknown>
