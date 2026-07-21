@@ -3,7 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import WorkflowCanvas from '@/components/flow/WorkflowCanvas.vue'
-import NodeInspector from '@/components/flow/NodeInspector.vue'
+import NodeSettingDetails from '@/components/flow/NodeSettingDetails.vue'
 import FlowProcessesButton from '@/components/flow/FlowProcessesButton.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -119,7 +119,7 @@ async function save() {
       <div class="relative min-w-0 flex-1">
         <WorkflowCanvas ref="canvas" @select="onSelect" @dirty="dirty = true" />
       </div>
-      <NodeInspector :node="selected" @close="selected = null" @delete="onDelete" />
+      <NodeSettingDetails :node="selected" @close="selected = null" @delete="onDelete" />
     </div>
   </div>
 </template>

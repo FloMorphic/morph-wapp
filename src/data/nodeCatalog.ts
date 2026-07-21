@@ -1,21 +1,23 @@
 /**
- * The FloMorphic node catalog.
+ * The FloMorphic node catalog — the 9 builtin canvas nodes.
  *
- * FloMorphic is a *product* layer on top of the Inflowenger runtime. Its canvas
- * nodes are high-level, intent-driven building blocks (LLMs, tools, MCP clients,
- * guardrails, human-in-the-loop …) — declarative front-end nodes that the
- * backend COMPILES DOWN to Inflowenger's small set of primitives:
+ * FloMorphic is a *product* layer on top of the Inflowenger runtime. Each canvas
+ * node has a high-level *morphic type* (the Vue Flow node `type`, and the
+ * discriminator the backend compiler reads) that LOWERS to one of Inflowenger's
+ * primitives on compile:
  *
  *   Void · Code · Contract · Extrinsic · Plugin · GoTo
  *
- * So the palette speaks the language of *what you want to build*, while the
- * `primitives` field records what each node lowers to on compile.
+ * These 9 nodes are seeded server-side into the extension table and fetched over
+ * `/extension` (kind = builtin) to build the palette. This catalog is the
+ * front-end *behaviour registry* for those same types: it owns the per-type
+ * defaults, derived output ports, icon and the "compiles to" label — the parts
+ * that are code, not data. The morphic `type` strings here MUST match the seed's
+ * `type` and the compiler's `NodeBuilder` cases.
  *
- * There is deliberately no "Loop" node: loops are not a primitive here. They
- * emerge from connections + a Condition (Contract). An LLM node appends to the
- * message stack on the context; a Condition checks whether the task is
- * satisfied and, if not, routes an edge back to the LLM — that cycle *is* the
- * loop.
+ * Data-field names mirror the Inflowenger inspector nodes so the compiler reads
+ * them unchanged: contract/rule → lang·logic_rule·opa_result·conditions·handlers;
+ * plugin (llm/cast) → subject_prefix·body·request·idle_min; extrinsic → its bind.
  *
  * Every node shares three universal fields, mirrored on the compiled node:
  *   - title: human label
@@ -24,26 +26,21 @@
  */
 
 export type NodeKind =
-  | 'trigger'
-  | 'webhook'
-  | 'schedule'
+  | 'startNode'
+  | 'goto'
+  | 'hitl'
+  | 'docstore'
+  | 'vecstore'
+  | 'promissall'
   | 'llm'
-  | 'tool'
   | 'mcp'
-  | 'retriever'
-  | 'memory'
-  | 'guardrail'
-  | 'condition'
-  | 'transform'
-  | 'humanInLoop'
-  | 'merge'
-  | 'http'
-  | 'extrinsic'
-  | 'plugin'
-  | 'subflow'
-  | 'output'
+  | 'rule'
+  | 'js'
+  | 'opa'
+  | 'until'
+  | 'cast'
 
-export type PaletteGroupId = 'triggers' | 'ai' | 'logic' | 'io'
+export type PaletteGroupId = 'flow' | 'ai' | 'stores' | 'human'
 
 /** Universal fields present on every node's `data`, plus per-kind extras. */
 export interface BaseNodeData {
@@ -51,6 +48,12 @@ export interface BaseNodeData {
   key: string
   scope: string
   [extra: string]: unknown
+}
+
+/** A derived output handle rendered on the right edge of a node. */
+export interface NodePort {
+  id: string
+  label: string
 }
 
 export interface NodeSpec {
@@ -63,68 +66,99 @@ export interface NodeSpec {
   group: PaletteGroupId
   tagline: string
   description: string
-  /** Inflowenger primitive(s) this node compiles down to. */
+  /** Inflowenger primitive(s) this node compiles down to (display label). */
   primitives: string
   /** Entry node — no incoming handle. */
   entry?: boolean
   /** Terminal node — no outgoing handle. */
   terminal?: boolean
-  /** Emits multiple tagged branches. */
-  branching?: boolean
   /** Factory for a fresh node's `data`. */
   defaults: () => BaseNodeData
   /** Short one-line preview shown on the node body. */
   preview?: (data: BaseNodeData) => string
+  /**
+   * Derived output ports. When present and non-empty, the node renders one
+   * source handle per port (e.g. LLM functions, Rule condition handlers) instead
+   * of the single default handle.
+   */
+  ports?: (data: BaseNodeData) => NodePort[]
 }
 
 const spec = (s: NodeSpec): NodeSpec => s
 
+/** Coerce an unknown array-of-objects field to a typed list (defensive). */
+function asRows(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? (value.filter((v) => v && typeof v === 'object') as Record<string, unknown>[]) : []
+}
+
 export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
-  // ---- Triggers ----
-  trigger: spec({
-    kind: 'trigger',
-    type: 'trigger',
-    label: 'Manual Trigger',
-    icon: 'node-trigger',
+  // ---- Flow ----
+  startNode: spec({
+    kind: 'startNode',
+    type: 'startNode',
+    label: 'Start',
+    icon: 'node-start',
     color: '#16a34a',
-    group: 'triggers',
-    tagline: 'Start the flow',
-    description: 'Entry point that starts a process with an initial context. Compiles to a Void start marker.',
+    group: 'flow',
+    tagline: 'Entry point',
+    description:
+      'The entry point of a workflow. Every flow requires exactly one. Compiles to a Void start marker in Inflowenger.',
     primitives: 'Void',
     entry: true,
-    defaults: () => ({ title: 'Manual Trigger', key: '', scope: '$' }),
+    defaults: () => ({ title: 'Start', key: '', scope: '$' }),
     preview: () => 'on run',
   }),
-  webhook: spec({
-    kind: 'webhook',
-    type: 'webhook',
-    label: 'Webhook',
-    icon: 'node-webhook',
-    color: '#0d9488',
-    group: 'triggers',
-    tagline: 'Inbound HTTP',
-    description: 'Start a flow when an HTTP request hits a registered endpoint. Backed by a Plugin listener.',
-    primitives: 'Plugin',
-    entry: true,
-    defaults: () => ({ title: 'Webhook', key: 'request', scope: '$', method: 'POST', path: '/hooks/new' }),
-    preview: (d) => `${String(d.method ?? 'POST')} ${String(d.path ?? '')}`,
+  promissall: spec({
+    kind: 'promissall',
+    type: 'promissall',
+    label: 'Wait for All',
+    icon: 'node-wait',
+    color: '#64748b',
+    group: 'flow',
+    tagline: 'Join inbound branches',
+    description:
+      'A fan-in / join point that waits for every inbound branch before continuing. Compiles to a Void node whose `depend` is the set of all inbound nodes.',
+    primitives: 'Void',
+    defaults: () => ({ title: 'Wait for All', key: '', scope: '$' }),
+    preview: () => 'fan-in · all',
   }),
-  schedule: spec({
-    kind: 'schedule',
-    type: 'schedule',
-    label: 'Schedule',
-    icon: 'node-schedule',
+  until: spec({
+    kind: 'until',
+    type: 'until',
+    label: 'Continue After',
+    icon: 'node-until',
     color: '#059669',
-    group: 'triggers',
-    tagline: 'Cron trigger',
-    description: 'Start a flow on a recurring schedule. Backed by a Plugin timer.',
-    primitives: 'Plugin',
-    entry: true,
-    defaults: () => ({ title: 'Schedule', key: '', scope: '$', cron: '0 * * * *' }),
-    preview: (d) => `cron: ${String(d.cron ?? '')}`,
+    group: 'flow',
+    tagline: 'Resume at a later time',
+    description:
+      'Park the flow and resume it at a scheduled time. Compiles to an Extrinsic against `svc.continue.at`, which records the captured outbound nodes and re-launches them at the given time.',
+    primitives: 'Extrinsic · svc.continue.at',
+    defaults: () => ({ title: 'Continue After', key: '', scope: '$', mode: 'delay', delaySeconds: 3600, at: '' }),
+    preview: (d) =>
+      d.mode === 'at' && d.at
+        ? `at ${String(d.at)}`
+        : `+${String(d.delaySeconds ?? 0)}s`,
   }),
 
-  // ---- AI Harness ----
+  goto: spec({
+    kind: 'goto',
+    type: 'goto',
+    label: 'Goto',
+    icon: 'node-goto',
+    color: '#4f46e5',
+    group: 'flow',
+    tagline: 'Jump to another flow',
+    description:
+      'Transfer control to a node in another (or the same) workflow, like a subroutine jump. Compiles to a GoTo.',
+    primitives: 'GoTo',
+    defaults: () => ({ title: 'Goto', key: '', scope: '$', goto: { flowId: '', from_nodeId: '', end_nodeId: '' } }),
+    preview: (d) => {
+      const g = (d.goto ?? {}) as Record<string, unknown>
+      return g.flowId ? `→ ${String(g.flowId)}` : 'no target'
+    },
+  }),
+
+  // ---- AI ----
   llm: spec({
     kind: 'llm',
     type: 'llm',
@@ -132,245 +166,224 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     icon: 'node-llm',
     color: '#8b2fe0',
     group: 'ai',
-    tagline: 'LLM with bound tools',
+    tagline: 'Call a model with tools',
     description:
-      'Call a language model with tools bound to it. It reads the message stack from context and appends its reply. Wire Tool / MCP nodes to bind capabilities; route its output through a Condition to loop.',
+      'Call a language model. Its required global config comes from a settings profile (the inflowv1 plugin settings); `body` holds the prompt template. Each bound function becomes an output port the model can route through. Compiles to a Plugin node.',
     primitives: 'Plugin',
     defaults: () => ({
       title: 'LLM',
       key: 'messages',
       scope: '$',
-      model: 'claude-sonnet-5',
-      system: 'You are a helpful assistant.',
-      tools: [],
-      temperature: 0.7,
+      subject_prefix: 'llm',
+      idle_min: 5,
+      request: 'run',
+      body: { prompt: '' },
+      // [{ id, name, title }] — each renders as an output port (see ports()).
+      functions: [],
     }),
-    preview: (d) => String(d.model ?? 'model'),
+    preview: (d) => {
+      const n = asRows(d.functions).length
+      return n ? `${n} function${n === 1 ? '' : 's'}` : 'no functions'
+    },
+    ports: (d) =>
+      asRows(d.functions).map((f, i) => ({
+        id: String(f.id ?? f.name ?? `fn${i}`),
+        label: String(f.title ?? f.name ?? `fn${i + 1}`),
+      })),
   }),
-  tool: spec({
-    kind: 'tool',
-    type: 'tool',
-    label: 'Tool',
-    icon: 'node-tool',
-    color: '#06b6d4',
+  rule: spec({
+    kind: 'rule',
+    type: 'rule',
+    label: 'Rule',
+    icon: 'node-rule',
+    color: '#d97706',
     group: 'ai',
-    tagline: 'Bindable capability',
-    description: 'A capability an LLM can call. Wire it into an LLM node to bind it. Compiles to a Plugin or Extrinsic call.',
-    primitives: 'Plugin · Extrinsic',
-    defaults: () => ({ title: 'Tool', key: 'toolResult', scope: '$', name: '', schema: {} }),
-    preview: (d) => String(d.name || 'unbound tool'),
+    tagline: 'Branch on a contract',
+    description:
+      'Evaluate a rule (JavaScript or OPA/Rego) over the scoped context and route through matching handlers. Compiles to a Contract; each handler is an output port for a routed branch.',
+    primitives: 'Contract',
+    defaults: () => ({
+      title: 'Rule',
+      key: 'decision',
+      scope: '$',
+      lang: 'js',
+      logic_rule: '// return the result evaluated over the scoped context\nreturn { pass: true }\n',
+      opa_result: '',
+      // [{ key, value }]
+      conditions: [],
+      // [{ id, tags: [], color }] — each renders as an output port (see ports()).
+      handlers: [],
+    }),
+    preview: (d) => {
+      const n = asRows(d.handlers).length
+      return `${String(d.lang ?? 'js')} · ${n} handler${n === 1 ? '' : 's'}`
+    },
+    ports: (d) =>
+      asRows(d.handlers).map((h, i) => ({
+        id: String(h.id ?? `h${i}`),
+        label: Array.isArray(h.tags) ? (h.tags as unknown[]).join(' / ') || `branch ${i + 1}` : `branch ${i + 1}`,
+      })),
   }),
+
   mcp: spec({
     kind: 'mcp',
     type: 'mcp',
     label: 'MCP',
     icon: 'node-mcp',
-    color: '#0ea5e9',
+    color: '#0891b2',
     group: 'ai',
     tagline: 'MCP client',
     description:
-      'Connect to an MCP server through a plugin-backed client, exposing its tools and resources to the flow (and to bound LLM nodes).',
+      'Connect to an MCP server as a client, exposing its tools and resources to the flow. Its connection parameters (URL, auth, transport) come from its settings. Compiles to a Plugin node.',
     primitives: 'Plugin',
-    defaults: () => ({ title: 'MCP', key: 'mcp', scope: '$', server: '', transport: 'stdio' }),
-    preview: (d) => String(d.server || 'no server'),
-  }),
-  retriever: spec({
-    kind: 'retriever',
-    type: 'retriever',
-    label: 'Retriever',
-    icon: 'node-retriever',
-    color: '#0284c7',
-    group: 'ai',
-    tagline: 'RAG search',
-    description: 'Fetch relevant context from a knowledge source (vector / keyword). Backed by a Plugin adapter.',
-    primitives: 'Plugin',
-    defaults: () => ({ title: 'Retriever', key: 'documents', scope: '$', source: '', topK: 5 }),
-    preview: (d) => `top ${String(d.topK ?? 5)}`,
-  }),
-  memory: spec({
-    kind: 'memory',
-    type: 'memory',
-    label: 'Memory',
-    icon: 'node-memory',
-    color: '#f59e0b',
-    group: 'ai',
-    tagline: 'Read / write a store',
-    description:
-      'Read from or write to a defined Memory store (vector or document). Define stores under Data → Memory, then reference one here by id. Compiles to a Plugin store plus Code merge.',
-    primitives: 'Plugin · Code',
-    defaults: () => ({ title: 'Memory', key: 'memory', scope: '$', memoryId: '', op: 'read' }),
-    preview: (d) => `${String(d.op ?? 'read')}${d.memoryId ? ' · ' + String(d.memoryId) : ' · no store'}`,
-  }),
-  guardrail: spec({
-    kind: 'guardrail',
-    type: 'guardrail',
-    label: 'Guardrail',
-    icon: 'node-guardrail',
-    color: '#e11d48',
-    group: 'ai',
-    tagline: 'Validate & gate',
-    description:
-      'Validate or moderate a value and gate the flow on the result. Compiles to a Code check plus a Contract branch.',
-    primitives: 'Code · Contract',
-    branching: true,
-    defaults: () => ({ title: 'Guardrail', key: 'checked', scope: '$', rule: 'valid', tags: ['pass', 'fail'] }),
-    preview: (d) => (Array.isArray(d.tags) ? (d.tags as string[]).join(' / ') : 'pass / fail'),
+    defaults: () => ({
+      title: 'MCP',
+      key: 'mcp',
+      scope: '$',
+      subject_prefix: 'mcp',
+      idle_min: 5,
+      request: 'run',
+      body: {},
+      url: '',
+      transport: 'stdio',
+      auth: '',
+    }),
+    preview: (d) => String(d.url || 'no server'),
   }),
 
-  // ---- Logic & flow ----
-  condition: spec({
-    kind: 'condition',
-    type: 'condition',
-    label: 'Condition',
-    icon: 'node-condition',
-    color: '#d97706',
-    group: 'logic',
-    tagline: 'Branch — and build loops',
+  js: spec({
+    kind: 'js',
+    type: 'js',
+    label: 'JS',
+    icon: 'node-code',
+    color: '#eab308',
+    group: 'ai',
+    tagline: 'Run JavaScript',
     description:
-      'Evaluate a rule and fire the matching branch(es). Compiles directly to a Contract. Route a branch back to an earlier node to build a loop (e.g. keep calling the LLM until the task is satisfied).',
-    primitives: 'Contract',
-    branching: true,
+      'Run a JavaScript step against the scoped context and write the result back to `key`. Compiles to a Code node (variant `js`) in the Inflowenger ecosystem.',
+    primitives: 'Code · js',
     defaults: () => ({
-      title: 'Condition',
-      key: 'decision',
-      scope: '$',
-      language: 'javascript',
-      source: "// return an array of tags to fire matching branches\n// e.g. return done ? ['done'] : ['retry']\nreturn ['done']\n",
-      tags: ['done', 'retry'],
-    }),
-    preview: (d) => (Array.isArray(d.tags) && d.tags.length ? (d.tags as string[]).join(', ') : 'decision'),
-  }),
-  transform: spec({
-    kind: 'transform',
-    type: 'transform',
-    label: 'Transform',
-    icon: 'node-transform',
-    color: '#3b82f6',
-    group: 'logic',
-    tagline: 'Shape data with code',
-    description: 'Run JavaScript / OPA against the scoped context and write the result back. Compiles to a Code node.',
-    primitives: 'Code',
-    defaults: () => ({
-      title: 'Transform',
+      title: 'JS',
       key: 'result',
       scope: '$',
-      language: 'javascript',
-      source: '// ctx is the scoped context slice\nreturn { ok: true }\n',
+      lang: 'js',
+      logic_rule: '// ctx is the scoped context slice\nreturn { ok: true }\n',
     }),
-    preview: (d) => `${String(d.language ?? 'javascript')} → ${d.key || 'result'}`,
+    preview: (d) => `js → ${d.key || 'result'}`,
   }),
-  humanInLoop: spec({
-    kind: 'humanInLoop',
-    type: 'humanInLoop',
+  opa: spec({
+    kind: 'opa',
+    type: 'opa',
+    label: 'OPA',
+    icon: 'node-code',
+    color: '#7c3aed',
+    group: 'ai',
+    tagline: 'Run OPA / Rego',
+    description:
+      'Evaluate an OPA/Rego policy against the scoped context and write the selected result back to `key`. Compiles to a Code node (variant `opa`) in the Inflowenger ecosystem.',
+    primitives: 'Code · opa',
+    defaults: () => ({
+      title: 'OPA',
+      key: 'result',
+      scope: '$',
+      lang: 'opa',
+      logic_rule: 'package flomorphic\n\nresult := true\n',
+      opa_result: 'result',
+      // [{ key, value }] — extra criteria data available to the policy.
+      conditions: [],
+    }),
+    preview: (d) => `opa → ${String(d.opa_result || d.key || 'result')}`,
+  }),
+
+  // ---- Stores ----
+  docstore: spec({
+    kind: 'docstore',
+    type: 'docstore',
+    label: 'Doc Store',
+    icon: 'node-docstore',
+    color: '#0284c7',
+    group: 'stores',
+    tagline: 'Read / write documents',
+    description:
+      'Search or upsert documents in a referenced Document memory store. The payload comes from the node `scope` / an input JSONPath. Compiles to an Extrinsic on `svc.store.doc.{ACTION}` (inflo-fusion listens on `svc.store.doc.*`).',
+    primitives: 'Extrinsic · svc.store.doc.*',
+    defaults: () => ({ title: 'Doc Store', key: 'docResult', scope: '$', storeId: '', action: 'search', input: '$' }),
+    preview: (d) => `${String(d.action ?? 'search')}${d.storeId ? ' · ' + String(d.storeId) : ' · no store'}`,
+  }),
+  vecstore: spec({
+    kind: 'vecstore',
+    type: 'vecstore',
+    label: 'Vector Store',
+    icon: 'node-vecstore',
+    color: '#0ea5e9',
+    group: 'stores',
+    tagline: 'Search / index vectors',
+    description:
+      'Search or upsert into a referenced Vector memory store. The payload comes from the node `scope` / an input JSONPath. Compiles to an Extrinsic on `svc.store.vec.{ACTION}` (inflo-fusion listens on `svc.store.vec.*`).',
+    primitives: 'Extrinsic · svc.store.vec.*',
+    defaults: () => ({ title: 'Vector Store', key: 'vecResult', scope: '$', storeId: '', action: 'search', input: '$' }),
+    preview: (d) => `${String(d.action ?? 'search')}${d.storeId ? ' · ' + String(d.storeId) : ' · no store'}`,
+  }),
+  cast: spec({
+    kind: 'cast',
+    type: 'cast',
+    label: 'Cast / Mapping',
+    icon: 'node-cast',
+    color: '#3b82f6',
+    group: 'stores',
+    tagline: 'Map fields into a shape',
+    description:
+      'Build a value by mapping each target key (from a referenced Document store schema) to a static value or a JSONPath resolved against the run-time context. Compiles to a Plugin node.',
+    primitives: 'Plugin',
+    defaults: () => ({
+      title: 'Cast',
+      key: 'mapped',
+      scope: '$',
+      subject_prefix: 'cast',
+      idle_min: 5,
+      request: 'run',
+      body: {},
+      storeId: '',
+      // [{ key, mode: 'static' | 'jsonpath', value }]
+      mappings: [],
+    }),
+    preview: (d) => {
+      const n = asRows(d.mappings).length
+      return n ? `${n} mapping${n === 1 ? '' : 's'}` : 'no mappings'
+    },
+  }),
+
+  // ---- Human ----
+  hitl: spec({
+    kind: 'hitl',
+    type: 'hitl',
     label: 'Human in the Loop',
     icon: 'node-human',
     color: '#a855f7',
-    group: 'logic',
+    group: 'human',
     tagline: 'Ask a human',
     description:
-      'Pause the flow for a person: pose one or more questions and wait for their answers before continuing (or a human closes the task to finish here). Compiles to an Extrinsic against the backend `hitl` service, which records a Human Task surfaced under Operate → Human Task.',
-    primitives: 'Extrinsic',
+      'Pause the flow for a person: pose one or more questions and wait for their answers before continuing (or a human closes the task to finish here). Compiles to an Extrinsic against the backend `hitl` service (`svc.hitl.add`), which records a Human Task surfaced under Operate → Human Task.',
+    primitives: 'Extrinsic · svc.hitl.add',
     defaults: () => ({ title: 'Human in the Loop', key: 'humanReply', scope: '$', questions: [''] }),
     preview: (d) => {
       const qs = Array.isArray(d.questions) ? (d.questions as unknown[]).filter((q) => String(q ?? '').trim()) : []
       return qs.length ? `${qs.length} question${qs.length === 1 ? '' : 's'}` : 'no questions'
     },
   }),
-  merge: spec({
-    kind: 'merge',
-    type: 'merge',
-    label: 'Merge',
-    icon: 'node-merge',
-    color: '#64748b',
-    group: 'logic',
-    tagline: 'Join branches',
-    description: 'A fan-in / join point that waits for its dependencies. Compiles to a Void node.',
-    primitives: 'Void',
-    defaults: () => ({ title: 'Merge', key: '', scope: '$' }),
-    preview: () => 'fan-in',
-  }),
-
-  // ---- Integrations ----
-  http: spec({
-    kind: 'http',
-    type: 'http',
-    label: 'HTTP Request',
-    icon: 'node-http',
-    color: '#0891b2',
-    group: 'io',
-    tagline: 'Call an API',
-    description: 'Call any REST/HTTP endpoint and inject the response into context. Backed by a Plugin adapter.',
-    primitives: 'Plugin',
-    defaults: () => ({ title: 'HTTP Request', key: 'response', scope: '$', method: 'GET', url: '' }),
-    preview: (d) => `${String(d.method ?? 'GET')} ${String(d.url ?? '')}`.trim(),
-  }),
-  extrinsic: spec({
-    kind: 'extrinsic',
-    type: 'extrinsic',
-    label: 'Extrinsic',
-    icon: 'node-extrinsic',
-    color: '#14b8a6',
-    group: 'io',
-    tagline: 'Call your backend',
-    description: 'Publish to a NATS subject your own backend registered; the reply becomes the output. A native Extrinsic.',
-    primitives: 'Extrinsic',
-    defaults: () => ({ title: 'Extrinsic', key: 'response', scope: '$', subject: '', payload: '{}' }),
-    preview: (d) => String(d.subject || 'no subject'),
-  }),
-  plugin: spec({
-    kind: 'plugin',
-    type: 'plugin',
-    label: 'Plugin',
-    icon: 'node-plugin',
-    color: '#9333ea',
-    group: 'io',
-    tagline: 'External process',
-    description:
-      'Hand execution to a live external process (an installed Extension) with its own state, connections and UI. The most powerful primitive — the escape hatch to the outside world.',
-    primitives: 'Plugin',
-    defaults: () => ({ title: 'Plugin', key: 'output', scope: '$', extensionId: '', action: '', settings: {} }),
-    preview: (d) => String(d.extensionId || 'unbound plugin'),
-  }),
-  subflow: spec({
-    kind: 'subflow',
-    type: 'subflow',
-    label: 'Sub-workflow',
-    icon: 'node-subflow',
-    color: '#4f46e5',
-    group: 'io',
-    tagline: 'Reuse a flow',
-    description: 'Call another workflow and return, like a subroutine. Compiles to a GoTo.',
-    primitives: 'GoTo',
-    defaults: () => ({ title: 'Sub-workflow', key: '', scope: '$', flowId: '' }),
-    preview: (d) => (d.flowId ? `→ ${String(d.flowId)}` : 'no target flow'),
-  }),
-  output: spec({
-    kind: 'output',
-    type: 'output',
-    label: 'Output',
-    icon: 'node-output',
-    color: '#16a34a',
-    group: 'io',
-    tagline: 'Return a result',
-    description: 'Shape and return the final result of the flow. Compiles to a Code / Void terminal.',
-    primitives: 'Code · Void',
-    terminal: true,
-    defaults: () => ({ title: 'Output', key: 'output', scope: '$', template: '' }),
-    preview: (d) => `→ ${d.key || 'output'}`,
-  }),
 }
 
 export const PALETTE_GROUPS: { id: PaletteGroupId; label: string; kinds: NodeKind[] }[] = [
-  { id: 'triggers', label: 'Triggers', kinds: ['trigger', 'webhook', 'schedule'] },
-  { id: 'ai', label: 'AI Harness', kinds: ['llm', 'tool', 'mcp', 'retriever', 'memory', 'guardrail'] },
-  { id: 'logic', label: 'Logic & Flow', kinds: ['condition', 'transform', 'humanInLoop', 'merge'] },
-  { id: 'io', label: 'Integrations', kinds: ['http', 'extrinsic', 'plugin', 'subflow', 'output'] },
+  { id: 'flow', label: 'Flow', kinds: ['startNode', 'promissall', 'until', 'goto'] },
+  { id: 'ai', label: 'AI & Logic', kinds: ['llm', 'mcp', 'rule', 'js', 'opa'] },
+  { id: 'stores', label: 'Stores', kinds: ['docstore', 'vecstore', 'cast'] },
+  { id: 'human', label: 'Human', kinds: ['hitl'] },
 ]
 
 export const NODE_LIST: NodeSpec[] = Object.values(NODE_SPECS)
 
 /** The node a fresh workflow starts with. */
-export const DEFAULT_START_KIND: NodeKind = 'trigger'
+export const DEFAULT_START_KIND: NodeKind = 'startNode'
 
 export function specForType(type: string): NodeSpec | undefined {
   return NODE_SPECS[type as NodeKind]

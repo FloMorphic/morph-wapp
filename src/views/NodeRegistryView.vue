@@ -24,14 +24,14 @@ watch(kind, (k) => store.refreshKind(k))
 
 // Icon choices come from FloMorphic's local icon set (see @/lib/icons).
 const ICON_CHOICES = [
-  'node-trigger', 'node-webhook', 'node-schedule', 'node-llm', 'node-mcp', 'node-tool',
-  'node-retriever', 'node-memory', 'node-guardrail', 'node-condition', 'node-transform',
-  'node-human', 'node-merge', 'node-http', 'node-extrinsic', 'node-plugin', 'node-subflow', 'node-output',
+  'node-start', 'node-goto', 'node-wait', 'node-until', 'node-llm', 'node-mcp',
+  'node-rule', 'node-code', 'node-docstore', 'node-vecstore', 'node-cast', 'node-human',
 ]
 
-// Generic node types offered per origin. Builtins mirror the compiler's node
-// kinds; extensions bind as one of the two outward-facing execution types.
-const BUILTIN_TYPES: ExtensionType[] = ['startNode', 'pluginNative', 'code', 'contract', 'extrinsic', 'goto', 'void']
+// Node types offered per origin. Builtins are FloMorphic's 9 morphic node types
+// (each lowers to an inflow primitive at compile time); extensions bind as one
+// of the two outward-facing execution types.
+const BUILTIN_TYPES: ExtensionType[] = ['startNode', 'goto', 'hitl', 'docstore', 'vecstore', 'promissall', 'llm', 'mcp', 'rule', 'js', 'opa', 'until', 'cast']
 const EXTENSION_TYPES: ExtensionType[] = ['plugin', 'extrinsic']
 const typeOptions = computed<ExtensionType[]>(() => (form.kind === 'builtin' ? BUILTIN_TYPES : EXTENSION_TYPES))
 
@@ -44,11 +44,11 @@ const formError = ref<string | null>(null)
 
 const form = reactive({
   kind: 'builtin' as ExtensionKind,
-  type: 'code' as ExtensionType,
+  type: 'startNode' as ExtensionType,
   name: '',
   description: '',
   pluginId: '',
-  iconName: 'node-plugin',
+  iconName: 'node-start',
   schemaJson: '{}',
   uiJson: '{}',
   bindTopicKey: '',
@@ -80,11 +80,11 @@ function jsonError(text: string): string | null {
 
 function resetForm(k: ExtensionKind) {
   form.kind = k
-  form.type = k === 'builtin' ? 'code' : 'plugin'
+  form.type = k === 'builtin' ? 'startNode' : 'plugin'
   form.name = ''
   form.description = ''
   form.pluginId = ''
-  form.iconName = 'node-plugin'
+  form.iconName = 'node-start'
   form.schemaJson = '{}'
   form.uiJson = '{}'
   form.bindTopicKey = ''
@@ -106,7 +106,7 @@ async function openEdit(ext: ExtensionRecord) {
   form.name = ext.name
   form.description = ext.description
   form.pluginId = ext.pluginId ?? ''
-  form.iconName = ext.icon?.name || 'node-plugin'
+  form.iconName = ext.icon?.name || 'plugin'
   form.schemaJson = JSON.stringify(ext.params?.schema ?? {}, null, 2)
   form.uiJson = JSON.stringify(ext.params?.ui ?? {}, null, 2)
   form.bindTopicKey = ext.bindTo?.topic_key ?? ''
@@ -161,7 +161,7 @@ function fmtDate(ts: number): string {
     subtitle="Define the nodes that make up the canvas palette. Builtins ship with FloMorphic and are seeded on first run; extensions are inflowv1 plugins imported by users."
   >
     <template #actions>
-      <Button variant="primary" icon="node-plugin" @click="openNew">New {{ kind }} node</Button>
+      <Button variant="primary" icon="plugin" @click="openNew">New {{ kind }} node</Button>
     </template>
 
     <!-- Origin tabs -->
@@ -186,11 +186,11 @@ function fmtDate(ts: number): string {
 
     <EmptyState
       v-else-if="store.items.length === 0"
-      icon="node-plugin"
+      icon="plugin"
       :title="`No ${kind} nodes yet`"
       :description="kind === 'builtin' ? 'Seeded on first run by a connected backend, or add one here.' : 'Import a plugin to add an extension node.'"
     >
-      <Button variant="primary" icon="node-plugin" @click="openNew">New {{ kind }} node</Button>
+      <Button variant="primary" icon="plugin" @click="openNew">New {{ kind }} node</Button>
     </EmptyState>
 
     <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -198,7 +198,7 @@ function fmtDate(ts: number): string {
         <div class="flex items-start justify-between gap-2">
           <div class="flex min-w-0 items-center gap-2.5">
             <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-              <Icon :name="ext.icon?.name || 'node-plugin'" :size="18" />
+              <Icon :name="ext.icon?.name || 'plugin'" :size="18" />
             </span>
             <div class="min-w-0">
               <h3 class="truncate font-semibold text-fg">{{ ext.name }}</h3>
@@ -207,7 +207,7 @@ function fmtDate(ts: number): string {
           </div>
           <div class="flex shrink-0 items-center gap-0.5">
             <button class="rounded-lg p-1.5 text-fg-subtle hover:bg-accent-soft hover:text-accent" title="Edit" @click="openEdit(ext)">
-              <Icon name="node-transform" :size="15" />
+              <Icon name="settings" :size="15" />
             </button>
             <button class="rounded-lg p-1.5 text-fg-subtle hover:bg-danger-soft hover:text-danger" title="Delete" @click="remove(ext)">
               <Icon name="trash" :size="15" />

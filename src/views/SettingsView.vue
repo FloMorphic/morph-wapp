@@ -78,7 +78,7 @@ function clearLocal() {
         >
           <div class="flex items-center gap-2.5">
             <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-soft text-accent">
-              <Icon name="node-plugin" :size="16" />
+              <Icon name="plugin" :size="16" />
             </span>
             <span class="text-sm font-medium text-fg">Manage builtin &amp; extension nodes</span>
           </div>

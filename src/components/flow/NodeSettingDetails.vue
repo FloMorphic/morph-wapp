@@ -3,8 +3,13 @@ import { computed } from 'vue'
 import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
 import NodeSettingsSelector from '@/components/flow/NodeSettingsSelector.vue'
+import NodeConfig from '@/components/flow/NodeConfig.vue'
 import { specForType, type BaseNodeData } from '@/data/nodeCatalog'
-import { SETTINGS_DATA_KEYS } from '@/lib/nodeSettings'
+import { SETTINGS_DATA_KEYS, NODE_REF_DATA_KEYS } from '@/lib/nodeSettings'
+
+// Kinds with a bespoke editor (NodeConfig). Their kind-specific data keys are
+// managed there, so the generic field list drops to the universal fields only.
+const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'goto'])
 
 /**
  * Generic, catalog-driven property panel. It edits the selected node's `data`
@@ -19,8 +24,9 @@ const spec = computed(() => (props.node ? specForType(props.node.type) : undefin
 
 const UNIVERSAL = ['title', 'key', 'scope']
 const MULTILINE = new Set(['source', 'instructions', 'prompt', 'template', 'payload'])
-// Managed by the settings selector at the top of the panel, not as generic fields.
-const HIDDEN = new Set<string>(SETTINGS_DATA_KEYS)
+// Managed by the settings selector / stamped from the backing extension row —
+// not editable as generic fields.
+const HIDDEN = new Set<string>([...SETTINGS_DATA_KEYS, ...NODE_REF_DATA_KEYS])
 
 type FieldType = 'text' | 'number' | 'boolean' | 'code' | 'json'
 
@@ -42,11 +48,23 @@ function humanize(name: string): string {
   return name.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase())
 }
 
+const isCustom = computed(() => !!props.node && CUSTOM_EDITOR_KINDS.has(props.node.type))
+
+// Title / key / scope are edited inline on the node (see FlowNode) and shown
+// here as a compact identity strip — so the drawer's height goes to the config.
+const identityFields = computed<Field[]>(() =>
+  UNIVERSAL.map((name) => ({ name, label: humanize(name), type: 'text' as FieldType })),
+)
+
 const fields = computed<Field[]>(() => {
   if (!props.node) return []
   const data = props.node.data as BaseNodeData
-  const keys = [...UNIVERSAL, ...Object.keys(data).filter((k) => !UNIVERSAL.includes(k) && !HIDDEN.has(k))]
-  return keys.map((name) => ({ name, label: humanize(name), type: fieldType(name, data[name]) }))
+  // Bespoke-editor nodes manage their own kind-specific fields; universal
+  // fields are handled by the identity strip above.
+  const extra = isCustom.value
+    ? []
+    : Object.keys(data).filter((k) => !UNIVERSAL.includes(k) && !HIDDEN.has(k))
+  return extra.map((name) => ({ name, label: humanize(name), type: fieldType(name, data[name]) }))
 })
 
 function data(): BaseNodeData {
@@ -90,10 +108,28 @@ function onJsonInput(name: string, raw: string) {
       </button>
     </div>
 
+    <!-- Compact settings-profile picker, in the drawer head. -->
+    <div v-if="node" class="border-b px-4 py-2">
+      <NodeSettingsSelector :key="node.id" :node="node" />
+    </div>
+
     <div class="flex-1 space-y-4 overflow-y-auto p-4">
       <p class="text-xs leading-relaxed text-fg-muted">{{ spec.description }}</p>
 
-      <NodeSettingsSelector v-if="node" :key="node.id" :node="node" />
+      <!-- Identity strip: compact rows for title / key / scope. These are also
+           editable inline on the node itself. -->
+      <div class="space-y-1.5 rounded-lg border p-2.5">
+        <div v-for="field in identityFields" :key="field.name" class="flex items-center gap-2">
+          <label class="w-12 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+            {{ field.label }}
+          </label>
+          <input
+            v-model="(data() as any)[field.name]"
+            class="input flex-1 px-2 py-1 text-xs"
+            :placeholder="field.name === 'scope' ? '$' : ''"
+          />
+        </div>
+      </div>
 
       <div v-for="field in fields" :key="field.name" class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">{{ field.label }}</label>
@@ -117,18 +153,23 @@ function onJsonInput(name: string, raw: string) {
         <textarea
           v-else-if="field.type === 'code'"
           v-model="(data() as any)[field.name]"
-          rows="6"
+          rows="5"
           spellcheck="false"
-          class="input resize-y font-mono text-xs leading-relaxed"
+          class="input resize-none font-mono text-xs leading-relaxed"
         />
         <textarea
           v-else
           :value="jsonText(field.name)"
           rows="4"
           spellcheck="false"
-          class="input resize-y font-mono text-xs leading-relaxed"
+          class="input resize-none font-mono text-xs leading-relaxed"
           @input="onJsonInput(field.name, ($event.target as HTMLTextAreaElement).value)"
         />
+      </div>
+
+      <!-- Bespoke editor for code / rule / llm nodes. -->
+      <div v-if="isCustom" class="border-t pt-4">
+        <NodeConfig :key="node.id" :node="node" />
       </div>
     </div>
 

@@ -8,6 +8,7 @@ import FlowNode from './nodes/FlowNode.vue'
 import NodePalette from './NodePalette.vue'
 import { NODE_SPECS, DEFAULT_START_KIND, type NodeSpec, type NodeKind } from '@/data/nodeCatalog'
 import type { VueFlowGraph } from '@/types/api'
+import type { NodeExtRef } from '@/lib/nodeSettings'
 import { createId } from '@/lib/id'
 
 const emit = defineEmits<{
@@ -33,12 +34,19 @@ const { onConnect, onNodeClick, onPaneClick, screenToFlowCoordinate, fitView, se
 
 let addOffset = 0
 
-function addNode(kind: NodeKind, position?: { x: number; y: number }): string {
+function addNode(kind: NodeKind, position?: { x: number; y: number }, ext?: NodeExtRef): string {
   const spec = NODE_SPECS[kind]
   const id = createId('n')
   const pos = position ?? { x: 120 + ((addOffset % 6) * 30), y: 120 + ((addOffset % 6) * 30) }
   addOffset++
-  nodes.value.push({ id, type: spec.type, position: pos, data: spec.defaults() })
+  const data = spec.defaults() as Record<string, unknown>
+  // Stamp the backing extension row's identity so the compiler can register the
+  // node (plugin uniqId) under the exact id the extension table holds.
+  if (ext?.extensionId) {
+    data.extensionId = ext.extensionId
+    if (ext.pluginId) data.pluginId = ext.pluginId
+  }
+  nodes.value.push({ id, type: spec.type, position: pos, data })
   emit('dirty')
   return id
 }
@@ -69,11 +77,21 @@ function onDrop(e: DragEvent) {
   const kind = e.dataTransfer?.getData('application/flomorphic-node') as NodeKind
   if (!kind || !NODE_SPECS[kind]) return
   const position = screenToFlowCoordinate({ x: e.clientX, y: e.clientY })
-  addNode(kind, position)
+  addNode(kind, position, parseExtPayload(e.dataTransfer?.getData('application/flomorphic-ext')))
 }
 
-function onPaletteAdd(spec: NodeSpec) {
-  addNode(spec.kind)
+function onPaletteAdd(spec: NodeSpec, ext?: NodeExtRef) {
+  addNode(spec.kind, undefined, ext)
+}
+
+/** Parse the optional extension-identity payload attached to a palette drag. */
+function parseExtPayload(raw?: string): NodeExtRef | undefined {
+  if (!raw) return undefined
+  try {
+    return JSON.parse(raw) as NodeExtRef
+  } catch {
+    return undefined
+  }
 }
 
 // ---- Parent-facing API ----

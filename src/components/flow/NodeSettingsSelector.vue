@@ -24,6 +24,8 @@ const error = ref<string | null>(null)
 
 const showModal = ref(false)
 const editing = ref<NodeSetting | null>(null)
+// The selected profile's values are collapsed by default to keep the head compact.
+const expanded = ref(false)
 
 function data(): Record<string, unknown> {
   return props.node.data as Record<string, unknown>
@@ -80,41 +82,52 @@ async function onSaved(record: NodeSetting) {
 </script>
 
 <template>
-  <div class="rounded-xl border bg-surface-2 p-3">
-    <div class="flex items-center justify-between gap-2">
-      <label class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
-        <Icon name="settings" :size="13" /> Settings profile
-      </label>
-      <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="openNew">
-        <Icon name="plus" :size="13" /> New
-      </button>
-    </div>
-
-    <div class="mt-2 flex items-center gap-2">
+  <div>
+    <!-- Compact single-row profile picker. -->
+    <div class="flex items-center gap-1.5">
+      <Icon name="settings" :size="13" class="shrink-0 text-fg-subtle" />
       <select
-        class="input flex-1"
+        class="input min-w-0 flex-1 py-1 text-xs"
         :value="selectedId"
         :disabled="loading"
+        title="Settings profile"
         @change="onPick(($event.target as HTMLSelectElement).value)"
       >
-        <option value="">{{ loading ? 'Loading…' : 'None' }}</option>
+        <option value="">{{ loading ? 'Loading…' : 'No profile' }}</option>
         <option v-for="p in profiles" :key="p.id" :value="p.id">{{ p.title }}</option>
       </select>
       <button
         v-if="selected"
-        class="btn shrink-0"
-        style="border: 1px solid var(--line-strong)"
+        class="flex h-6 w-6 shrink-0 items-center justify-center rounded border text-fg-subtle hover:text-fg"
+        style="border-color: var(--line-strong)"
+        :title="expanded ? 'Hide values' : 'Show values'"
+        @click="expanded = !expanded"
+      >
+        <Icon :name="expanded ? 'chevron-down' : 'chevron-right'" :size="14" />
+      </button>
+      <button
+        v-if="selected"
+        class="flex h-6 w-6 shrink-0 items-center justify-center rounded border text-fg-subtle hover:text-fg"
+        style="border-color: var(--line-strong)"
         title="Edit this profile"
         @click="openEdit"
       >
-        <Icon name="settings" :size="14" />
+        <Icon name="settings" :size="13" />
+      </button>
+      <button
+        class="flex h-6 shrink-0 items-center gap-0.5 rounded border px-1.5 text-[12px] text-accent hover:bg-accent-soft"
+        style="border-color: var(--line-strong)"
+        title="New profile"
+        @click="openNew"
+      >
+        <Icon name="plus" :size="13" />
       </button>
     </div>
 
-    <p v-if="error" class="mt-2 text-[12px] text-danger">{{ error }}</p>
+    <p v-if="error" class="mt-1.5 text-[12px] text-danger">{{ error }}</p>
 
-    <!-- Configured values of the selected profile -->
-    <div v-if="selected" class="mt-2.5 space-y-1 border-t pt-2.5">
+    <!-- Configured values of the selected profile (collapsed by default). -->
+    <div v-if="selected && expanded" class="mt-2 space-y-1 border-t pt-2">
       <div
         v-for="(value, key) in selected.settings"
         :key="key"
@@ -132,9 +145,6 @@ async function onSaved(record: NodeSetting) {
         Clear selection
       </button>
     </div>
-    <p v-else-if="!loading && profiles.length === 0" class="mt-2 text-[12px] text-fg-subtle">
-      No profiles for this node yet. Create one to reuse its config across instances.
-    </p>
 
     <NodeSettingsModal
       :open="showModal"

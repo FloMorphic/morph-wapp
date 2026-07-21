@@ -77,18 +77,28 @@ export interface FlowRecord {
  */
 export type ExtensionKind = 'builtin' | 'extension'
 
-/** The generic inflow / palette node type an extension compiles to. `extrinsic`
- * and `plugin` are the two ways a node reaches the outside world; the rest are
- * the builtin generics mirrored from the compiler's node kinds. */
+/** The palette node type a stored extension carries. For user `extension` nodes
+ * this is one of the two outward-facing execution generics (`plugin` /
+ * `extrinsic`). For `builtin` nodes it is one of FloMorphic's 10 morphic types,
+ * each of which the backend compiler lowers to an inflow primitive at compile
+ * time (see inflow/compiler.go's NodeBuilder). */
 export type ExtensionType =
   | 'plugin'
   | 'extrinsic'
+  // FloMorphic builtin morphic types
   | 'startNode'
-  | 'pluginNative'
-  | 'code'
-  | 'contract'
   | 'goto'
-  | 'void'
+  | 'hitl'
+  | 'docstore'
+  | 'vecstore'
+  | 'promissall'
+  | 'llm'
+  | 'mcp'
+  | 'rule'
+  | 'js'
+  | 'opa'
+  | 'until'
+  | 'cast'
 
 export interface ExtensionIcon {
   class: string
