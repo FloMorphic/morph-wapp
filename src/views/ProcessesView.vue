@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useProcessesStore } from '@/stores/processes'
 import { useContextsStore } from '@/stores/contexts'
-import type { ContextRecord, Process, ProcessStatus } from '@/types/api'
+import { flowsApi } from '@/api/flows'
+import type { CompiledFlow, ContextRecord, Process, ProcessStatus } from '@/types/api'
 import PageShell from '@/components/ui/PageShell.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Button from '@/components/ui/Button.vue'
@@ -108,6 +109,48 @@ function pretty(value: unknown): string {
   if (value == null) return '—'
   return JSON.stringify(value, null, 2)
 }
+
+// Compiled-flow view for the open run: run the backend inflow compiler over the
+// process's flow and show the lowered node graph — a debug aid for seeing what a
+// canvas graph becomes on the engine. Fetched lazily when the section is
+// expanded, and reset whenever the panel switches to another run.
+const compiled = ref<CompiledFlow | null>(null)
+const compiledLoading = ref(false)
+const compiledError = ref<string | null>(null)
+const compiledFlowId = ref('')
+
+async function loadCompiled(): Promise<void> {
+  const p = store.active
+  if (!p?.flowId) return
+  // Already compiled this flow — the result is static, so don't refetch.
+  if (compiled.value && compiledFlowId.value === p.flowId) return
+  compiledLoading.value = true
+  compiledError.value = null
+  compiled.value = null
+  try {
+    compiled.value = await flowsApi.compile(p.flowId)
+    compiledFlowId.value = p.flowId
+  } catch (err) {
+    compiledError.value = (err as Error).message
+  } finally {
+    compiledLoading.value = false
+  }
+}
+
+/** Compile only when the section is opened (the toggle fires on close too). */
+function onCompiledToggle(e: Event): void {
+  if ((e.target as HTMLDetailsElement).open) loadCompiled()
+}
+
+// Switching to another run invalidates the compiled view.
+watch(
+  () => store.active?.indexId,
+  () => {
+    compiled.value = null
+    compiledError.value = null
+    compiledFlowId.value = ''
+  },
+)
 </script>
 
 <template>
@@ -290,6 +333,29 @@ function pretty(value: unknown): string {
         <details v-if="store.active.request">
           <summary class="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Request</summary>
           <pre class="mt-2 max-h-40 overflow-auto rounded-lg border bg-surface-2 p-3 text-[12px]">{{ pretty(store.active.request) }}</pre>
+        </details>
+
+        <!-- Compiled result — run the inflow compiler over this run's flow and
+             show the lowered node graph. A debug view of what the canvas becomes
+             on the engine; fetched on demand when the section is opened. -->
+        <details v-if="store.active.flowId && store.isRemote" @toggle="onCompiledToggle">
+          <summary class="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+            Compiled result
+          </summary>
+          <div class="mt-2">
+            <div v-if="compiledLoading" class="rounded-lg border bg-surface-2 px-3 py-4 text-center text-[12px] text-fg-muted">
+              Compiling…
+            </div>
+            <p v-else-if="compiledError" class="rounded-lg bg-danger-soft px-3 py-2 text-[12px] text-danger">
+              {{ compiledError }}
+            </p>
+            <template v-else-if="compiled">
+              <p class="mb-1 text-[11px] text-fg-subtle">
+                Start node <span class="font-mono text-fg">{{ compiled.startNodeId || '—' }}</span>
+              </p>
+              <pre class="max-h-64 overflow-auto rounded-lg border bg-surface-2 p-3 text-[12px]">{{ pretty(compiled.nodes) }}</pre>
+            </template>
+          </div>
         </details>
       </div>
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMemoryStore } from '@/stores/memory'
 import type { ColumnType, MemoryStore, MemoryType, TableColumn, VectorMetric } from '@/types/api'
 import PageShell from '@/components/ui/PageShell.vue'
@@ -9,7 +10,12 @@ import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
 
 const store = useMemoryStore()
+const router = useRouter()
 onMounted(() => store.refresh())
+
+function openStore(m: MemoryStore) {
+  router.push({ name: 'store-data', params: { id: m.id } })
+}
 
 const showAdd = ref(false)
 const submitting = ref(false)
@@ -159,7 +165,12 @@ const isVector = computed(() => form.type === 'vector')
     </EmptyState>
 
     <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <div v-for="m in store.items" :key="m.id" class="card flex flex-col p-4">
+      <button
+        v-for="m in store.items"
+        :key="m.id"
+        class="card group flex flex-col p-4 text-left transition-colors hover:border-accent-border"
+        @click="openStore(m)"
+      >
         <div class="flex items-start justify-between gap-2">
           <div class="flex min-w-0 items-center gap-2.5">
             <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
@@ -170,13 +181,20 @@ const isVector = computed(() => form.type === 'vector')
               <span class="chip">{{ typeInfo[m.type].label }}</span>
             </div>
           </div>
-          <button class="rounded-lg p-1.5 text-fg-subtle hover:bg-danger-soft hover:text-danger" title="Delete" @click="remove(m)">
+          <span
+            class="rounded-lg p-1.5 text-fg-subtle opacity-0 transition hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
+            title="Delete"
+            @click.stop="remove(m)"
+          >
             <Icon name="trash" :size="15" />
-          </button>
+          </span>
         </div>
         <p v-if="m.description" class="mt-3 line-clamp-2 text-[13px] text-fg-muted">{{ m.description }}</p>
         <div class="mt-3 truncate font-mono text-[11px] text-fg-subtle">{{ summary(m) }}</div>
-      </div>
+        <div class="mt-3 flex items-center gap-1 text-[12px] font-medium text-accent opacity-0 transition group-hover:opacity-100">
+          {{ m.type === 'vector' ? 'Search & add records' : 'Browse data' }} <Icon name="chevron-right" :size="14" />
+        </div>
+      </button>
     </div>
 
     <!-- Add memory modal -->

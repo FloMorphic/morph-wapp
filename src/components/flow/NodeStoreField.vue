@@ -25,8 +25,8 @@ const props = defineProps<{
   /**
    * The node's reactive `data`. When it carries an `action` key (Doc / Vector
    * store nodes), a read/write selector is shown: `read` runs `query` against
-   * the store, `write` sends the `input` JSONPath / scope as its payload. Cast
-   * nodes pass no data, so the selector is hidden.
+   * the store, `write` sends the node's scope slice of Context as its payload.
+   * Cast nodes pass no data, so the selector is hidden.
    */
   data?: Record<string, unknown>
 }>()
@@ -214,17 +214,10 @@ function onSelect(e: Event) {
           />
         </div>
 
-        <!-- Write: the payload, taken from a JSONPath / the node scope. -->
-        <div v-else class="space-y-1">
-          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Input</label>
-          <input
-            :value="(props.data!.input as string) ?? ''"
-            class="input font-mono text-xs"
-            placeholder="$"
-            @input="props.data!.input = ($event.target as HTMLInputElement).value"
-          />
-          <p class="text-[11px] text-fg-subtle">JSONPath (or the node scope) of the value to write.</p>
-        </div>
+        <!-- Write: the payload is the node scope slice of Context, resolved at runtime. -->
+        <p v-else class="text-[11px] text-fg-subtle">
+          The node scope slice of Context is written to the store at runtime.
+        </p>
       </div>
     </div>
 

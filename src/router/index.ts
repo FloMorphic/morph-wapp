@@ -49,6 +49,13 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Memory', section: 'memory' },
       },
       {
+        path: 'memory/:id',
+        name: 'store-data',
+        component: () => import('@/views/StoreDataView.vue'),
+        props: true,
+        meta: { title: 'Store data', section: 'memory' },
+      },
+      {
         path: 'contexts',
         name: 'contexts',
         component: () => import('@/views/ContextsView.vue'),

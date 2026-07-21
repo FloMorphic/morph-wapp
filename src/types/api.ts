@@ -68,6 +68,16 @@ export interface FlowRecord {
   view_flow: VueFlowGraph
 }
 
+/** GET /flow/id/:id/compile — the inflow compiler's output for a saved flow: the
+ * resolved start node and the map of lowered inflow nodes keyed by node id (each
+ * an inflow primitive — void / code / contract / plugin / extrinsic / goto — with
+ * its wiring). A debug view of what a canvas graph becomes on the engine; the
+ * node shape is the engine's, so it is left opaque here. */
+export interface CompiledFlow {
+  startNodeId: string
+  nodes: Record<string, unknown>
+}
+
 /* ---- Palette extensions / node registry (backed by `/extension`) ----
  * Every row is one node in the canvas palette. `kind` separates admin-managed
  * builtins (seeded on first run; UI hard-coded in the front end) from
@@ -320,6 +330,30 @@ export interface MemoryStore {
   document?: DocumentMemoryConfig
   createdAt: number
   updatedAt: number
+}
+
+/* ---- Memory store records (data browser) ----
+ * The rows a store actually holds, browsed by the store data view. A document
+ * store exposes CRUD over DocumentRecord rows; a vector store exposes an
+ * embed-backed similarity search (returning VectorMatch) plus insert. Backed by
+ * the record endpoints under `/memory/:id`. Records only exist when a backend is
+ * configured — there is no local fallback (they need a real SQL / vector index).
+ */
+export interface DocumentRecord {
+  id: string
+  /** The stored JSON document. Schema columns are a hint over these keys. */
+  data: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+}
+
+/** One hit from a vector similarity search: the stored doc, its source text and
+ *  metadata, and the distance to the query vector (smaller is closer). */
+export interface VectorMatch {
+  docId: string
+  content: string
+  metadata?: Record<string, unknown>
+  distance: number
 }
 
 /* ---- Prompt templates (FloMorphic-specific) ----

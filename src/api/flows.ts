@@ -1,4 +1,4 @@
-import type { FlowRecord, Page, PaginationParams, VueFlowGraph } from '@/types/api'
+import type { CompiledFlow, FlowRecord, Page, PaginationParams, VueFlowGraph } from '@/types/api'
 import { apiEnabled, http, list } from './client'
 import { readCollection, writeCollection } from '@/lib/localStore'
 import { createId, now } from '@/lib/id'
@@ -86,6 +86,17 @@ export const flowsApi = {
   get(id: string): Promise<FlowRecord> {
     if (apiEnabled()) return http.get<FlowRecord>(`/flow/id/${id}`)
     return Promise.resolve(localGet(id))
+  },
+
+  /**
+   * Run the backend inflow compiler over a saved flow and return the lowered
+   * node graph — a debug/introspection view of what the Vue Flow canvas becomes
+   * on the engine. Backend-only: compilation lives in the Go engine layer, so
+   * there is nothing to return in local (no-backend) mode.
+   */
+  compile(id: string): Promise<CompiledFlow> {
+    if (!apiEnabled()) return Promise.reject(new Error('Compiling a flow requires a connected backend'))
+    return http.get<CompiledFlow>(`/flow/id/${id}/compile`)
   },
 
   save(input: SaveFlowInput): Promise<FlowRecord> {
