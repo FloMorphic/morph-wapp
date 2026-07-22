@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { io, type Socket } from 'socket.io-client'
 import { createFlowTracker, type Level, type ProcEvent } from '@inflowenger/flow-trace'
 import { apiBaseUrl, apiEnabled, getAuthToken } from '@/api/client'
+import { useNotificationsStore } from '@/stores/notifications'
 
 /**
  * Live runtime log stream for the workflow editor.
@@ -278,6 +279,11 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
     // decides what is usable.
     socket.on('message', (payload: unknown) => tracker.ingest(payload))
     socket.on('log', (payload: unknown) => tracker.ingest(payload))
+
+    // API-originated outcomes (scheduler launches, action results) arrive on a
+    // separate `notification` event and surface as toasts, not drawer lines.
+    const notifications = useNotificationsStore()
+    socket.on('notification', (payload: unknown) => notifications.ingest(payload))
   }
 
   function disconnect(): void {

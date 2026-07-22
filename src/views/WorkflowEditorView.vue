@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import WorkflowCanvas from '@/components/flow/WorkflowCanvas.vue'
@@ -17,13 +17,13 @@ const router = useRouter()
 const store = useWorkflowsStore()
 const logs = useFlowLogsStore()
 
-// One shared socket powers both the log drawer and the toolbar's live-run
-// badge. Connect while the editor is open (against a backend) and drop it on
-// leave — this replaces the old 8s /process polling.
+// One shared socket powers the log drawer, the toolbar's live-run badge and
+// app-wide notification toasts. App.vue connects it for the whole session;
+// this is just a safety net in case the editor mounts first. Never disconnect
+// on leave — notifications must keep arriving on other views.
 onMounted(() => {
   if (logs.isRemote) logs.connect()
 })
-onUnmounted(() => logs.disconnect())
 
 const canvas = ref<InstanceType<typeof WorkflowCanvas> | null>(null)
 const selected = ref<GraphNode | null>(null)
