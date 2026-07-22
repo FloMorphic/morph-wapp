@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
 import { specForType, type BaseNodeData } from '@/data/nodeCatalog'
+import { createId } from '@/lib/id'
 
 /**
  * A single generic node renderer, driven entirely by the node catalog. Vue Flow
@@ -21,7 +22,7 @@ const props = defineProps<{
   selected?: boolean
 }>()
 
-const { updateNodeInternals } = useVueFlow()
+const { updateNodeInternals, addNodes, getNodes, findNode } = useVueFlow()
 
 const spec = computed(() => specForType(props.type))
 const accent = computed(() => spec.value?.color ?? 'var(--fg-subtle)')
@@ -34,6 +35,9 @@ const settingsName = computed(() => {
 })
 
 const hasTarget = computed(() => !spec.value?.entry)
+// Entry nodes (Start) are bare markers with no settings, so there's nothing
+// worth copying — hide the duplicate button for them.
+const canCopy = computed(() => !spec.value?.entry)
 // Derived output ports (e.g. LLM functions, Rule handlers).
 const ports = computed(() => spec.value?.ports?.(props.data) ?? [])
 // A single default source handle only when there are no derived ports.
@@ -92,6 +96,36 @@ function saveTitle() {
 }
 function cancelTitle() {
   editingTitle.value = false
+}
+
+// ---- Duplicate (copy) this node -------------------------------------------
+// Adds a sibling node carrying the exact same config/settings, offset slightly
+// so it doesn't sit right on top of the original. The title (name) is kept as
+// is, but the result `key` is made unique — two nodes writing to the same
+// context key would clobber each other — while a fresh node id keeps the graph
+// consistent.
+function uniqueKey(base: string, taken: Set<string>): string {
+  if (!taken.has(base)) return base
+  if (!taken.has(`${base}_copy`)) return `${base}_copy`
+  let n = 2
+  while (taken.has(`${base}_copy${n}`)) n++
+  return `${base}_copy${n}`
+}
+
+function duplicateNode() {
+  const src = findNode(props.id)
+  const taken = new Set(
+    getNodes.value
+      .map((n) => (n.data as Record<string, unknown>)?.key)
+      .filter((k): k is string => typeof k === 'string' && k.length > 0),
+  )
+  // Structured deep copy of the node data (config + settings + bindings).
+  const data = JSON.parse(JSON.stringify(props.data ?? {})) as Record<string, unknown>
+  if (typeof data.key === 'string' && data.key) data.key = uniqueKey(data.key, taken)
+  const base = src?.position ?? { x: 0, y: 0 }
+  addNodes([
+    { id: createId('n'), type: props.type, position: { x: base.x + 40, y: base.y + 40 }, data },
+  ])
 }
 
 // key / scope popovers ------------------------------------------------------
@@ -170,9 +204,20 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
         <p class="truncate text-[11px] leading-tight text-fg-subtle">{{ spec?.label }}</p>
       </div>
 
-      <!-- Key / Scope quick-edit buttons (inspector-style, on-node). Hidden for
-           flow-control nodes that carry no result binding. -->
-      <div v-if="showBinding" class="flex shrink-0 items-center gap-1">
+      <!-- On-node actions: copy the node (always) + Key / Scope quick-edit
+           (inspector-style; hidden for flow-control nodes with no binding). -->
+      <div class="flex shrink-0 items-center gap-1">
+        <!-- Duplicate: clones config/settings under a fresh id + unique key. -->
+        <button
+          v-if="canCopy"
+          class="nodrag flex h-5 w-5 items-center justify-center rounded border opacity-0 transition-colors group-hover:opacity-100"
+          :style="{ color: 'var(--fg-subtle)', borderColor: 'var(--line-strong)' }"
+          title="Copy this node (same settings, new key)"
+          @click.stop="duplicateNode"
+        >
+          <Icon name="copy" :size="11" />
+        </button>
+        <template v-if="showBinding">
         <button
           class="nodrag flex h-5 w-5 items-center justify-center rounded border transition-colors"
           :class="hasKey ? '' : 'opacity-0 group-hover:opacity-100'"
@@ -195,6 +240,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
         >
           <Icon name="scope" :size="11" />
         </button>
+        </template>
       </div>
 
       <span
