@@ -4,7 +4,8 @@ import { useRoute } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
 import { flowsApi } from '@/api/flows'
-import type { FlowRecord } from '@/types/api'
+import { nodeRegistryApi } from '@/api/nodeRegistry'
+import type { FlowRecord, McpTool } from '@/types/api'
 
 /**
  * Tailored configuration editor for the code / logic / LLM nodes, mirroring the
@@ -29,6 +30,7 @@ function data(): Record<string, unknown> {
 const type = computed(() => props.node.type)
 const isCode = computed(() => ['js', 'opa', 'rule'].includes(type.value))
 const isLlm = computed(() => type.value === 'llm')
+const isMcp = computed(() => type.value === 'mcp')
 const isGoto = computed(() => type.value === 'goto')
 const isUntil = computed(() => type.value === 'until')
 const showLangToggle = computed(() => type.value === 'rule')
@@ -97,6 +99,9 @@ interface Fn {
   name: string
   title: string
   description: string
+  // MCP tools carry their JSON-schema arguments so 'tool' mode can build the
+  // call_tool argument dialog; hand-declared LLM functions leave it undefined.
+  inputSchema?: Record<string, unknown>
 }
 function functions(): Fn[] {
   if (!Array.isArray(data().functions)) data().functions = []
@@ -121,9 +126,130 @@ const prompt = computed<string>({
     const body = (data().body as Record<string, unknown>) ?? {}
     body.prompt = v
     data().body = body
-    data().title = v.trim() || 'LLM'
+    data().title = v.trim() || (isMcp.value ? 'MCP' : 'LLM')
   },
 })
+
+// ---- MCP node -------------------------------------------------------------
+// The MCP node has two modes, chosen with an option toggle:
+//   'tool' → expose the MCP server's tools to the flow (client only).
+//   'llm'  → drive a model over those tools (LLM-like: prompt + provider profile
+//            + bound functions). Connection params live on data.url/transport/auth
+//            and are compiled into the plugin body (see the backend compiler).
+type McpMode = 'tool' | 'llm'
+const MCP_TRANSPORTS: { value: string; label: string }[] = [
+  { value: 'streamable-http', label: 'Streamable HTTP' },
+  { value: 'sse', label: 'SSE' },
+  { value: 'stdio', label: 'stdio' },
+  { value: 'websocket', label: 'WebSocket' },
+]
+
+const mcpMode = computed<McpMode>({
+  get: () => ((data().mcpMode as McpMode) === 'llm' ? 'llm' : 'tool'),
+  set: (v) => {
+    data().mcpMode = v
+    // Keep the invoked plugin action in lockstep with the mode: 'llm' → the
+    // agentic `run`, 'tool' → the single-shot `call_tool`.
+    data().request = v === 'llm' ? 'run' : 'call_tool'
+  },
+})
+// The single tool call_tool invokes ('tool' mode).
+const mcpTool = computed<string>({
+  get: () => (data().tool as string) || '',
+  set: (v) => {
+    data().tool = v
+  },
+})
+// call_tool arguments, edited as JSON. The user's per-tool argument dialog (built
+// from the selected tool's inputSchema via getToolsList) can supersede this.
+const mcpArgsText = ref('')
+const mcpArgsError = ref<string | null>(null)
+watch(
+  () => [props.node?.id, data().tool],
+  () => {
+    const args = data().arguments
+    mcpArgsText.value = args && Object.keys(args as object).length ? JSON.stringify(args, null, 2) : ''
+    mcpArgsError.value = null
+  },
+  { immediate: true },
+)
+function onMcpArgsInput(v: string) {
+  mcpArgsText.value = v
+  if (!v.trim()) {
+    data().arguments = {}
+    mcpArgsError.value = null
+    return
+  }
+  try {
+    data().arguments = JSON.parse(v)
+    mcpArgsError.value = null
+  } catch (e) {
+    mcpArgsError.value = (e as Error).message
+  }
+}
+const mcpUrl = computed<string>({
+  get: () => (data().url as string) || '',
+  set: (v) => {
+    data().url = v
+  },
+})
+const mcpTransport = computed<string>({
+  get: () => (data().transport as string) || 'streamable-http',
+  set: (v) => {
+    data().transport = v
+  },
+})
+const mcpAuth = computed<string>({
+  get: () => (data().auth as string) || '',
+  set: (v) => {
+    data().auth = v
+  },
+})
+
+// "Load tools" — connect to the configured MCP server (via the backend inflowv1
+// proxy) and bind one function per advertised tool. Existing function ids are
+// reused for tools that are still present so their output-port edges survive a
+// reload; tools that disappear are dropped.
+const mcpLoading = ref(false)
+const mcpError = ref<string | null>(null)
+const mcpLoadedAt = ref<number | null>(null)
+
+async function loadMcpTools() {
+  const pluginId = String(data().pluginId ?? '')
+  if (!pluginId) {
+    mcpError.value = 'This MCP node has no plugin id — drop it from the palette (needs a running backend) to load tools.'
+    return
+  }
+  if (!mcpUrl.value.trim()) {
+    mcpError.value = 'Set the MCP server URL first.'
+    return
+  }
+  mcpLoading.value = true
+  mcpError.value = null
+  try {
+    const tools = await nodeRegistryApi.mcpTools(pluginId, {
+      url: mcpUrl.value.trim(),
+      transport: mcpTransport.value,
+      auth: mcpAuth.value.trim() || undefined,
+    })
+    const existing = functions()
+    data().functions = (tools ?? []).map((t: McpTool) => {
+      const prior = existing.find((f) => f.name === t.name)
+      return {
+        id: prior?.id ?? `fn-${t.name}-${Date.now()}`,
+        name: t.name,
+        title: t.title || t.name,
+        description: t.description || '',
+        inputSchema: t.inputSchema,
+      }
+    })
+    mcpLoadedAt.value = Date.now()
+  } catch (err) {
+    mcpError.value = (err as Error).message
+  } finally {
+    mcpLoading.value = false
+  }
+}
 
 // ---- Code (logic_rule) -----------------------------------------------------
 const code = computed<string>({
@@ -434,6 +560,149 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           No functions bound — add one and the model can route to its output port.
         </p>
       </div>
+    </template>
+
+    <!-- ================= MCP ================= -->
+    <template v-else-if="isMcp">
+      <!-- Mode: expose the MCP tools only, or drive an LLM over them. -->
+      <div class="space-y-1.5">
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Mode</label>
+        <div class="flex gap-2">
+          <button
+            v-for="opt in ([{ id: 'tool', label: 'MCP Tool Only' }, { id: 'llm', label: 'MCP With LLM' }] as const)"
+            :key="opt.id"
+            class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors"
+            :style="mcpMode === opt.id
+              ? { background: 'var(--accent)', color: 'var(--accent-fg)', borderColor: 'var(--accent)' }
+              : { color: 'var(--fg-muted)' }"
+            @click="mcpMode = opt.id"
+          >
+            <Icon :name="opt.id === 'llm' ? 'node-llm' : 'node-mcp'" :size="14" />
+            {{ opt.label }}
+          </button>
+        </div>
+        <p class="text-[11px] leading-relaxed text-fg-subtle">
+          {{ mcpMode === 'llm'
+            ? 'Drives a model (provider config from the Settings profile above) that can call the MCP server\'s tools. Each loaded tool becomes an output port.'
+            : 'Exposes the MCP server\'s tools to the flow. No model is called here.' }}
+        </p>
+      </div>
+
+      <!-- MCP server connection -->
+      <div class="space-y-2 border-t pt-3">
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">MCP server</label>
+        <div class="space-y-1">
+          <input v-model="mcpUrl" class="input font-mono text-xs" placeholder="https://mcp.example.com/mcp" />
+          <p class="text-[11px] text-fg-subtle">The MCP server endpoint to connect to.</p>
+        </div>
+        <div class="flex gap-2">
+          <select v-model="mcpTransport" class="input flex-1 text-xs" title="Transport">
+            <option v-for="t in MCP_TRANSPORTS" :key="t.value" :value="t.value">{{ t.label }}</option>
+          </select>
+          <input v-model="mcpAuth" class="input flex-1 font-mono text-xs" placeholder="auth token (optional)" />
+        </div>
+      </div>
+
+      <!-- With-LLM: system prompt + tools loaded as functions -->
+      <template v-if="mcpMode === 'llm'">
+        <div class="space-y-1 border-t pt-3">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System role prompt</label>
+          <textarea
+            v-model="prompt"
+            rows="5"
+            spellcheck="false"
+            class="input resize-none font-mono text-xs leading-relaxed"
+            placeholder="You are a helpful assistant with access to MCP tools. {{input}}"
+          />
+          <p class="text-[11px] leading-relaxed text-fg-subtle">
+            Sets the model's system role and doubles as this node's title. The model's global config
+            (provider, key, model) comes from the Settings profile above.
+          </p>
+        </div>
+
+        <!-- Tools → functions → output ports -->
+        <div class="space-y-1.5 border-t pt-3">
+          <div class="flex items-center justify-between">
+            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+              Tools
+              <span class="ml-1 font-normal normal-case text-fg-subtle">— one outbound port each</span>
+            </label>
+            <button
+              class="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px] text-accent hover:bg-accent-soft disabled:opacity-60"
+              style="border-color: var(--line-strong)"
+              :disabled="mcpLoading"
+              title="Connect to the MCP server and load its tools"
+              @click="loadMcpTools"
+            >
+              <Icon name="refresh" :size="13" />
+              {{ mcpLoading ? 'Loading…' : functions().length ? 'Reload tools' : 'Load tools' }}
+            </button>
+          </div>
+
+          <p v-if="mcpError" class="text-[12px] text-danger">{{ mcpError }}</p>
+
+          <div v-for="f in functions()" :key="f.id" class="space-y-1 rounded-lg border p-2">
+            <div class="flex items-center gap-2">
+              <Icon name="node-mcp" :size="13" class="shrink-0 text-fg-subtle" />
+              <span class="min-w-0 flex-1 truncate font-mono text-xs text-fg">{{ f.name }}</span>
+            </div>
+            <p v-if="f.description" class="text-[11px] leading-relaxed text-fg-muted">{{ f.description }}</p>
+          </div>
+
+          <p v-if="functions().length === 0" class="text-[11px] text-fg-subtle">
+            No tools loaded yet — set the server above and click <em>Load tools</em>. Each tool the
+            server advertises becomes a function the model can route through.
+          </p>
+        </div>
+      </template>
+
+      <!-- Tool-only: pick one tool and set its arguments (call_tool, no LLM) -->
+      <template v-else>
+        <div class="space-y-1.5 border-t pt-3">
+          <div class="flex items-center justify-between">
+            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Tool to call</label>
+            <button
+              class="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px] text-accent hover:bg-accent-soft disabled:opacity-60"
+              style="border-color: var(--line-strong)"
+              :disabled="mcpLoading"
+              title="Connect to the MCP server and load its tools"
+              @click="loadMcpTools"
+            >
+              <Icon name="refresh" :size="13" />
+              {{ mcpLoading ? 'Loading…' : functions().length ? 'Reload tools' : 'Load tools' }}
+            </button>
+          </div>
+
+          <p v-if="mcpError" class="text-[12px] text-danger">{{ mcpError }}</p>
+
+          <select v-model="mcpTool" class="input text-xs">
+            <option value="">{{ functions().length ? '— select a tool —' : 'No tools loaded' }}</option>
+            <option v-for="f in functions()" :key="f.id" :value="f.name">{{ f.title || f.name }}</option>
+          </select>
+          <p v-if="functions().length === 0" class="text-[11px] text-fg-subtle">
+            No tools loaded yet — set the server above and click <em>Load tools</em>, then pick the
+            tool this node calls.
+          </p>
+        </div>
+
+        <!-- Arguments for the selected tool (JSON, shaped by its inputSchema) -->
+        <div v-if="mcpTool" class="space-y-1 border-t pt-3">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Arguments</label>
+          <textarea
+            :value="mcpArgsText"
+            rows="6"
+            spellcheck="false"
+            class="input resize-none font-mono text-xs leading-relaxed"
+            placeholder='{ "query": "{{input}}" }'
+            @input="onMcpArgsInput(($event.target as HTMLTextAreaElement).value)"
+          />
+          <p v-if="mcpArgsError" class="text-[12px] text-danger">Invalid JSON: {{ mcpArgsError }}</p>
+          <p class="text-[11px] leading-relaxed text-fg-subtle">
+            JSON arguments passed to <code>call_tool</code>, matching the tool's input schema. Values
+            may embed <code v-pre>{{$.path}}</code> context variables.
+          </p>
+        </div>
+      </template>
     </template>
 
     <!-- ================= Goto ================= -->

@@ -106,8 +106,21 @@ const llmSchema: SettingsSchema = {
   ],
 }
 
+/**
+ * MCP node — the "With LLM" mode drives a model over the MCP server's tools, so
+ * it needs the same provider config as the LLM node. (The MCP *connection* —
+ * URL / transport / auth — lives on the node data and is edited in the node's
+ * bespoke config, not here.) The "Tool only" mode uses no provider, so the
+ * profile picker is hidden for it (see NodeSettingDetails.showSettingsProfile).
+ */
+const mcpSchema: SettingsSchema = {
+  summary: 'LLM provider config the MCP node uses to drive the model in "With LLM" mode.',
+  fields: llmSchema.fields,
+}
+
 export const SETTINGS_SCHEMAS: Record<string, SettingsSchema> = {
   llm: llmSchema,
+  mcp: mcpSchema,
 }
 
 /** The typed schema for a node kind, or null when it uses the key/value editor. */

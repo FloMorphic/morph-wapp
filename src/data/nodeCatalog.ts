@@ -256,7 +256,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'ai',
     tagline: 'MCP client',
     description:
-      'Connect to an MCP server as a client, exposing its tools and resources to the flow. Its connection parameters (URL, auth, transport) come from its settings. Compiles to a Plugin node.',
+      'Connect to an MCP server as a client. In "Tool only" mode it exposes the server\'s tools to the flow; in "With LLM" mode it drives a model (provider config from a settings profile) that can call those tools — each loaded tool becomes an output port. Connection params (URL, transport, auth) are set on the node. Compiles to a Plugin node.',
     primitives: 'Plugin',
     plugin: true,
     defaults: () => ({
@@ -265,13 +265,44 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       scope: '$',
       subject_prefix: 'mcp',
       idle_min: 5,
-      request: 'run',
-      body: {},
+      // The plugin action the backend invokes — kept in lockstep with mcpMode by
+      // NodeConfig: 'tool' → 'call_tool' (call one tool, no LLM), 'llm' → 'run'
+      // (drive a model over the tools). Default mode is 'tool', so default here.
+      request: 'call_tool',
+      // 'tool' = expose the MCP server's tools to the flow only; 'llm' = drive a
+      // model with those tools (LLM-like: prompt + provider settings profile).
+      mcpMode: 'tool',
+      // Only used in 'llm' mode — the model's system role prompt.
+      body: { prompt: '' },
       url: '',
-      transport: 'stdio',
+      transport: 'streamable-http',
       auth: '',
+      // [{ id, name, title, description, inputSchema }] — loaded from the MCP
+      // server via the "load tools" button. Each renders as an output port in
+      // 'llm' mode (see ports()), mirroring the LLM node's bound functions;
+      // inputSchema drives the argument dialog for 'tool' mode's call_tool.
+      functions: [],
+      // 'tool' mode (call_tool) only: the single tool to call and the arguments
+      // to call it with (shaped by that tool's inputSchema).
+      tool: '',
+      arguments: {},
     }),
-    preview: (d) => String(d.url || 'no server'),
+    preview: (d) => {
+      const mode = d.mcpMode === 'llm' ? 'with LLM' : 'tools'
+      const n = asRows(d.functions).length
+      const tools = n ? `${n} tool${n === 1 ? '' : 's'}` : d.url ? 'no tools loaded' : 'no server'
+      return `${mode} · ${tools}`
+    },
+    // In 'llm' mode each bound tool is an output port the model can route
+    // through (like the LLM node); in 'tool' mode the node just exposes its
+    // tools to the flow and carries the single default handle.
+    ports: (d) =>
+      d.mcpMode === 'llm'
+        ? asRows(d.functions).map((f, i) => ({
+            id: String(f.id ?? f.name ?? `fn${i}`),
+            label: String(f.title ?? f.name ?? `fn${i + 1}`),
+          }))
+        : [],
   }),
 
   js: spec({

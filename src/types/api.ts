@@ -163,6 +163,28 @@ export interface PluginCredResponse {
   env: string
 }
 
+/** Connection params an MCP node uses to reach its MCP server. Carried into the
+ * plugin body at compile time (url / transport / auth) and also POSTed to the
+ * "list tools" meta method so the plugin can connect and enumerate tools. */
+export interface McpConnection {
+  url: string
+  /** Wire transport: 'streamable-http' | 'sse' | 'stdio' | 'websocket'. */
+  transport?: string
+  /** Auth material (bearer token / header value), if the server needs it. */
+  auth?: string
+}
+
+/** One tool advertised by an MCP server, returned by the "list tools" meta
+ * method. `name` is the tool id the model calls (and the outbound-port route
+ * tag); `description` tells the model when to call it; `inputSchema` is the
+ * tool's JSON-schema arguments (kept for reference / future arg forms). */
+export interface McpTool {
+  name: string
+  title?: string
+  description?: string
+  inputSchema?: Record<string, unknown>
+}
+
 export type ContextChangeType = 'flow' | 'manual'
 
 export interface ContextRecord {

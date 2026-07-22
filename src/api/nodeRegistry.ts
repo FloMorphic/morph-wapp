@@ -2,6 +2,8 @@ import type {
   ExtensionKind,
   ExtensionRecord,
   ExtensionType,
+  McpConnection,
+  McpTool,
   Page,
   PaginationParams,
   PluginCredRequest,
@@ -165,4 +167,15 @@ export const nodeRegistryApi = {
   settings: (id: string) => http.get<unknown>(`/extension/id/${id}/settings`),
   actions: (id: string) => http.get<unknown>(`/extension/id/${id}/actions`),
   actionForm: (id: string, method: string) => http.get<unknown>(`/extension/id/${id}/actions/${method}/form`),
+
+  /** Live: connect to the MCP server configured on an MCP node and list its
+   * tools, so each can be bound as a function (the MCP-with-LLM "load tools"
+   * button). Calls the MCP plugin's `getToolsList` method over inflowv1 via the
+   * backend REST->inflowv1 shim — the POST body carries the connection params,
+   * which the reserved `@`-descriptor fetches above don't. `pluginId` is the MCP
+   * node's inflowv1 plugin id (`data.pluginId`, the hard-coded seed id); the
+   * proxy keys the plugin directly by it, no extension row involved. Needs a
+   * backend + the MCP plugin running. */
+  mcpTools: (pluginId: string, connection: McpConnection) =>
+    http.post<McpTool[]>(`/extension/id/${pluginId}/getToolsList`, connection),
 }

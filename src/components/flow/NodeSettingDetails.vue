@@ -11,7 +11,7 @@ import type { MemoryType } from '@/types/api'
 
 // Kinds with a bespoke editor (NodeConfig). Their kind-specific data keys are
 // managed there, so the generic field list drops to the universal fields only.
-const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'goto', 'until'])
+const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'mcp', 'goto', 'until'])
 
 /**
  * Generic, catalog-driven property panel. It edits the selected node's `data`
@@ -83,10 +83,15 @@ function humanize(name: string): string {
 const isCustom = computed(() => !!props.node && CUSTOM_EDITOR_KINDS.has(props.node.type))
 
 // Only Plugin nodes (llm / mcp / cast, and user extension plugins) take their
-// config from a settings profile — so the picker is shown only for them.
-const showSettingsProfile = computed(
-  () => !!props.node && usesSettingsProfile(props.node.type, props.node.data as Record<string, unknown>),
-)
+// config from a settings profile — so the picker is shown only for them. The MCP
+// node is special: it needs an LLM provider profile only in its "With LLM" mode;
+// in "Tool only" mode no model is called, so the picker is hidden.
+const showSettingsProfile = computed(() => {
+  if (!props.node) return false
+  const data = props.node.data as Record<string, unknown>
+  if (props.node.type === 'mcp') return data.mcpMode === 'llm'
+  return usesSettingsProfile(props.node.type, data)
+})
 
 // A store picker is shown when the node carries a `storeId` and its kind maps
 // to a memory-store type.
