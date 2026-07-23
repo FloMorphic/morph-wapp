@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
+import CodeEditor from '@/components/ui/CodeEditor.vue'
 import JsonSchemaForm from '@/components/flow/JsonSchemaForm.vue'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
@@ -479,12 +480,12 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
           {{ lang === 'opa' ? 'Policy (Rego)' : 'Code (JavaScript)' }}
         </label>
-        <textarea
+        <CodeEditor
           v-model="code"
-          rows="6"
-          spellcheck="false"
-          class="input resize-none font-mono text-xs leading-relaxed"
-          :placeholder="lang === 'opa' ? 'package flomorphic\n\nresult := true' : '// last expression is the result\nreturn { ok: true }'"
+          :language="lang === 'opa' ? 'opa' : 'js'"
+          inline
+          wrap
+          :placeholder="lang === 'opa' ? 'package flomorphic\n\nscope_data := input # scoped context: input.<field>\ncriteria := data # Conditions key/values: data.<key>\n\nresult := true' : '// last expression is the result\nreturn { ok: true }'"
         />
       </div>
 
@@ -756,13 +757,13 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
 
           <!-- Raw JSON (explicit toggle, or no schema to build a form from) -->
           <template v-else>
-            <textarea
-              :value="mcpArgsText"
-              rows="6"
-              spellcheck="false"
-              class="input resize-none font-mono text-xs leading-relaxed"
+            <CodeEditor
+              :model-value="mcpArgsText"
+              language="json"
+              inline
+              wrap
               placeholder='{ "query": "{{input}}" }'
-              @input="onMcpArgsInput(($event.target as HTMLTextAreaElement).value)"
+              @update:model-value="onMcpArgsInput"
             />
             <p v-if="mcpArgsError" class="text-[12px] text-danger">Invalid JSON: {{ mcpArgsError }}</p>
             <p class="text-[11px] leading-relaxed text-fg-subtle">

@@ -110,6 +110,22 @@ const identityFields = computed<Field[]>(() => {
   return names.map((name) => ({ name, label: humanize(name), type: 'text' as FieldType }))
 })
 
+// Split the spec description into plain-text and URL segments so bare links
+// (e.g. the OPA playground) render as anchors that open in a new tab.
+const descriptionParts = computed<{ text: string; url?: string }[]>(() => {
+  const text = spec.value?.description ?? ''
+  const re = /https?:\/\/\S*[^\s.,;:)]/g
+  const parts: { text: string; url?: string }[] = []
+  let last = 0
+  for (const m of text.matchAll(re)) {
+    if (m.index > last) parts.push({ text: text.slice(last, m.index) })
+    parts.push({ text: m[0], url: m[0] })
+    last = m.index + m[0].length
+  }
+  if (last < text.length) parts.push({ text: text.slice(last) })
+  return parts
+})
+
 const fields = computed<Field[]>(() => {
   if (!props.node) return []
   const data = props.node.data as BaseNodeData
@@ -253,7 +269,18 @@ onBeforeUnmount(stopResize)
     </div>
 
     <div class="flex-1 space-y-4 overflow-y-auto p-4">
-      <p class="text-xs leading-relaxed text-fg-muted">{{ spec.description }}</p>
+      <p class="text-xs leading-relaxed text-fg-muted">
+        <template v-for="(part, i) in descriptionParts" :key="i">
+          <a
+            v-if="part.url"
+            :href="part.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-accent underline hover:opacity-80"
+          >{{ part.text }}</a>
+          <template v-else>{{ part.text }}</template>
+        </template>
+      </p>
 
       <!-- Identity strip: compact rows for title / key / scope. These are also
            editable inline on the node itself. -->

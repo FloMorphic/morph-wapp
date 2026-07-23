@@ -334,14 +334,17 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'ai',
     tagline: 'Run OPA / Rego',
     description:
-      'Evaluate an OPA/Rego policy against the scoped context and write the selected result back to `key`. Compiles to a Code node (variant `opa`) in the Inflowenger ecosystem.',
+      'Evaluate an OPA/Rego policy against the scoped context and write the selected result back to `key`. Inside the policy the given scope is accessible through the `input` key (e.g. `input.<field in scope>`), and the key/value pairs defined in Conditions are accessible through the `data` key (e.g. `data.<condition key>`). Try your policy in the playground: https://play.openpolicyagent.org. Compiles to a Code node (variant `opa`) in the Inflowenger ecosystem.',
     primitives: 'Code · opa',
     defaults: () => ({
       title: 'OPA',
       key: 'result',
       scope: '$',
       lang: 'opa',
-      logic_rule: 'package flomorphic\n\nresult := true\n',
+      logic_rule:
+        'scope_data := input # the scoped context — fields selected by `scope` are available as input.<field>\n' +
+        'criteria := data # values coming from the Conditions key/value pairs — available as data.<key>\n\n' +
+        'result := true\n',
       opa_result: 'result',
       // [{ key, value }] — extra criteria data available to the policy.
       conditions: [],
