@@ -38,8 +38,11 @@ const hasTarget = computed(() => !spec.value?.entry)
 // Entry nodes (Start) are bare markers with no settings, so there's nothing
 // worth copying — hide the duplicate button for them.
 const canCopy = computed(() => !spec.value?.entry)
-// Derived output ports (e.g. LLM functions, Rule handlers).
+// Derived output ports (e.g. LLM functions, Rule handlers, MCP tools).
 const ports = computed(() => spec.value?.ports?.(props.data) ?? [])
+// 'stack' renders one card per port under the body (scales to many ports,
+// e.g. MCP tools); 'bottom' spreads handles along the bottom edge.
+const stackedPorts = computed(() => spec.value?.portLayout === 'stack' && ports.value.length > 0)
 // A single default source handle only when there are no derived ports.
 const hasSource = computed(() => !spec.value?.terminal && ports.value.length === 0)
 
@@ -170,7 +173,14 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
       boxShadow: selected ? `0 0 0 1px ${accent}, var(--shadow-md)` : 'var(--shadow-sm)',
     }"
   >
-    <Handle v-if="hasTarget" type="target" :position="Position.Left" />
+    <!-- When ports stack as cards the node grows tall, so keep the incoming
+         handle anchored beside the header instead of the vertical center. -->
+    <Handle
+      v-if="hasTarget"
+      type="target"
+      :position="Position.Left"
+      :style="stackedPorts ? { top: '22px' } : undefined"
+    />
 
     <div class="flex items-center gap-2.5 px-3 py-2">
       <span
@@ -292,8 +302,30 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
       </span>
     </div>
 
+    <!-- Stacked port cards: one card per derived port (e.g. each MCP tool),
+         each carrying its own right-side outbound handle. Scales to servers
+         exposing 10+ tools where bottom-edge handles would collide. -->
+    <template v-if="stackedPorts">
+      <div
+        v-for="port in ports"
+        :key="port.id"
+        class="port-card relative border-t px-3 py-1.5 last:rounded-b-xl"
+      >
+        <p class="truncate text-[10.5px] font-medium text-fg-muted" :title="port.label">
+          {{ port.label }}
+        </p>
+        <Handle
+          :id="port.id"
+          type="source"
+          :position="Position.Right"
+          :style="{ background: accent, borderColor: accent }"
+          :title="port.label"
+        />
+      </div>
+    </template>
+
     <!-- Labels for the derived output ports (aligned above their handles). -->
-    <div v-if="ports.length" class="relative h-5 border-t">
+    <div v-if="ports.length && !stackedPorts" class="relative h-5 border-t">
       <span
         v-for="(port, i) in ports"
         :key="port.id"
@@ -308,20 +340,26 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
     <Handle v-if="hasSource" type="source" :position="Position.Right" />
 
     <!-- Derived output handles along the bottom edge. -->
-    <Handle
-      v-for="(port, i) in ports"
-      :key="port.id"
-      :id="port.id"
-      type="source"
-      :position="Position.Bottom"
-      :style="{ left: portLeft(i, ports.length), background: accent, borderColor: accent }"
-      :title="port.label"
-    />
+    <template v-if="!stackedPorts">
+      <Handle
+        v-for="(port, i) in ports"
+        :key="port.id"
+        :id="port.id"
+        type="source"
+        :position="Position.Bottom"
+        :style="{ left: portLeft(i, ports.length), background: accent, borderColor: accent }"
+        :title="port.label"
+      />
+    </template>
   </div>
 </template>
 
 <style scoped>
 .flow-node {
   width: 194px;
+}
+/* Stacked port cards read as attachments under the node body. */
+.port-card {
+  background: var(--surface);
 }
 </style>

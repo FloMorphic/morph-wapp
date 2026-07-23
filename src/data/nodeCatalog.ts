@@ -88,6 +88,13 @@ export interface NodeSpec {
    * of the single default handle.
    */
   ports?: (data: BaseNodeData) => NodePort[]
+  /**
+   * How derived ports render on the node. 'bottom' (default) spreads handles
+   * along the bottom edge — fine for a handful of branches. 'stack' renders one
+   * full-width card per port under the node body, each with its own right-side
+   * outbound handle — scales to many ports (e.g. an MCP server exposing 10+ tools).
+   */
+  portLayout?: 'bottom' | 'stack'
 }
 
 const spec = (s: NodeSpec): NodeSpec => s
@@ -207,6 +214,9 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       const n = asRows(d.functions).length
       return n ? `${n} function${n === 1 ? '' : 's'}` : 'no functions'
     },
+    // Bound functions can grow numerous, so they render as stacked cards under
+    // the node body (one right-side outbound handle each), not a bottom row.
+    portLayout: 'stack',
     ports: (d) =>
       asRows(d.functions).map((f, i) => ({
         id: String(f.id ?? f.name ?? `fn${i}`),
@@ -256,7 +266,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'ai',
     tagline: 'MCP client',
     description:
-      'Connect to an MCP server as a client. In "Tool only" mode it exposes the server\'s tools to the flow; in "With LLM" mode it drives a model (provider config from a settings profile) that can call those tools — each loaded tool becomes an output port. Connection params (URL, transport, auth) are set on the node. Compiles to a Plugin node.',
+      'Connect to an MCP server as a client. In "Tool only" mode it calls a single tool; in "With LLM" mode it drives a model (provider config from a settings profile) that binds and calls the loaded tools internally — tool routing never surfaces as workflow edges. Connection params (URL, transport, auth) are set on the node. Compiles to a Plugin node.',
     primitives: 'Plugin',
     plugin: true,
     defaults: () => ({
@@ -278,8 +288,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       transport: 'streamable-http',
       auth: '',
       // [{ id, name, title, description, inputSchema }] — loaded from the MCP
-      // server via the "load tools" button. Each renders as an output port in
-      // 'llm' mode (see ports()), mirroring the LLM node's bound functions;
+      // server via the "load tools" button and listed in the drawer only: the
+      // plugin binds and calls tools internally, so they are not workflow ports;
       // inputSchema drives the argument dialog for 'tool' mode's call_tool.
       functions: [],
       // 'tool' mode (call_tool) only: the single tool to call and the arguments
@@ -293,16 +303,9 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       const tools = n ? `${n} tool${n === 1 ? '' : 's'}` : d.url ? 'no tools loaded' : 'no server'
       return `${mode} · ${tools}`
     },
-    // In 'llm' mode each bound tool is an output port the model can route
-    // through (like the LLM node); in 'tool' mode the node just exposes its
-    // tools to the flow and carries the single default handle.
-    ports: (d) =>
-      d.mcpMode === 'llm'
-        ? asRows(d.functions).map((f, i) => ({
-            id: String(f.id ?? f.name ?? `fn${i}`),
-            label: String(f.title ?? f.name ?? `fn${i + 1}`),
-          }))
-        : [],
+    // No derived ports: the plugin binds and calls MCP tools as an innate
+    // operation in both modes, so the node carries the single default handle
+    // and its tools are only listed in the drawer.
   }),
 
   js: spec({

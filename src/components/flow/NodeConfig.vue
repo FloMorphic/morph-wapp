@@ -653,12 +653,13 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           </p>
         </div>
 
-        <!-- Tools → functions → output ports -->
+        <!-- Tools the model can call — bound by the plugin internally, so this
+             is an informational list only (no workflow ports). -->
         <div class="space-y-1.5 border-t pt-3">
           <div class="flex items-center justify-between">
             <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
               Tools
-              <span class="ml-1 font-normal normal-case text-fg-subtle">— one outbound port each</span>
+              <span class="ml-1 font-normal normal-case text-fg-subtle">— called by the model internally</span>
             </label>
             <button
               class="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px] text-accent hover:bg-accent-soft disabled:opacity-60"
@@ -684,7 +685,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
 
           <p v-if="functions().length === 0" class="text-[11px] text-fg-subtle">
             No tools loaded yet — set the server above and click <em>Load tools</em>. Each tool the
-            server advertises becomes a function the model can route through.
+            server advertises becomes available for the model to call internally.
           </p>
         </div>
       </template>
