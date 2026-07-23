@@ -2,7 +2,9 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '@/components/ui/Icon.vue'
+import FlowRefText from '@/components/flow/FlowRefText.vue'
 import { useFlowLogsStore, type FlowLogMessage, type LogLevel } from '@/stores/flowLogs'
+import { useFlowGraphsStore } from '@/stores/flowGraphs'
 import { useNotificationsStore } from '@/stores/notifications'
 import { processesApi } from '@/api/processes'
 
@@ -15,6 +17,7 @@ import { processesApi } from '@/api/processes'
  * check against the wire is useless when debugging the engine itself.
  */
 const store = useFlowLogsStore()
+const graphs = useFlowGraphsStore()
 const router = useRouter()
 const notifications = useNotificationsStore()
 
@@ -105,6 +108,9 @@ const filteredMessages = computed(() => {
         m.src?.toLowerCase().includes(q) ||
         m.nodeTitle?.toLowerCase().includes(q) ||
         m.nodeId?.toLowerCase().includes(q) ||
+        // What the row actually shows for its node — the title off the saved
+        // graph — is searchable too, but only for flows already resolved.
+        (m.nodeId ? graphs.node(m.flow, m.nodeId)?.title.toLowerCase().includes(q) : false) ||
         m.flow?.toLowerCase().includes(q),
     )
   }
@@ -147,7 +153,7 @@ const levelText: Record<LogLevel, string> = {
 
 function kindLabel(kind?: string): string {
   if (!kind) return ''
-  return kind.replace(/^(node|proc|edge|flow)\./, '')
+  return kind.replace(/^(node|proc|edge|flow|dep)\./, '')
 }
 
 /** Group kinds by meaning so the badge colour carries information. */
@@ -156,15 +162,22 @@ function kindClass(kind?: string): string {
   if (kind === 'proc.start' || kind === 'proc.finish') return 'bg-violet-500/15 text-violet-600 dark:text-violet-300'
   if (kind === 'edge.select' || kind === 'flow.jump') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
   if (kind.startsWith('node.')) return 'bg-sky-500/15 text-sky-600 dark:text-sky-300'
+  // A join parked on its inbound branches vs. one released — the pair reads as
+  // a state change, so colour them as one (amber = waiting, emerald = through).
+  if (kind === 'dep.wait') return 'bg-amber-500/20 text-amber-600 dark:text-amber-300'
+  if (kind === 'dep.ready') return 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-300'
   if (kind === 'progress') return 'bg-teal-500/20 text-teal-600 dark:text-teal-300'
   if (kind === 'protocol') return 'bg-teal-500/10 text-teal-600 dark:text-teal-400'
   if (kind === 'log') return 'bg-fg-subtle/15 text-fg-muted'
   return 'bg-amber-500/15 text-amber-600 dark:text-amber-300'
 }
 
-function nodeLabel(msg: FlowLogMessage): string {
-  if (!msg.nodeId) return ''
-  return msg.nodeTitle ? `${msg.nodeTitle} · ${msg.nodeId}` : msg.nodeId
+/**
+ * `edge.select` names its own source in the message (`from … → to …`), so the
+ * node chip would print the same node twice on those rows.
+ */
+function showNodeChip(msg: FlowLogMessage): boolean {
+  return !!msg.nodeId && msg.kind !== 'edge.select'
 }
 
 function rawJson(msg: FlowLogMessage): string {
@@ -407,10 +420,14 @@ async function copyAll() {
                 >{{ kindLabel(displayKind(msg)) }}</span
               >
               <span v-if="msg.src && msg.src !== 'rt'" class="text-[10px] text-accent">{{ msg.src }}</span>
-              <span v-if="msg.nodeId" class="text-[11px] text-fg-muted" :title="`${msg.flow} / ${msg.nodeId}`">{{
-                nodeLabel(msg)
-              }}</span>
-              <span class="break-words text-fg">{{ msg.message }}</span>
+              <FlowRefText
+                v-if="showNodeChip(msg)"
+                class="text-[11px] text-fg-muted"
+                :text="msg.nodeId!"
+                :flow="msg.flow"
+                :fallback="msg.nodeTitle"
+              />
+              <FlowRefText class="text-fg" :text="msg.message" :flow="msg.flow" :fallback="msg.nodeTitle" />
               <button
                 v-if="isExpandable(msg)"
                 class="ml-auto text-fg-subtle opacity-0 transition group-hover:opacity-100 hover:text-accent"

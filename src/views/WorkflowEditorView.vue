@@ -11,11 +11,13 @@ import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { useWorkflowsStore } from '@/stores/workflows'
 import { useFlowLogsStore } from '@/stores/flowLogs'
+import { useFlowGraphsStore } from '@/stores/flowGraphs'
 
 const props = defineProps<{ id?: string }>()
 const router = useRouter()
 const store = useWorkflowsStore()
 const logs = useFlowLogsStore()
+const graphs = useFlowGraphsStore()
 
 // One shared socket powers the log drawer, the toolbar's live-run badge and
 // app-wide notification toasts. App.vue connects it for the whole session;
@@ -73,6 +75,9 @@ async function save() {
   try {
     const record = await store.save({ id: currentId.value, title: title.value.trim() || 'Untitled workflow', view_flow: graph })
     dirty.value = false
+    // The log drawer names nodes/edges by resolving ids against the saved graph;
+    // a rename here must not leave it showing the old titles.
+    graphs.invalidate(record.id)
     if (!currentId.value) {
       currentId.value = record.id
       router.replace({ name: 'workflow-edit', params: { id: record.id } })

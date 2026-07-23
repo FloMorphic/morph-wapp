@@ -616,7 +616,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         </div>
         <p class="text-[11px] leading-relaxed text-fg-subtle">
           {{ mcpMode === 'llm'
-            ? 'Drives a model (provider config from the Settings profile above) that can call the MCP server\'s tools. Each loaded tool becomes an output port.'
+            ? 'Drives a model (provider config from the Settings profile above) that can call the MCP server\'s tools. '
             : 'Exposes the MCP server\'s tools to the flow. No model is called here.' }}
         </p>
       </div>

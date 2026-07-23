@@ -1,7 +1,14 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { io, type Socket } from 'socket.io-client'
-import { createFlowTracker, type Level, type ProcEvent } from '@inflowenger/flow-trace'
+import {
+  createFlowTracker,
+  describeEvent,
+  type Level,
+  type LogCategory,
+  type LogDetail,
+  type ProcEvent,
+} from '@inflowenger/flow-trace'
 import { apiBaseUrl, apiEnabled, getAuthToken } from '@/api/client'
 import { useNotificationsStore } from '@/stores/notifications'
 
@@ -32,8 +39,8 @@ export interface FlowLogMessage {
   pid?: string
   seq?: number
   kind?: string
-  /** Sub-kind of a `log` event (`progress` | `protocol`), drives the badge. */
-  category?: string
+  /** Sub-kind of a `log` event (progress / protocol / dep.*), drives the badge. */
+  category?: LogCategory
   src?: string
   flow?: string
   nodeId?: string
@@ -55,62 +62,6 @@ const MAX_MESSAGES = 5000
 
 /** A fixed session label; the backend route (/ws/:id) only uses it as a name. */
 const SOCKET_PATH = '/ws/flomorphic'
-
-function shortNode(flow?: string, node?: string): string {
-  if (!flow || !node) return ''
-  return `${flow}/${node}`
-}
-
-/** A readable one-liner per event kind. The raw JSON is one click away. */
-function summarize(event: ProcEvent): string {
-  const d = (event.detail ?? {}) as Record<string, any>
-  switch (event.kind) {
-    case 'proc.start':
-      return `Process started at ${shortNode(d.flow, d.node)}`
-    case 'proc.finish': {
-      const ms = d.durationMs ?? 0
-      if (d.status === 'completed') return `Process completed in ${ms}ms`
-      if (d.status === 'stopped') return `Process stopped after ${ms}ms`
-      return `Process failed after ${ms}ms${d.error ? `: ${d.error}` : ''}`
-    }
-    case 'node.enter': {
-      const attempt = d.attempt > 1 ? ` (attempt ${d.attempt})` : ''
-      return `→ ${d.title ?? event.node} entered${attempt}`
-    }
-    case 'node.exit': {
-      if (d.status === 'error') return `✕ exited with error: ${d.error ?? 'unknown'}`
-      return `✓ exited ok in ${d.durationMs ?? 0}ms`
-    }
-    case 'edge.select': {
-      const taken = (d.taken ?? []) as Array<{ node: string }>
-      const pruned = (d.pruned ?? []) as Array<{ node: string }>
-      const reason = d.reason?.tags?.length ? ` on [${d.reason.tags.join(', ')}]` : ''
-      if (taken.length === 0) return `Routed nowhere${reason}`
-      const targets = taken.map((t) => t.node).join(', ')
-      const skipped = pruned.length > 0 ? `, skipped ${pruned.length}` : ''
-      return `Routed to ${targets}${reason}${skipped}`
-    }
-    case 'flow.jump':
-      return `Jumped to ${shortNode(d.to?.flow, d.to?.node)}${
-        d.ret ? `, returns at ${shortNode(d.ret.flow, d.ret.node)}` : ''
-      }`
-    case 'log': {
-      if (d.category === 'progress') {
-        const frame = (d.frame ?? {}) as { title?: string; content?: string }
-        const label = [frame.title, frame.content].filter(Boolean).join(': ')
-        const pct = `${d.percent ?? 0}%`
-        return label ? `${pct} — ${label}` : pct
-      }
-      if (d.category === 'protocol') {
-        const head = [d.proto, d.msg].filter(Boolean).join(' · ')
-        return d.subject ? `${head} → ${d.subject}` : head
-      }
-      return String(d.msg ?? '')
-    }
-    default:
-      return `${event.kind}`
-  }
-}
 
 export const useFlowLogsStore = defineStore('flowLogs', () => {
   const connected = ref(false)
@@ -164,16 +115,19 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
     pushMessage({
       timestamp: event.ts,
       level: event.level,
-      message: summarize(event),
+      // Ids, not titles: the drawer resolves them against the saved graph as it
+      // renders (see FlowRefText.vue / flowGraphs.ts).
+      message: describeEvent(event),
       event,
       pid: event.pid,
       seq: event.seq,
       kind: event.kind,
-      category:
-        event.kind === 'log' ? ((event.detail as any)?.category as string | undefined) : undefined,
+      category: event.kind === 'log' ? (event.detail as LogDetail | undefined)?.category : undefined,
       src: event.src,
       flow: event.flow,
       nodeId: event.node,
+      // The only title on the wire: `node.enter` reports the compiled node's
+      // title. Every other reference is resolved from the saved graph on render.
       nodeTitle: (event.detail as any)?.title,
     })
   })

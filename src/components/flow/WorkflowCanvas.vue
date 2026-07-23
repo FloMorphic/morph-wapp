@@ -163,13 +163,13 @@ function loadGraph(graph: VueFlowGraph, seedStart = false) {
     ? graph.nodes.map(sanitizeNode)
     : seedStart
       ? [
-          {
-            id: createId('n'),
-            type: DEFAULT_START_KIND,
-            position: { x: 80, y: 200 },
-            data: NODE_SPECS[DEFAULT_START_KIND].defaults(),
-          },
-        ]
+        {
+          id: createId('n'),
+          type: DEFAULT_START_KIND,
+          position: { x: 80, y: 200 },
+          data: NODE_SPECS[DEFAULT_START_KIND].defaults(),
+        },
+      ]
       : []
   edges.value = graph?.edges ? graph.edges.map(sanitizeEdge) : []
   nextTick(() => {
@@ -216,19 +216,9 @@ defineExpose({ addNode, loadGraph, getGraph, removeSelected, fitView, showMinima
 
 <template>
   <div class="relative h-full w-full" @drop="onDrop" @dragover="onDragOver">
-    <VueFlow
-      v-model:nodes="nodes"
-      v-model:edges="edges"
-      :node-types="nodeTypes"
-      :edges-updatable="true"
-      :delete-key-code="['Delete', 'Backspace']"
-      :default-viewport="{ zoom: 1 }"
-      :min-zoom="0.2"
-      :max-zoom="2.5"
-      class="h-full w-full"
-      @nodes-change="emit('dirty')"
-      @edges-change="emit('dirty')"
-    >
+    <VueFlow v-model:nodes="nodes" v-model:edges="edges" :node-types="nodeTypes" :edges-updatable="true"
+      :delete-key-code="['Delete', 'Backspace']" :default-viewport="{ zoom: 1 }" :min-zoom="0.2" :max-zoom="2.5"
+      class="h-full w-full" @nodes-change="emit('dirty')" @edges-change="emit('dirty')">
       <Background :gap="18" :size="1.4" pattern-color="var(--canvas-dots)" />
       <Controls position="bottom-right" />
       <MiniMap v-if="showMinimap" pannable zoomable />
