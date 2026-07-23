@@ -46,8 +46,10 @@ export function nodeUniqLabel(nodeUniqId: string): string {
 }
 
 /** These node `data` keys are managed by the settings selector, not editable
- * as generic fields in the inspector. */
-export const SETTINGS_DATA_KEYS = ['settingsId', 'settingsName'] as const
+ * as generic fields in the inspector. `settings` is the selected profile's
+ * resolved values, denormalized onto the node so the backend compiler can ship
+ * them as the plugin body's `settings` without reading the profile store. */
+export const SETTINGS_DATA_KEYS = ['settingsId', 'settingsName', 'settings'] as const
 
 /** Node-identity keys stamped from the palette's backing extension row. They are
  * system-managed (see {@link NodeExtRef}), not user-editable generic fields. */

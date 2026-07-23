@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import Icon from '@/components/ui/Icon.vue'
 import { useFlowLogsStore, type FlowLogMessage, type LogLevel } from '@/stores/flowLogs'
+import { useNotificationsStore } from '@/stores/notifications'
+import { processesApi } from '@/api/processes'
 
 /**
  * Bottom, resizable drawer showing the live runtime log stream for the editor.
@@ -12,6 +15,8 @@ import { useFlowLogsStore, type FlowLogMessage, type LogLevel } from '@/stores/f
  * check against the wire is useless when debugging the engine itself.
  */
 const store = useFlowLogsStore()
+const router = useRouter()
+const notifications = useNotificationsStore()
 
 const drawerHeight = ref(300)
 const logContainer = ref<HTMLElement | null>(null)
@@ -184,6 +189,33 @@ async function copyRow(msg: FlowLogMessage) {
     setTimeout(() => copiedId.value === msg.id && (copiedId.value = null), 1200)
   } catch {
     /* clipboard unavailable */
+  }
+}
+
+/** A process lifecycle row — the anchor for jumping to the run's context. */
+function isProcRow(msg: FlowLogMessage): boolean {
+  return !!msg.pid && (msg.kind === 'proc.start' || msg.kind === 'proc.finish')
+}
+
+// The stream only carries the pid; resolve it to the run's contextId through
+// the process record, then land on the context page to evaluate what the run
+// wrote.
+const resolvingPid = ref<string | null>(null)
+async function openRunContext(msg: FlowLogMessage) {
+  if (!msg.pid || resolvingPid.value) return
+  resolvingPid.value = msg.pid
+  try {
+    const page = await processesApi.list({ pid: msg.pid, per_page: 1 })
+    const contextId = page.list[0]?.contextId
+    if (contextId) {
+      router.push({ name: 'context-detail', params: { id: contextId } })
+    } else {
+      notifications.notify({ level: 'warning', message: 'No process record (or context) found for this run.' })
+    }
+  } catch (err) {
+    notifications.notify({ level: 'error', message: (err as Error).message })
+  } finally {
+    resolvingPid.value = null
   }
 }
 
@@ -386,6 +418,16 @@ async function copyAll() {
                 @click.stop="copyRow(msg)"
               >
                 <Icon :name="copiedId === msg.id ? 'check' : 'copy'" :size="13" />
+              </button>
+              <button
+                v-if="isProcRow(msg)"
+                class="flex items-center gap-1 text-[10px] font-semibold text-fg-subtle transition hover:text-accent"
+                :class="{ 'ml-auto': !isExpandable(msg) }"
+                title="Open this run's context"
+                @click.stop="openRunContext(msg)"
+              >
+                <Icon name="context" :size="13" />
+                {{ resolvingPid === msg.pid ? '…' : 'context' }}
               </button>
             </div>
             <pre

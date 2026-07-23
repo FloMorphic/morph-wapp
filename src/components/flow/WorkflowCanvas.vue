@@ -35,8 +35,18 @@ const nodeTypes: Record<string, Component> = Object.fromEntries(
 // join, and Goto just redirects the flow.
 const NO_BINDING_KINDS = new Set<string>(['startNode', 'until', 'promissall', 'goto'])
 
-const { onConnect, onNodeClick, onPaneClick, screenToFlowCoordinate, fitView, setViewport, viewport } =
-  useVueFlow()
+const {
+  onConnect,
+  onNodeClick,
+  onPaneClick,
+  onEdgeUpdate,
+  onNodesChange,
+  screenToFlowCoordinate,
+  fitView,
+  setViewport,
+  viewport,
+  updateEdge,
+} = useVueFlow()
 
 let addOffset = 0
 
@@ -69,6 +79,18 @@ onConnect((params: Connection) => {
     data: { tags: [] },
   })
   emit('dirty')
+})
+
+// Dragging an existing edge's endpoint onto another handle re-wires it in place.
+onEdgeUpdate(({ edge, connection }) => {
+  updateEdge(edge, connection, false)
+  emit('dirty')
+})
+
+// Delete-key removal targets the selected node; clear the config panel with it
+// so it never shows a node that no longer exists.
+onNodesChange((changes) => {
+  if (changes.some((c) => c.type === 'remove')) emit('select', null)
 })
 
 onNodeClick(({ node }) => emit('select', node))
@@ -191,6 +213,8 @@ defineExpose({ addNode, loadGraph, getGraph, removeSelected, fitView })
       v-model:nodes="nodes"
       v-model:edges="edges"
       :node-types="nodeTypes"
+      :edges-updatable="true"
+      :delete-key-code="['Delete', 'Backspace']"
       :default-viewport="{ zoom: 1 }"
       :min-zoom="0.2"
       :max-zoom="2.5"

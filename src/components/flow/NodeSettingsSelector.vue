@@ -12,7 +12,10 @@ import NodeSettingsModal from '@/components/settings/NodeSettingsModal.vue'
  * profiles bound to this node (its kind / plugin identity), lets the user pick
  * the one this node instance uses, and shows / edits the selected profile's
  * values. The selection is stored on the node's `data.settingsId` (+ a
- * denormalized `data.settingsName` so the canvas tag can render without a fetch).
+ * denormalized `data.settingsName` so the canvas tag can render without a fetch,
+ * and the profile's resolved values as `data.settings` — the backend compiler
+ * ships those as the plugin body's `settings` contract without ever touching the
+ * profile store, keeping the two sides independent).
  */
 const props = defineProps<{ node: GraphNode }>()
 
@@ -39,10 +42,11 @@ async function load() {
   error.value = null
   try {
     profiles.value = await nodeSettingsApi.listForNode(uniqId.value)
-    // Keep the denormalized name in sync (or clear a dangling reference).
+    // Keep the denormalized name + values in sync (or clear a dangling reference).
     if (selectedId.value) {
       const match = profiles.value.find((p) => p.id === selectedId.value)
       data().settingsName = match ? match.title : ''
+      data().settings = match ? { ...match.settings } : {}
     }
   } catch (err) {
     error.value = (err as Error).message
@@ -59,11 +63,13 @@ function onPick(id: string) {
   const match = profiles.value.find((p) => p.id === id)
   data().settingsId = id
   data().settingsName = match?.title ?? ''
+  data().settings = match ? { ...match.settings } : {}
 }
 
 function clearSelection() {
   data().settingsId = ''
   data().settingsName = ''
+  data().settings = {}
 }
 
 function openNew() {

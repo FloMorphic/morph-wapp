@@ -35,6 +35,8 @@ export const icons: Record<string, string> = {
   'chevron-right': '<polyline points="9 18 15 12 9 6"/>',
   'chevron-left': '<polyline points="15 18 9 12 15 6"/>',
   'chevrons-left': '<polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>',
+  'wrap-text':
+    '<line x1="3" x2="21" y1="6" y2="6"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="16 16 14 18 16 20"/><line x1="3" x2="10" y1="18" y2="18"/>',
   'arrow-left': '<line x1="19" x2="5" y1="12" y2="12"/><polyline points="12 19 5 12 12 5"/>',
   play: '<polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none"/>',
   'play-circle': '<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/>',

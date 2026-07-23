@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useContextsStore } from '@/stores/contexts'
 import type { ContextRecord } from '@/types/api'
 import PageShell from '@/components/ui/PageShell.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
-import Modal from '@/components/ui/Modal.vue'
 
 const store = useContextsStore()
+const router = useRouter()
 onMounted(() => store.refresh())
 
 const searchInput = ref('')
@@ -18,37 +19,13 @@ function onSearch() {
   searchTimer = setTimeout(() => store.setSearch(searchInput.value), 250)
 }
 
-const showModal = ref(false)
-const submitting = ref(false)
-const formError = ref<string | null>(null)
-
-const form = reactive({
-  id: undefined as string | undefined,
-  title: '',
-  context: '{\n  \n}',
-  header: '{}',
-})
-
-function resetForm() {
-  form.id = undefined
-  form.title = ''
-  form.context = '{\n  \n}'
-  form.header = '{}'
-  formError.value = null
+// Viewing and editing happen on the dedicated context page (ContextDetailView).
+function openNew() {
+  router.push({ name: 'context-new' })
 }
 
-function openAdd() {
-  resetForm()
-  showModal.value = true
-}
-
-function openEdit(c: ContextRecord) {
-  form.id = c.id
-  form.title = c.title
-  form.context = prettify(c.context) ?? c.context
-  form.header = c.header && Object.keys(c.header).length ? JSON.stringify(c.header, null, 2) : '{}'
-  formError.value = null
-  showModal.value = true
+function openContext(c: ContextRecord) {
+  router.push({ name: 'context-detail', params: { id: c.id } })
 }
 
 /** Parse a JSON string, returning the value or undefined when invalid. */
@@ -62,56 +39,6 @@ function tryParse(raw: string): unknown {
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
-/** Pretty-print a JSON string, or undefined if it doesn't parse. */
-function prettify(raw: string): string | undefined {
-  const parsed = tryParse(raw)
-  return parsed === undefined ? undefined : JSON.stringify(parsed, null, 2)
-}
-
-function formatDocuments() {
-  const pretty = prettify(form.context)
-  if (pretty !== undefined) form.context = pretty
-  const prettyHeader = prettify(form.header)
-  if (prettyHeader !== undefined) form.header = prettyHeader
-}
-
-async function submit() {
-  formError.value = null
-  if (!form.title.trim()) {
-    formError.value = 'Give the context a title.'
-    return
-  }
-  const context = tryParse(form.context)
-  if (!isPlainObject(context)) {
-    formError.value = 'The context must be a valid JSON object.'
-    return
-  }
-  let header: Record<string, unknown> = {}
-  if (form.header.trim()) {
-    const parsedHeader = tryParse(form.header)
-    if (!isPlainObject(parsedHeader)) {
-      formError.value = 'Header must be a valid JSON object (or empty).'
-      return
-    }
-    header = parsedHeader
-  }
-  submitting.value = true
-  try {
-    await store.save({
-      id: form.id,
-      title: form.title.trim(),
-      // Send a compact, canonical serialization the backend re-validates.
-      context: JSON.stringify(context),
-      header,
-    })
-    showModal.value = false
-  } catch (err) {
-    formError.value = (err as Error).message
-  } finally {
-    submitting.value = false
-  }
 }
 
 async function remove(c: ContextRecord, e: Event) {
@@ -146,7 +73,7 @@ function formatTime(ms: number): string {
     subtitle="The living state that flows through a workflow — a JSON document nodes read from and write to at runtime. Define reusable seed contexts here."
   >
     <template #actions>
-      <Button variant="primary" icon="plus" @click="openAdd">New context</Button>
+      <Button variant="primary" icon="plus" @click="openNew">New context</Button>
     </template>
 
     <div class="mb-5 flex items-center gap-3">
@@ -172,7 +99,7 @@ function formatTime(ms: number): string {
       title="No contexts yet"
       description="Create a JSON context document to seed a workflow run. Nodes read from and write back to it as the process executes."
     >
-      <Button variant="primary" icon="plus" @click="openAdd">New context</Button>
+      <Button variant="primary" icon="plus" @click="openNew">New context</Button>
     </EmptyState>
 
     <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -180,7 +107,7 @@ function formatTime(ms: number): string {
         v-for="c in store.items"
         :key="c.id"
         class="card group flex flex-col p-4 text-left transition-colors hover:border-accent-border"
-        @click="openEdit(c)"
+        @click="openContext(c)"
       >
         <div class="flex items-start justify-between gap-2">
           <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-soft text-accent">
@@ -213,60 +140,5 @@ function formatTime(ms: number): string {
         Next <Icon name="chevron-right" :size="15" />
       </Button>
     </div>
-
-    <!-- Create / edit modal -->
-    <Modal
-      :open="showModal"
-      :title="form.id ? 'Edit context' : 'New context'"
-      subtitle="A JSON document that seeds a workflow run."
-      @close="showModal = false"
-    >
-      <div class="space-y-4">
-        <div class="space-y-1">
-          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Title</label>
-          <input v-model="form.title" class="input" placeholder="e.g. onboarding-seed" />
-        </div>
-
-        <div class="space-y-1">
-          <div class="flex items-center justify-between">
-            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Context document</label>
-            <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="formatDocuments">
-              <Icon name="refresh" :size="13" /> Format JSON
-            </button>
-          </div>
-          <textarea
-            v-model="form.context"
-            rows="10"
-            spellcheck="false"
-            class="input font-mono text-xs leading-relaxed"
-            placeholder='{ "user": { "name": "" }, "messages": [] }'
-          />
-          <p class="text-[11px] text-fg-subtle">Must be a JSON object. Nodes read/write slices of this at runtime.</p>
-        </div>
-
-        <details class="rounded-lg border bg-surface-2 px-3 py-2">
-          <summary class="cursor-pointer text-[12px] font-medium text-fg-muted">Header metadata (optional)</summary>
-          <div class="mt-2 space-y-1">
-            <textarea
-              v-model="form.header"
-              rows="4"
-              spellcheck="false"
-              class="input font-mono text-xs leading-relaxed"
-              placeholder="{}"
-            />
-            <p class="text-[11px] text-fg-subtle">Free-form JSON metadata attached to the context.</p>
-          </div>
-        </details>
-
-        <p v-if="formError" class="text-sm text-danger">{{ formError }}</p>
-      </div>
-
-      <template #footer>
-        <Button @click="showModal = false">Cancel</Button>
-        <Button variant="primary" :icon="form.id ? 'save' : 'plus'" :disabled="submitting" @click="submit">
-          {{ submitting ? 'Saving…' : form.id ? 'Save context' : 'Create context' }}
-        </Button>
-      </template>
-    </Modal>
   </PageShell>
 </template>

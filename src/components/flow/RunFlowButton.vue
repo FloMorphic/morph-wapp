@@ -151,6 +151,13 @@ function viewRun() {
   router.push({ name: 'processes' })
 }
 
+/** Jump to the context page of the just-launched run — watch the state the run writes. */
+function viewRunContext() {
+  if (!launched.value?.contextId) return
+  open.value = false
+  router.push({ name: 'context-detail', params: { id: launched.value.contextId } })
+}
+
 /** One-line, top-level-key summary of a context document. */
 function summary(c: ContextRecord): string {
   try {
@@ -198,7 +205,19 @@ function summary(c: ContextRecord): string {
         >
           <Icon name="check" :size="16" />
           <span>Launched run <span class="font-mono font-semibold">#{{ launched.indexId }}</span>.</span>
-          <button class="ml-auto flex items-center gap-1 font-medium hover:underline" @click="viewRun">
+          <button
+            v-if="launched.contextId"
+            class="ml-auto flex items-center gap-1 font-medium hover:underline"
+            title="Open the context this run reads and writes"
+            @click="viewRunContext"
+          >
+            <Icon name="context" :size="14" /> Context
+          </button>
+          <button
+            class="flex items-center gap-1 font-medium hover:underline"
+            :class="launched.contextId ? '' : 'ml-auto'"
+            @click="viewRun"
+          >
             View <Icon name="chevron-right" :size="14" />
           </button>
         </div>

@@ -62,6 +62,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Contexts', section: 'contexts' },
       },
       {
+        path: 'contexts/new',
+        name: 'context-new',
+        component: () => import('@/views/ContextDetailView.vue'),
+        meta: { title: 'New context', section: 'contexts' },
+      },
+      {
+        path: 'contexts/:id',
+        name: 'context-detail',
+        component: () => import('@/views/ContextDetailView.vue'),
+        props: true,
+        meta: { title: 'Context', section: 'contexts' },
+      },
+      {
         path: 'prompts',
         name: 'prompts',
         component: () => import('@/views/PromptsView.vue'),

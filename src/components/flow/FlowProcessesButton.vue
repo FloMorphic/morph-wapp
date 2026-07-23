@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Process } from '@/types/api'
 import { processesApi } from '@/api/processes'
 import Button from '@/components/ui/Button.vue'
@@ -21,6 +22,7 @@ import { useFlowLogsStore } from '@/stores/flowLogs'
  */
 const props = defineProps<{ flowId?: string }>()
 
+const router = useRouter()
 const logs = useFlowLogsStore()
 const remote = processesApi.isRemote()
 const runs = ref<Process[]>([])
@@ -57,6 +59,13 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+/** Jump to the context page of a run — inspect the state it reads and writes. */
+function openContext(p: Process) {
+  if (!p.contextId) return
+  showPanel.value = false
+  router.push({ name: 'context-detail', params: { id: p.contextId } })
 }
 
 async function stopRun(p: Process) {
@@ -122,6 +131,14 @@ watch(liveOnFlow, load)
             <span class="font-mono text-[12px] text-fg-subtle">{{ p.pid ? p.pid.slice(0, 8) : '—' }}</span>
             <span class="text-[12px] text-fg-subtle">{{ formatProcessTime(p.startedAt) }}</span>
             <span class="ml-auto text-[12px] text-fg-muted">{{ formatDuration(p) }}</span>
+            <button
+              v-if="p.contextId"
+              class="rounded-lg p-1.5 text-fg-subtle transition hover:bg-accent-soft hover:text-accent"
+              title="Open context"
+              @click="openContext(p)"
+            >
+              <Icon name="context" :size="15" />
+            </button>
             <button
               v-if="isStoppable(p.status)"
               class="rounded-lg p-1.5 text-fg-subtle transition hover:bg-danger-soft hover:text-danger"

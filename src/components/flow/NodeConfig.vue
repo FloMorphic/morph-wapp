@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
+import JsonSchemaForm from '@/components/flow/JsonSchemaForm.vue'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
 import type { FlowRecord, McpTool } from '@/types/api'
@@ -158,21 +159,47 @@ const mcpTool = computed<string>({
   get: () => (data().tool as string) || '',
   set: (v) => {
     data().tool = v
+    // A different tool means a different argument shape — start clean.
+    data().arguments = {}
   },
 })
-// call_tool arguments, edited as JSON. The user's per-tool argument dialog (built
-// from the selected tool's inputSchema via getToolsList) can supersede this.
+// The selected tool's loaded function entry and its JSON-schema, which drives
+// the generated argument form (inspector-style). No usable schema → JSON only.
+const selectedMcpFn = computed(() => functions().find((f) => f.name === mcpTool.value))
+const mcpToolSchema = computed<Record<string, unknown> | null>(() => {
+  const s = selectedMcpFn.value?.inputSchema
+  const properties = s && typeof s === 'object' ? (s as { properties?: object }).properties : undefined
+  return properties && Object.keys(properties).length ? (s as Record<string, unknown>) : null
+})
+// call_tool arguments: edited via the schema-generated form when the tool's
+// inputSchema allows it, or as raw JSON (the only view for schema-less tools).
+const mcpArgsView = ref<'form' | 'json'>('form')
+const mcpArgs = computed(() => {
+  const a = data().arguments
+  return a && typeof a === 'object' && !Array.isArray(a) ? (a as Record<string, unknown>) : {}
+})
+function onMcpArgsFormUpdate(v: unknown) {
+  data().arguments = v && typeof v === 'object' ? v : {}
+}
 const mcpArgsText = ref('')
 const mcpArgsError = ref<string | null>(null)
+function syncMcpArgsText() {
+  const args = data().arguments
+  mcpArgsText.value = args && Object.keys(args as object).length ? JSON.stringify(args, null, 2) : ''
+  mcpArgsError.value = null
+}
 watch(
   () => [props.node?.id, data().tool],
   () => {
-    const args = data().arguments
-    mcpArgsText.value = args && Object.keys(args as object).length ? JSON.stringify(args, null, 2) : ''
-    mcpArgsError.value = null
+    syncMcpArgsText()
+    mcpArgsView.value = 'form'
   },
   { immediate: true },
 )
+// Entering the JSON view shows whatever the form built so far.
+watch(mcpArgsView, (v) => {
+  if (v === 'json') syncMcpArgsText()
+})
 function onMcpArgsInput(v: string) {
   mcpArgsText.value = v
   if (!v.trim()) {
@@ -243,6 +270,11 @@ async function loadMcpTools() {
         inputSchema: t.inputSchema,
       }
     })
+    // The previously selected tool may have vanished from the server — drop the
+    // stale selection (and its arguments) rather than calling a ghost tool.
+    if (mcpTool.value && !functions().some((f) => f.name === mcpTool.value)) {
+      mcpTool.value = ''
+    }
     mcpLoadedAt.value = Date.now()
   } catch (err) {
     mcpError.value = (err as Error).message
@@ -679,28 +711,65 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
             <option value="">{{ functions().length ? '— select a tool —' : 'No tools loaded' }}</option>
             <option v-for="f in functions()" :key="f.id" :value="f.name">{{ f.title || f.name }}</option>
           </select>
+          <p v-if="selectedMcpFn?.description" class="text-[11px] leading-relaxed text-fg-muted">
+            {{ selectedMcpFn.description }}
+          </p>
           <p v-if="functions().length === 0" class="text-[11px] text-fg-subtle">
             No tools loaded yet — set the server above and click <em>Load tools</em>, then pick the
             tool this node calls.
           </p>
         </div>
 
-        <!-- Arguments for the selected tool (JSON, shaped by its inputSchema) -->
-        <div v-if="mcpTool" class="space-y-1 border-t pt-3">
-          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Arguments</label>
-          <textarea
-            :value="mcpArgsText"
-            rows="6"
-            spellcheck="false"
-            class="input resize-none font-mono text-xs leading-relaxed"
-            placeholder='{ "query": "{{input}}" }'
-            @input="onMcpArgsInput(($event.target as HTMLTextAreaElement).value)"
-          />
-          <p v-if="mcpArgsError" class="text-[12px] text-danger">Invalid JSON: {{ mcpArgsError }}</p>
-          <p class="text-[11px] leading-relaxed text-fg-subtle">
-            JSON arguments passed to <code>call_tool</code>, matching the tool's input schema. Values
-            may embed <code v-pre>{{$.path}}</code> context variables.
-          </p>
+        <!-- Arguments for the selected tool: a form generated from its inputSchema
+             (inspector-style), with a raw-JSON escape hatch. Schema-less tools
+             only get the JSON editor. -->
+        <div v-if="mcpTool" class="space-y-1.5 border-t pt-3">
+          <div class="flex items-center justify-between">
+            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Arguments</label>
+            <div v-if="mcpToolSchema" class="flex overflow-hidden rounded border" style="border-color: var(--line-strong)">
+              <button
+                v-for="v in (['form', 'json'] as const)"
+                :key="v"
+                class="px-2 py-0.5 text-[11px] font-medium transition-colors"
+                :style="mcpArgsView === v
+                  ? { background: 'var(--accent)', color: 'var(--accent-fg)' }
+                  : { color: 'var(--fg-muted)' }"
+                @click="mcpArgsView = v"
+              >
+                {{ v === 'form' ? 'Form' : 'JSON' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Generated form (tool has a usable inputSchema) -->
+          <template v-if="mcpToolSchema && mcpArgsView === 'form'">
+            <JsonSchemaForm
+              :schema="mcpToolSchema"
+              :model-value="mcpArgs"
+              @update:model-value="onMcpArgsFormUpdate"
+            />
+            <p class="text-[11px] leading-relaxed text-fg-subtle">
+              Built from the tool's input schema. Text values may embed
+              <code v-pre>{{$.path}}</code> context variables.
+            </p>
+          </template>
+
+          <!-- Raw JSON (explicit toggle, or no schema to build a form from) -->
+          <template v-else>
+            <textarea
+              :value="mcpArgsText"
+              rows="6"
+              spellcheck="false"
+              class="input resize-none font-mono text-xs leading-relaxed"
+              placeholder='{ "query": "{{input}}" }'
+              @input="onMcpArgsInput(($event.target as HTMLTextAreaElement).value)"
+            />
+            <p v-if="mcpArgsError" class="text-[12px] text-danger">Invalid JSON: {{ mcpArgsError }}</p>
+            <p class="text-[11px] leading-relaxed text-fg-subtle">
+              JSON arguments passed to <code>call_tool</code>, matching the tool's input schema. Values
+              may embed <code v-pre>{{$.path}}</code> context variables.
+            </p>
+          </template>
         </div>
       </template>
     </template>
