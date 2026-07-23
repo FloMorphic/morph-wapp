@@ -122,6 +122,13 @@ async function save() {
             {{ logs.errorCount }}
           </span>
         </Button>
+        <Button
+          icon="map"
+          :title="canvas?.showMinimap ? 'Hide minimap' : 'Show minimap'"
+          @click="canvas?.toggleMinimap()"
+        >
+          <span class="hidden sm:inline">{{ canvas?.showMinimap ? 'Map' : 'Map off' }}</span>
+        </Button>
         <Button icon="refresh" title="Fit view" @click="canvas?.fitView({ padding: 0.3 })">
           <span class="hidden sm:inline">Fit</span>
         </Button>

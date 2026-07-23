@@ -48,6 +48,13 @@ const {
   updateEdge,
 } = useVueFlow()
 
+// Minimap visibility, toggled from the editor toolbar (see WorkflowEditorView).
+const showMinimap = ref(true)
+
+function toggleMinimap() {
+  showMinimap.value = !showMinimap.value
+}
+
 let addOffset = 0
 
 function addNode(kind: NodeKind, position?: { x: number; y: number }, ext?: NodeExtRef): string {
@@ -204,7 +211,7 @@ function removeSelected(node: GraphNode | null) {
   emit('dirty')
 }
 
-defineExpose({ addNode, loadGraph, getGraph, removeSelected, fitView })
+defineExpose({ addNode, loadGraph, getGraph, removeSelected, fitView, showMinimap, toggleMinimap })
 </script>
 
 <template>
@@ -224,7 +231,7 @@ defineExpose({ addNode, loadGraph, getGraph, removeSelected, fitView })
     >
       <Background :gap="18" :size="1.4" pattern-color="var(--canvas-dots)" />
       <Controls position="bottom-right" />
-      <MiniMap pannable zoomable />
+      <MiniMap v-if="showMinimap" pannable zoomable />
     </VueFlow>
 
     <NodePalette @add="onPaletteAdd" />
