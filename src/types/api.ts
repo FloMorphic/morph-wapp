@@ -149,9 +149,11 @@ export interface ExtensionRecord {
  * credential, `strict` scopes it to the one plugin's inflowv1 subjects. */
 export type PluginCredAccess = 'multi' | 'strict'
 
-/** POST /extension/plugin/cred — request a runtime credential for a plugin. */
+/** POST /extension/plugin/cred — request a runtime credential for a plugin.
+ * `strict` access requires `pluginId` (the credential is scoped to it); `multi`
+ * access is account-wide and only requires `name`. */
 export interface PluginCredRequest {
-  pluginId: string
+  pluginId?: string
   name?: string
   access?: PluginCredAccess
   spaceId?: string

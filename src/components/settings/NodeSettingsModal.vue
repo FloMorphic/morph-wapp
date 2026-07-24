@@ -4,6 +4,7 @@ import type { NodeSetting } from '@/types/api'
 import { nodeSettingsApi } from '@/api/nodeSettings'
 import { nodeUniqLabel } from '@/lib/nodeSettings'
 import { settingsSchemaFor, type SettingsField } from '@/lib/settingsSchemas'
+import { fetchOpenRouterModels, type OpenRouterModel } from '@/lib/openrouter'
 import Modal from '@/components/ui/Modal.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -59,6 +60,43 @@ const formError = ref<string | null>(null)
 
 // The typed schema for the profile being edited, or null → key/value editor.
 const schema = computed(() => settingsSchemaFor(form.nodeType))
+
+// ---- OpenRouter live model picker ------------------------------------------
+// The `openrouter` provider can enumerate its catalog client-side, so the model
+// field becomes a searchable datalist instead of raw free text. Any other
+// provider (or a fetch failure) keeps the plain text input.
+const modelOptions = ref<OpenRouterModel[]>([])
+const modelsLoading = ref(false)
+const modelsError = ref<string | null>(null)
+
+const providerValue = computed(() => (form.values['provider'] ?? '').trim().toLowerCase())
+const supportsModelList = computed(() => providerValue.value === 'openrouter')
+
+async function loadModels(force = false) {
+  if (!supportsModelList.value) return
+  modelsLoading.value = true
+  modelsError.value = null
+  try {
+    modelOptions.value = await fetchOpenRouterModels(force)
+  } catch (err) {
+    modelsError.value = (err as Error).message
+    modelOptions.value = []
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
+// Lazily load the catalog the first time an OpenRouter profile is shown (on open
+// or when the provider is switched to openrouter). Cached across opens.
+watch(
+  [() => props.open, providerValue],
+  ([open]) => {
+    if (open && supportsModelList.value && !modelOptions.value.length && !modelsLoading.value) {
+      void loadModels()
+    }
+  },
+  { immediate: true },
+)
 
 function stringifyValue(v: unknown): string {
   if (typeof v === 'string') return v
@@ -267,6 +305,30 @@ async function submit() {
               {{ opt.label }}
             </option>
           </select>
+          <template v-else-if="field.key === 'model' && supportsModelList">
+            <input
+              v-model="form.values[field.key]"
+              class="input"
+              :placeholder="field.placeholder || 'vendor/model, e.g. anthropic/claude-3.5-sonnet'"
+              list="openrouter-model-options"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <datalist id="openrouter-model-options">
+              <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.name }}</option>
+            </datalist>
+            <p class="text-[11px] text-fg-subtle">
+              <span v-if="modelsLoading">Loading OpenRouter models…</span>
+              <span v-else-if="modelsError" class="text-danger">
+                Couldn’t load the catalog ({{ modelsError }}) — type the model id manually.
+                <button type="button" class="text-accent hover:underline" @click="loadModels(true)">retry</button>
+              </span>
+              <span v-else>
+                {{ modelOptions.length }} OpenRouter models — start typing to filter, or enter any id.
+                <button type="button" class="text-accent hover:underline" @click="loadModels(true)">refresh</button>
+              </span>
+            </p>
+          </template>
           <input
             v-else
             v-model="form.values[field.key]"
@@ -276,7 +338,7 @@ async function submit() {
             autocomplete="off"
             spellcheck="false"
           />
-          <p v-if="field.help" class="text-[11px] text-fg-subtle">{{ field.help }}</p>
+          <p v-if="field.help && !(field.key === 'model' && supportsModelList)" class="text-[11px] text-fg-subtle">{{ field.help }}</p>
         </div>
       </div>
 

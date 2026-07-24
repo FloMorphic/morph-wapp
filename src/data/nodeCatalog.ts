@@ -206,7 +206,10 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       subject_prefix: 'llm',
       idle_min: 5,
       request: 'run',
-      body: { prompt: '' },
+      // Init messages: an optional system + user message that seed the
+      // conversation on the first run. Each content may embed {{$.path}} context
+      // vars. Empty boxes are not stored. Sent to the plugin as body.messages.
+      body: { messages: [] },
       // [{ id, name, title }] — each renders as an output port (see ports()).
       functions: [],
     }),
@@ -282,8 +285,9 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       // 'tool' = expose the MCP server's tools to the flow only; 'llm' = drive a
       // model with those tools (LLM-like: prompt + provider settings profile).
       mcpMode: 'tool',
-      // Only used in 'llm' mode — the model's system role prompt.
-      body: { prompt: '' },
+      // Only used in 'llm' mode — the init messages (system/user) that seed the
+      // agent's conversation on its first run. Sent to the plugin as body.messages.
+      body: { messages: [] },
       url: '',
       transport: 'streamable-http',
       auth: '',

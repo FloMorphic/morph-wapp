@@ -252,15 +252,18 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
         </button>
         </template>
       </div>
+    </div>
 
+    <!-- Selected settings profile — its own row so a long profile name
+         truncates within the node instead of pushing past its right edge. -->
+    <div v-if="settingsName" class="flex px-3 pb-1.5">
       <span
-        v-if="settingsName"
-        class="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold"
-        :style="{ background: `color-mix(in srgb, ${accent} 14%, transparent)`, color: accent, maxWidth: '80px' }"
+        class="flex min-w-0 max-w-full items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold"
+        :style="{ background: `color-mix(in srgb, ${accent} 14%, transparent)`, color: accent }"
         :title="`Settings: ${settingsName}`"
       >
-        <Icon name="settings" :size="10" />
-        <span class="truncate">{{ settingsName }}</span>
+        <Icon name="settings" :size="10" class="shrink-0" />
+        <span class="min-w-0 truncate">{{ settingsName }}</span>
       </span>
     </div>
 

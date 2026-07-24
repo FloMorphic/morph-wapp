@@ -116,20 +116,68 @@ function removeFunction(i: number) {
   functions().splice(i, 1)
 }
 
-// ---- LLM system role prompt (stored on data.body.prompt) -------------------
-// The system role prompt doubles as the node's display title, so writing it
-// also mirrors the text into `data.title` (falling back to 'LLM' when empty).
-const prompt = computed<string>({
-  get: () => {
-    const body = (data().body as Record<string, unknown>) ?? {}
-    return typeof body.prompt === 'string' ? body.prompt : ''
-  },
-  set: (v) => {
-    const body = (data().body as Record<string, unknown>) ?? {}
-    body.prompt = v
-    data().body = body
-    data().title = v.trim() || (isMcp.value ? 'MCP' : 'LLM')
-  },
+// ---- LLM / MCP init messages (stored on data.body.messages) ----------------
+// Both the LLM node and the MCP node's "With LLM" mode seed their conversation
+// from an INIT template of at most two messages — a system message (index 0)
+// and/or a user message (index 1). Either may be left empty (an empty box is not
+// seated), and the content may embed {{$.path}} context vars. The plugin uses
+// these only to seed the FIRST run; once the node's scope holds a conversation,
+// the template is ignored — so they are never re-added on a resumed/looping run.
+// Compiled straight through to the plugin's body.messages array.
+type ChatRole = 'system' | 'user'
+interface ChatMsg {
+  role: ChatRole
+  content: string
+}
+// Order the two messages are stored (and read by the model) in.
+const ROLE_ORDER: Record<ChatRole, number> = { system: 0, user: 1 }
+
+function llmBody(): Record<string, unknown> {
+  const body = (data().body as Record<string, unknown>) ?? {}
+  data().body = body
+  return body
+}
+
+// The messages array, migrating a legacy single `body.prompt` (previously the
+// user turn) to a user message on first read.
+function messages(): ChatMsg[] {
+  const body = llmBody()
+  if (!Array.isArray(body.messages)) {
+    const legacy = typeof body.prompt === 'string' ? body.prompt : ''
+    body.messages = legacy ? [{ role: 'user', content: legacy }] : []
+    delete body.prompt
+  }
+  return body.messages as ChatMsg[]
+}
+
+function msgContent(role: ChatRole): string {
+  return messages().find((m) => m.role === role)?.content ?? ''
+}
+// Write one role's box: upsert while it has text, drop it once cleared — so an
+// empty box never lands in body.messages. Order stays system → user.
+function setMsgContent(role: ChatRole, v: string) {
+  const body = llmBody()
+  const msgs = messages()
+  const existing = msgs.find((m) => m.role === role)
+  if (v.trim() === '') {
+    if (existing) body.messages = msgs.filter((m) => m.role !== role)
+    return
+  }
+  if (existing) {
+    existing.content = v
+    return
+  }
+  msgs.push({ role, content: v })
+  msgs.sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role])
+}
+
+const systemMsg = computed<string>({
+  get: () => msgContent('system'),
+  set: (v) => setMsgContent('system', v),
+})
+const userMsg = computed<string>({
+  get: () => msgContent('user'),
+  set: (v) => setMsgContent('user', v),
 })
 
 // ---- MCP node -------------------------------------------------------------
@@ -544,19 +592,40 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
 
     <!-- ================= LLM ================= -->
     <template v-else-if="isLlm">
-      <!-- System role prompt (also drives the node's display title) -->
-      <div class="space-y-1">
-        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System role prompt</label>
-        <textarea
-          v-model="prompt"
-          rows="5"
-          spellcheck="false"
-          class="input resize-none font-mono text-xs leading-relaxed"
-          placeholder="You are a helpful assistant. {{input}}"
-        />
+      <!-- Init messages: an optional system + user message (see LlmMessages block). -->
+      <div class="space-y-2">
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+          Init messages
+          <span class="ml-1 font-normal normal-case text-fg-subtle">— seed the conversation</span>
+        </label>
+
+        <div class="space-y-1 rounded-lg border p-2">
+          <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System</span>
+          <textarea
+            v-model="systemMsg"
+            rows="4"
+            spellcheck="false"
+            class="input resize-none font-mono text-xs leading-relaxed"
+            placeholder="You are a helpful assistant. {{$.some.context}}"
+          />
+        </div>
+
+        <div class="space-y-1 rounded-lg border p-2">
+          <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">User</span>
+          <textarea
+            v-model="userMsg"
+            rows="5"
+            spellcheck="false"
+            class="input resize-none font-mono text-xs leading-relaxed"
+            placeholder="Summarize this: {{$.input}}"
+          />
+        </div>
+
         <p class="text-[11px] leading-relaxed text-fg-subtle">
-          Sets the model's system role and doubles as this node's title. The model's global config
-          (provider, key, model) comes from the Settings profile above.
+          These two messages seed the conversation on the <strong>first</strong> run only — either can
+          be left empty. Once the node has a conversation they are not re-added. Content may embed
+          <code v-pre>{{$.path}}</code> context vars; the provider, key and model come from the Settings
+          profile above.
         </p>
       </div>
 
@@ -636,20 +705,41 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         </div>
       </div>
 
-      <!-- With-LLM: system prompt + tools loaded as functions -->
+      <!-- With-LLM: init messages (system + user) + tools loaded as functions -->
       <template v-if="mcpMode === 'llm'">
-        <div class="space-y-1 border-t pt-3">
-          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System role prompt</label>
-          <textarea
-            v-model="prompt"
-            rows="5"
-            spellcheck="false"
-            class="input resize-none font-mono text-xs leading-relaxed"
-            placeholder="You are a helpful assistant with access to MCP tools. {{input}}"
-          />
+        <div class="space-y-2 border-t pt-3">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+            Init messages
+            <span class="ml-1 font-normal normal-case text-fg-subtle">— seed the conversation</span>
+          </label>
+
+          <div class="space-y-1 rounded-lg border p-2">
+            <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System</span>
+            <textarea
+              v-model="systemMsg"
+              rows="4"
+              spellcheck="false"
+              class="input resize-none font-mono text-xs leading-relaxed"
+              placeholder="You are a helpful assistant with access to MCP tools. {{$.some.context}}"
+            />
+          </div>
+
+          <div class="space-y-1 rounded-lg border p-2">
+            <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">User</span>
+            <textarea
+              v-model="userMsg"
+              rows="5"
+              spellcheck="false"
+              class="input resize-none font-mono text-xs leading-relaxed"
+              placeholder="{{$.input}}"
+            />
+          </div>
+
           <p class="text-[11px] leading-relaxed text-fg-subtle">
-            Sets the model's system role and doubles as this node's title. The model's global config
-            (provider, key, model) comes from the Settings profile above.
+            These two messages seed the agent's conversation on the <strong>first</strong> run only —
+            either can be left empty. Once the node has a conversation they are not re-added. Content
+            may embed <code v-pre>{{$.path}}</code> context vars; the provider, key and model come from
+            the Settings profile above.
           </p>
         </div>
 

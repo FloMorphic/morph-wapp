@@ -59,11 +59,13 @@ const llmSchema: SettingsSchema = {
       required: true,
       default: 'openai',
       options: [
-        { value: 'openai', label: 'OpenAI (or OpenAI-compatible)' },
+        { value: 'openai', label: 'OpenAI' },
+        { value: 'openrouter', label: 'OpenRouter (300+ models, one key)' },
+        { value: 'openai-compatible', label: 'OpenAI-compatible (Ollama, Groq, Together, vLLM…)' },
         { value: 'gemini', label: 'Google Gemini' },
         { value: 'anthropic', label: 'Anthropic (Claude)' },
       ],
-      help: 'langchaingo derives the message roles from the provider.',
+      help: 'langchaingo derives the message roles from the provider. OpenRouter & OpenAI-compatible reuse the OpenAI client — set the model as "vendor/model" and (for compatible) the Base URL below.',
     },
     {
       key: 'model',
@@ -84,7 +86,7 @@ const llmSchema: SettingsSchema = {
       label: 'Base URL',
       type: 'text',
       placeholder: 'https://api.openai.com/v1',
-      help: 'Optional custom base URL — leave empty for the provider default. For OpenAI-compatible endpoints, this is the base (…/v1), not the chat-completions path.',
+      help: 'Optional custom base URL — leave empty for the provider default (OpenRouter defaults automatically). For OpenAI-compatible endpoints, this is the base (…/v1), not the chat-completions path.',
     },
     {
       key: 'temperature',
