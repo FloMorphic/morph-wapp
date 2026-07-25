@@ -5,7 +5,7 @@
 **The visual workflow builder for AI-native systems.**
 
 Compose AI harnesses, loop systems, and workflow graphs on a canvas — built on the
-[Inflowenger](https://inflowenger.dev) context runtime.
+[Inflowenger](https://inflowenger.com) context runtime.
 
 `Vue 3` · `Vite` · `TypeScript` · `Vue Flow` · `Tailwind v4` · `Pinia`
 
