@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "FloMorphic — the visual workflow builder for AI-native systems, built on the Inflowenger context runtime.",
+  "description": "FloMorphic — Contract-Driven AI. A workflow-centric runtime for building AI-powered systems from explicit primitives, built on the Inflowenger context runtime.",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
@@ -39,5 +39,6 @@
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
     "vue-tsc": "^3.2.8"
-  }
+  },
+  "author": "FloMorphic (https://inflowenger.com/flomorphic)"
 }
