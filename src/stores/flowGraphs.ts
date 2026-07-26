@@ -49,11 +49,11 @@ function indexNode(node: FlowNode): ResolvedNode {
 }
 
 /**
- * An edge's tags. A routed port carries them on the source node's port rather
- * than on the edge, so fall back to the port the edge leaves from — that is the
- * tag the user actually sees on the canvas. LLM function edges are stamped with
- * their tag on save, but graphs saved before that still need the derivation;
- * rule handlers only ever carry theirs on the node.
+ * An edge's tags. Routed edges are stamped with their port's tags on save, but
+ * graphs saved before that came out untagged, so fall back to the port the edge
+ * leaves from — that is the tag the user actually sees on the canvas. The last
+ * fallback reads a rule handler straight off the node, for old graphs whose
+ * handler ids no longer line up with the derived port ids.
  */
 function edgeTags(edge: FlowEdge, source?: FlowNode): string[] {
   const own = (edge.data?.tags ?? []) as string[]

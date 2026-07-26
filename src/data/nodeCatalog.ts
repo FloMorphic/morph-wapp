@@ -327,11 +327,23 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       const n = asRows(d.handlers).length
       return `${String(d.lang ?? 'js')} · ${n} handler${n === 1 ? '' : 's'}`
     },
+    // A handler's tags are its route tags, exactly like an LLM function's name:
+    // the contract fires the tags its matching handler declares and only edges
+    // carrying one of them continue, so the port has to stamp them onto its
+    // outbound edges (see portTags / WorkflowCanvas) or the branch never runs.
+    // A fresh handler with no tags yet stamps an empty list — same as an unnamed
+    // LLM function — rather than leaving a stale tag on the edge.
     ports: (d) =>
-      asRows(d.handlers).map((h, i) => ({
-        id: String(h.id ?? `h${i}`),
-        label: Array.isArray(h.tags) ? (h.tags as unknown[]).join(' / ') || `branch ${i + 1}` : `branch ${i + 1}`,
-      })),
+      asRows(d.handlers).map((h, i) => {
+        const tags = (Array.isArray(h.tags) ? (h.tags as unknown[]) : [])
+          .map((t) => String(t).trim())
+          .filter(Boolean)
+        return {
+          id: String(h.id ?? `h${i}`),
+          label: tags.join(' / ') || `branch ${i + 1}`,
+          tags,
+        }
+      }),
   }),
 
   mcp: spec({

@@ -542,26 +542,35 @@ function layout(nodes: PlannedNode[], links: { from: string; to: string }[], exi
   const originY = existing.length ? Math.min(...existing.map((n) => n.position?.y ?? 0)) : 120
 
   const own = new Set(nodes.map((n) => n.id))
-  const inbound = new Map<string, string[]>()
+  const outbound = new Map<string, string[]>()
+  const hasInbound = new Set<string>()
   for (const l of links) {
-    if (!own.has(l.to)) continue
-    inbound.set(l.to, [...(inbound.get(l.to) ?? []), l.from])
+    if (!own.has(l.to) || !own.has(l.from)) continue
+    outbound.set(l.from, [...(outbound.get(l.from) ?? []), l.to])
+    hasInbound.add(l.to)
   }
 
-  // Depth = longest chain of patch-internal edges reaching the node. Resolved by
-  // relaxation (cheap at patch size) and capped so a cycle can't spin here.
-  const depth = new Map<string, number>(nodes.map((n) => [n.id, 0]))
-  for (let pass = 0; pass < nodes.length; pass++) {
-    let moved = false
-    for (const n of nodes) {
-      const from = (inbound.get(n.id) ?? []).filter((f) => own.has(f))
-      const next = from.length ? Math.max(...from.map((f) => (depth.get(f) ?? 0) + 1)) : 0
-      if (next > (depth.get(n.id) ?? 0)) {
-        depth.set(n.id, next)
-        moved = true
+  // Depth = hops from an entry node, by breadth-first search. Distance to first
+  // visit, not longest chain: a graph may legitimately contain a CYCLE (a loop
+  // built from a back edge), and longest-path would chase that cycle around and
+  // fling the columns off into the distance. First-visit depth ignores the back
+  // edge for free, because its target has already been placed.
+  const depth = new Map<string, number>()
+  // Entry points, then anything still unplaced — a node reachable only from
+  // inside a cycle still needs a column.
+  const roots = [...nodes.filter((n) => !hasInbound.has(n.id)), ...nodes]
+  for (const root of roots) {
+    if (depth.has(root.id)) continue
+    depth.set(root.id, 0)
+    const queue = [root.id]
+    while (queue.length) {
+      const id = queue.shift()!
+      for (const next of outbound.get(id) ?? []) {
+        if (depth.has(next)) continue // already placed — back edge or a merge
+        depth.set(next, (depth.get(id) ?? 0) + 1)
+        queue.push(next)
       }
     }
-    if (!moved) break
   }
 
   const perColumn = new Map<number, number>()
