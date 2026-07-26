@@ -9,6 +9,8 @@ import NodePalette from './NodePalette.vue'
 import { NODE_SPECS, DEFAULT_START_KIND, portTags, type NodeSpec, type NodeKind } from '@/data/nodeCatalog'
 import type { VueFlowGraph } from '@/types/api'
 import type { NodeExtRef } from '@/lib/nodeSettings'
+import { fetchNodeExtRefs } from '@/lib/nodeExtRefs'
+import type { PlannedPatch } from '@/lib/aiGraph'
 import { createId } from '@/lib/id'
 
 const emit = defineEmits<{
@@ -232,6 +234,49 @@ function getGraph(): VueFlowGraph {
   return { nodes: cleanNodes, edges: cleanEdges, position: { x: vp.x, y: vp.y, zoom: vp.zoom } }
 }
 
+/**
+ * Add an AI-designed subgraph to the canvas ({@link PlannedPatch} — already
+ * validated and laid out by lib/aiGraph, so this only has to place it).
+ *
+ * Purely additive: nothing already on the canvas is moved or rewritten, so an
+ * unwanted patch is undone by deleting the nodes it added. Plugin nodes are
+ * stamped with the same extension identity the palette attaches to a drag, and
+ * edge tags are derived from the ports exactly as a hand-drawn edge's are — a
+ * node from here is indistinguishable from one dropped by hand.
+ */
+async function applyPatch(patch: PlannedPatch): Promise<void> {
+  if (patch.nodes.length === 0 && patch.edges.length === 0) return
+  const refs = await fetchNodeExtRefs()
+
+  for (const n of patch.nodes) {
+    const data = { ...n.data } as Record<string, unknown>
+    const ext = refs?.[n.type]
+    if (ext?.extensionId) {
+      data.extensionId = ext.extensionId
+      if (ext.pluginId) data.pluginId = ext.pluginId
+    }
+    nodes.value.push({ id: n.id, type: n.type, position: { ...n.position }, data })
+  }
+
+  // After the nodes are in place, so a port's tags can be derived from them.
+  for (const e of patch.edges) {
+    edges.value.push({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      targetHandle: e.targetHandle,
+      type: 'default',
+      markerEnd: MarkerType.ArrowClosed,
+      data: { tags: tagsForPort(e.source, e.sourceHandle) ?? [] },
+    })
+  }
+
+  emit('dirty')
+  const added = patch.nodes.map((n) => n.id)
+  if (added.length) void nextTick(() => fitView({ nodes: added, padding: 0.35, duration: 300 }))
+}
+
 function removeSelected(node: GraphNode | null) {
   if (!node) return
   nodes.value = nodes.value.filter((n) => n.id !== node.id)
@@ -240,7 +285,7 @@ function removeSelected(node: GraphNode | null) {
   emit('dirty')
 }
 
-defineExpose({ addNode, loadGraph, getGraph, removeSelected, fitView, showMinimap, toggleMinimap })
+defineExpose({ addNode, loadGraph, getGraph, applyPatch, removeSelected, fitView, showMinimap, toggleMinimap })
 </script>
 
 <template>

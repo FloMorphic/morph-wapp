@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import Icon from '@/components/ui/Icon.vue'
-import { PALETTE_GROUPS, NODE_SPECS, NODE_LIST, specForType, type NodeSpec } from '@/data/nodeCatalog'
-import { nodeRegistryApi } from '@/api/nodeRegistry'
+import { PALETTE_GROUPS, NODE_SPECS, NODE_LIST, type NodeSpec } from '@/data/nodeCatalog'
+import { fetchNodeExtRefs, type NodeExtRefMap } from '@/lib/nodeExtRefs'
 import type { NodeExtRef } from '@/lib/nodeSettings'
 
 /**
@@ -21,21 +21,13 @@ import type { NodeExtRef } from '@/lib/nodeSettings'
  */
 const emit = defineEmits<{ (e: 'add', spec: NodeSpec, ext?: NodeExtRef): void }>()
 
-// Extension row identity per morphic type (from the registry). Null ⇒ fall back
+// Extension row identity per morphic type (from the registry, cached for the
+// session in lib/nodeExtRefs and shared with the AI importer). Null ⇒ fall back
 // to the full catalog (no backend / nothing seeded), with no identity to stamp.
-const refByType = ref<Record<string, NodeExtRef> | null>(null)
+const refByType = ref<NodeExtRefMap | null>(null)
 
 onMounted(async () => {
-  try {
-    const page = await nodeRegistryApi.list({ kind: 'builtin', per_page: 100 })
-    const map: Record<string, NodeExtRef> = {}
-    for (const r of page.list) {
-      if (specForType(r.type)) map[r.type] = { extensionId: r.id, pluginId: r.pluginId || undefined }
-    }
-    refByType.value = Object.keys(map).length ? map : null
-  } catch {
-    refByType.value = null
-  }
+  refByType.value = await fetchNodeExtRefs()
 })
 
 function refFor(type: string): NodeExtRef | undefined {

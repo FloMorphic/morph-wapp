@@ -25,6 +25,14 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'delete', node: GraphNode): v
 const spec = computed(() => (props.node ? specForType(props.node.type) : undefined))
 
 const UNIVERSAL = ['title', 'key', 'scope']
+/**
+ * What `scope` really does. It is a full JSONPath — expressions and filter
+ * queries included — and its cardinality decides how many times the node runs,
+ * which is the one piece of run-time behaviour nothing on the canvas reveals.
+ * See the `scope` note in the node catalog's header.
+ */
+const SCOPE_HINT =
+  'Scope is a JSONPath (queries and filters allowed). Selecting one value runs the node once against it; selecting many — $.data[*], $.orders[?(@.total > 100)] — runs the node once per element, each pass scoped to that element.'
 // Flow-control kinds that carry no result binding: key / scope are meaningless
 // for them (Start is a bare entry marker, Continue After just parks/resumes the
 // flow, Wait-for-All is a pure join, Goto just redirects the flow), so they are
@@ -283,7 +291,9 @@ onBeforeUnmount(stopResize)
       </p>
 
       <!-- Identity strip: compact rows for title / key / scope. These are also
-           editable inline on the node itself. -->
+           editable inline on the node itself. `scope` carries a hint because a
+           multi-valued JSONPath silently turns the node into a per-element loop
+           — the one piece of run-time behaviour a designer cannot see here. -->
       <div class="space-y-1.5 rounded-lg border p-2.5">
         <div v-for="field in identityFields" :key="field.name" class="flex items-center gap-2">
           <label class="w-12 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
@@ -293,8 +303,12 @@ onBeforeUnmount(stopResize)
             v-model="(data() as any)[field.name]"
             class="input flex-1 px-2 py-1 text-xs"
             :placeholder="field.name === 'scope' ? '$' : ''"
+            :title="field.name === 'scope' ? SCOPE_HINT : undefined"
           />
         </div>
+        <p v-if="identityFields.some((f) => f.name === 'scope')" class="pt-0.5 text-[11px] leading-relaxed text-fg-subtle">
+          {{ SCOPE_HINT }}
+        </p>
       </div>
 
       <!-- Store picker (Doc / Vector / Cast nodes) in place of a raw store id.

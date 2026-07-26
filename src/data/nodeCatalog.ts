@@ -23,6 +23,14 @@
  *   - title: human label
  *   - key:   where the node output is written into the Context
  *   - scope: a JSONPath slice of Context the node reads / writes
+ *
+ * `scope` is a real JSONPath — expressions and filter queries included, not just
+ * dotted paths — and it decides how many times the node runs. A scope that
+ * selects ONE value runs the node once against it. A scope that selects MANY
+ * (`$.data[*]`, `$.orders[?(@.total > 100)]`) fans out: the runtime runs the node
+ * once per selected element, each pass seeing only that element as its scope.
+ * So the same node is a single step or a loop over a collection depending on
+ * nothing but its scope — there is no separate iterator node.
  */
 
 export type NodeKind =
@@ -63,7 +71,42 @@ export interface NodePort {
    * dictate tags; the edge then keeps whatever tags it already has.
    */
   tags?: string[]
+  /**
+   * Marks a port that isn't a normal branch of the node's work but its escape
+   * hatch — the fallback the plugin fires when it errors or can't decide. It
+   * renders in the danger tone with an `exception` label so a designer can tell
+   * it apart from the ports they defined. See {@link exceptionPort}.
+   */
+  variant?: 'exception'
+  /** Tooltip explaining what routes through this port (hover on the node). */
+  hint?: string
 }
+
+/**
+ * The hardcoded route tag of a node's exception port. The plugin side fires
+ * this exact tag when it hits an error or an unknown mode, so the flow carries
+ * on through whatever the designer wired to that port instead of stopping.
+ * Being plugin-side and fixed, it is never derived from user config — the port
+ * stamps it onto every edge drawn from it (see {@link portTags}).
+ */
+export const EXCEPTION_TAG = '_exception'
+
+/**
+ * The exception port itself. Its handle id doubles as the tag, so an edge's
+ * `sourceHandle` alone identifies it. Appended to a node's derived ports: a
+ * node with routed ports loses the plain default handle, and without this the
+ * flow would have nowhere to go when the plugin fails. A factory, like every
+ * other port — its `tags` end up on edge data, which must not alias a shared
+ * array.
+ */
+export const exceptionPort = (): NodePort => ({
+  id: EXCEPTION_TAG,
+  label: 'Exception, Unknown',
+  hint:
+    'Routes here when an exception or an unknown circumstance occurs — anything outside the function selection, e.g. the plugin errors or the model picks no bound function. The flow continues into this branch instead of stopping. Present only while functions are bound.',
+  tags: [EXCEPTION_TAG],
+  variant: 'exception',
+})
 
 export interface NodeSpec {
   kind: NodeKind
@@ -219,7 +262,10 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       // conversation on the first run. Each content may embed {{$.path}} context
       // vars. Empty boxes are not stored. Sent to the plugin as body.messages.
       body: { messages: [] },
-      // [{ id, name, title }] — each renders as an output port (see ports()).
+      // [{ id, name, title, description, params, parameters }] — each renders as
+      // an output port (see ports()). `params` are the drawer's argument rows and
+      // `parameters` the JSON Schema built from them, which is what the compiler
+      // ships to the plugin (see NodeConfig's Functions section).
       functions: [],
     }),
     preview: (d) => {
@@ -233,12 +279,25 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     // llm plugin fires that exact name as the next-filter tag, so the edge off
     // this port carries it (see portTags / WorkflowCanvas) or the branch never
     // runs. `title` is a canvas label only.
-    ports: (d) =>
-      asRows(d.functions).map((f, i) => ({
-        id: String(f.id ?? f.name ?? `fn${i}`),
-        label: String(f.title ?? f.name ?? `fn${i + 1}`),
-        tags: [String(f.name ?? '').trim()].filter(Boolean),
-      })),
+    //
+    // Binding functions replaces the node's plain default handle with these
+    // ports, so the exception port is appended to give the flow somewhere to go
+    // when the plugin errors or hits an unknown mode — it fires `_exception`
+    // and the designer's handling branch continues from there. Unbound (no
+    // functions) the node keeps its single untagged handle, which already takes
+    // every outcome, so there is nothing to fall back from.
+    ports: (d) => {
+      const fns = asRows(d.functions)
+      if (fns.length === 0) return []
+      return [
+        ...fns.map((f, i) => ({
+          id: String(f.id ?? f.name ?? `fn${i}`),
+          label: String(f.title ?? f.name ?? `fn${i + 1}`),
+          tags: [String(f.name ?? '').trim()].filter(Boolean),
+        })),
+        exceptionPort(),
+      ]
+    },
   }),
   rule: spec({
     kind: 'rule',
@@ -249,14 +308,15 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'ai',
     tagline: 'Branch on a contract',
     description:
-      'Evaluate a rule (JavaScript or OPA/Rego) over the scoped context and route through matching handlers. Compiles to a Contract; each handler is an output port for a routed branch.',
+      'Evaluate a rule (JavaScript or OPA/Rego) over the scoped context and route through matching handlers. The scoped slice arrives as `input`; in JavaScript the LAST EXPRESSION is the decision (not a `return`), in Rego it is the variable named by the result variable. Compiles to a Contract; each handler is an output port for a routed branch.',
     primitives: 'Contract',
     defaults: () => ({
       title: 'Rule',
       key: 'decision',
       scope: '$',
       lang: 'js',
-      logic_rule: '// return the result evaluated over the scoped context\nreturn { pass: true }\n',
+      // Same evaluation model as the JS node: `input` in, last expression out.
+      logic_rule: 'let scopedData = input // the slice selected by `scope`\n\nlet decision = { pass: true }\n\ndecision // last expression — this is the routed decision\n',
       opa_result: '',
       // [{ key, value }]
       conditions: [],
@@ -335,14 +395,18 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'ai',
     tagline: 'Run JavaScript',
     description:
-      'Run a JavaScript step against the scoped context and write the result back to `key`. Compiles to a Code node (variant `js`) in the Inflowenger ecosystem.',
+      'Run a JavaScript step against the scoped context and write the result back to `key`. The scoped slice arrives as `input`, and the value of the LAST EXPRESSION in the code is the node output — not a `return` statement. Compiles to a Code node (variant `js`) in the Inflowenger ecosystem.',
     primitives: 'Code · js',
     defaults: () => ({
       title: 'JS',
       key: 'result',
       scope: '$',
       lang: 'js',
-      logic_rule: '// ctx is the scoped context slice\nreturn { ok: true }\n',
+      // No `return` — the runtime evaluates the code and takes the value of its
+      // last expression as the node output, so the code ends by naming the
+      // value to emit. `input` is the scoped slice (see the `scope` note in the
+      // module header).
+      logic_rule: 'let scopedData = input // the slice selected by `scope`\n\nlet result = { ok: true, seen: scopedData }\n\nresult // last expression — this is what lands in `key`\n',
     }),
     preview: (d) => `js → ${d.key || 'result'}`,
   }),

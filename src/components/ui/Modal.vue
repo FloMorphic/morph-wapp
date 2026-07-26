@@ -2,7 +2,16 @@
 import { onMounted, onUnmounted } from 'vue'
 import Icon from './Icon.vue'
 
-const props = defineProps<{ open: boolean; title: string; subtitle?: string }>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    title: string
+    subtitle?: string
+    /** Dialog width. 'md' (default) suits a form; 'lg' a two-column workspace. */
+    size?: 'md' | 'lg'
+  }>(),
+  { size: 'md' },
+)
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 function onKey(e: KeyboardEvent) {
@@ -20,7 +29,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-4 pt-[8vh] backdrop-blur-sm"
         @click.self="emit('close')"
       >
-        <div class="card w-full max-w-lg" style="box-shadow: var(--shadow-lg)" @click.stop>
+        <div
+          class="card w-full"
+          :class="size === 'lg' ? 'max-w-3xl' : 'max-w-lg'"
+          style="box-shadow: var(--shadow-lg)"
+          @click.stop
+        >
           <div class="flex items-start justify-between gap-4 border-b px-5 py-4">
             <div>
               <h2 class="text-base font-semibold text-fg">{{ title }}</h2>

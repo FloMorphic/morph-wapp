@@ -92,7 +92,7 @@ async function fetchContext() {
     rawContext.value = parsed === undefined ? rec.context : JSON.stringify(parsed, null, 2)
     rawHeader.value =
       rec.header && Object.keys(rec.header).length ? JSON.stringify(rec.header, null, 2) : '{}'
-    if (rec.header && Object.keys(rec.header).length) showHeader.value = true
+    if (rec.header && Object.keys(rec.header).length) showHeader.value = false
   } catch (err) {
     error.value = (err as Error).message
   } finally {

@@ -7,17 +7,21 @@ import NodeSettingDetails from '@/components/flow/NodeSettingDetails.vue'
 import FlowProcessesButton from '@/components/flow/FlowProcessesButton.vue'
 import FlowLogDrawer from '@/components/flow/FlowLogDrawer.vue'
 import RunFlowButton from '@/components/flow/RunFlowButton.vue'
+import AiNodeImporter from '@/components/flow/AiNodeImporter.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { useWorkflowsStore } from '@/stores/workflows'
 import { useFlowLogsStore } from '@/stores/flowLogs'
 import { useFlowGraphsStore } from '@/stores/flowGraphs'
+import { useNotificationsStore } from '@/stores/notifications'
+import { summarize, type PlannedPatch } from '@/lib/aiGraph'
 
 const props = defineProps<{ id?: string }>()
 const router = useRouter()
 const store = useWorkflowsStore()
 const logs = useFlowLogsStore()
 const graphs = useFlowGraphsStore()
+const notifications = useNotificationsStore()
 
 // One shared socket powers the log drawer, the toolbar's live-run badge and
 // app-wide notification toasts. App.vue connects it for the whole session;
@@ -68,6 +72,17 @@ function onDelete(node: GraphNode) {
   selected.value = null
 }
 
+/** The current graph, for the AI importer's prompt and its layout anchor. */
+function currentGraph() {
+  return canvas.value?.getGraph() ?? { nodes: [], edges: [] }
+}
+
+/** Drop an AI-designed subgraph in. Unsaved like any other edit, so Save commits it. */
+async function onAiPatch(patch: PlannedPatch) {
+  await canvas.value?.applyPatch(patch)
+  notifications.notify({ level: 'success', title: 'AI nodes added', message: `${summarize(patch)} — review and save.` })
+}
+
 async function save() {
   const graph = canvas.value?.getGraph()
   if (!graph) return
@@ -112,6 +127,7 @@ async function save() {
       <span v-if="dirty" class="text-[11px] text-fg-subtle">Unsaved changes</span>
 
       <div class="ml-auto flex items-center gap-2">
+        <AiNodeImporter :resolve-graph="currentGraph" @apply="onAiPatch" />
         <FlowProcessesButton :flow-id="currentId" />
         <Button
           v-if="logs.isRemote"

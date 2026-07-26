@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
-import { specForType, type BaseNodeData } from '@/data/nodeCatalog'
+import { specForType, type BaseNodeData, type NodePort } from '@/data/nodeCatalog'
 import { createId } from '@/lib/id'
 
 /**
@@ -45,6 +45,18 @@ const ports = computed(() => spec.value?.ports?.(props.data) ?? [])
 const stackedPorts = computed(() => spec.value?.portLayout === 'stack' && ports.value.length > 0)
 // A single default source handle only when there are no derived ports.
 const hasSource = computed(() => !spec.value?.terminal && ports.value.length === 0)
+
+// An exception port is the node's escape hatch, not one of the branches the
+// designer defined, so it reads in the danger tone with an `exception` label
+// rather than the node's own accent.
+function portColor(port: NodePort): string {
+  return port.variant === 'exception' ? 'var(--danger)' : accent.value
+}
+
+/** Hover text for a port: its explanation when it has one, else just its name. */
+function portTitle(port: NodePort): string {
+  return port.hint ? `${port.label} — ${port.hint}` : port.label
+}
 
 /** Spread N bottom handles evenly across the node width (20% → 80%). */
 function portLeft(index: number, total: number): string {
@@ -313,16 +325,34 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
         v-for="port in ports"
         :key="port.id"
         class="port-card relative border-t px-3 py-1.5 last:rounded-b-xl"
+        :class="{ 'port-card--exception': port.variant === 'exception' }"
       >
-        <p class="truncate text-[10.5px] font-medium text-fg-muted" :title="port.label">
-          {{ port.label }}
-        </p>
+        <div class="flex items-center gap-1.5">
+          <p
+            class="min-w-0 flex-1 truncate text-[10.5px] font-medium"
+            :class="port.variant === 'exception' ? '' : 'text-fg-muted'"
+            :style="port.variant === 'exception' ? { color: 'var(--danger)' } : undefined"
+            :title="portTitle(port)"
+          >
+            {{ port.label }}
+          </p>
+          <!-- The exception port is a fixed, plugin-side branch — say so on the
+               node so it isn't read as another bound function. -->
+          <span
+            v-if="port.variant === 'exception'"
+            class="shrink-0 rounded px-1 py-0.5 text-[8.5px] font-semibold uppercase tracking-wide"
+            :style="{ background: 'var(--danger-soft)', color: 'var(--danger)' }"
+            :title="portTitle(port)"
+          >
+            exception
+          </span>
+        </div>
         <Handle
           :id="port.id"
           type="source"
           :position="Position.Right"
-          :style="{ background: accent, borderColor: accent }"
-          :title="port.label"
+          :style="{ background: portColor(port), borderColor: portColor(port) }"
+          :title="portTitle(port)"
         />
       </div>
     </template>
@@ -332,9 +362,15 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
       <span
         v-for="(port, i) in ports"
         :key="port.id"
-        class="absolute -translate-x-1/2 truncate text-[9px] font-medium text-fg-subtle"
-        :style="{ left: portLeft(i, ports.length), maxWidth: '46px', top: '3px' }"
-        :title="port.label"
+        class="absolute -translate-x-1/2 truncate text-[9px] font-medium"
+        :class="port.variant === 'exception' ? '' : 'text-fg-subtle'"
+        :style="{
+          left: portLeft(i, ports.length),
+          maxWidth: '46px',
+          top: '3px',
+          ...(port.variant === 'exception' ? { color: 'var(--danger)' } : {}),
+        }"
+        :title="portTitle(port)"
       >
         {{ port.label }}
       </span>
@@ -350,8 +386,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
         :id="port.id"
         type="source"
         :position="Position.Bottom"
-        :style="{ left: portLeft(i, ports.length), background: accent, borderColor: accent }"
-        :title="port.label"
+        :style="{ left: portLeft(i, ports.length), background: portColor(port), borderColor: portColor(port) }"
+        :title="portTitle(port)"
       />
     </template>
   </div>
@@ -364,5 +400,12 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
 /* Stacked port cards read as attachments under the node body. */
 .port-card {
   background: var(--surface);
+}
+/* The exception card is the odd one out — a tinted band, dashed off from the
+   defined ports above it, so it never reads as another bound function. */
+.port-card--exception {
+  background: var(--danger-soft);
+  border-top-style: dashed;
+  border-top-color: var(--danger);
 }
 </style>

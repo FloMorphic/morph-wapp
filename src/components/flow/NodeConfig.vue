@@ -5,8 +5,10 @@ import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
 import CodeEditor from '@/components/ui/CodeEditor.vue'
 import JsonSchemaForm from '@/components/flow/JsonSchemaForm.vue'
+import PromptImporter from '@/components/flow/PromptImporter.vue'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
+import { EXCEPTION_TAG } from '@/data/nodeCatalog'
 import type { FlowRecord, McpTool } from '@/types/api'
 
 /**
@@ -92,15 +94,42 @@ function setHandlerTags(h: Handler, raw: string) {
   h.tags = raw.split(',').map((t) => t.trim()).filter(Boolean)
 }
 
-// ---- LLM functions ({ id, name, title, description }[]) — routed output ports
+// ---- LLM functions ({ id, name, title, description, params, parameters }[]) —
+// routed output ports.
 // `name` is the tool name AND the outbound-port route tag; `description` is the
 // model-facing text that tells the LLM when to call it (required — the model
 // picks tools by their description); `title` is a canvas display label only.
+//
+// A function may also declare the ARGUMENTS the model has to fill in when it
+// calls it. They are edited as flat rows (`params`) and mirrored into
+// `parameters` — the JSON Schema the wire contract actually carries: the
+// compiler ships `parameters` to the plugin, which forwards it to the provider
+// as the tool's parameter schema, and drops every other row field. A function
+// with no rows leaves `parameters` unset and the plugin sends an empty-object
+// schema, i.e. a no-argument tool. The arguments the model fills in come back on
+// the node output under `tool_calls[].arguments`.
+type ParamType = 'string' | 'number' | 'integer' | 'boolean' | 'string[]' | 'object'
+const PARAM_TYPES: ParamType[] = ['string', 'number', 'integer', 'boolean', 'string[]', 'object']
+
+/** One argument row of a bound function — a flat property of its schema. */
+interface ParamRow {
+  id: string
+  name: string
+  type: ParamType
+  description: string
+  required: boolean
+  /** `string` type only: comma-separated allowed values → the schema's `enum`. */
+  options: string
+}
 interface Fn {
   id: string
   name: string
   title: string
   description: string
+  /** Editable argument rows — the source `parameters` is rebuilt from on each edit. */
+  params?: ParamRow[]
+  /** JSON Schema of the call arguments (built from `params`). */
+  parameters?: Record<string, unknown>
   // MCP tools carry their JSON-schema arguments so 'tool' mode can build the
   // call_tool argument dialog; hand-declared LLM functions leave it undefined.
   inputSchema?: Record<string, unknown>
@@ -110,10 +139,76 @@ function functions(): Fn[] {
   return data().functions as Fn[]
 }
 function addFunction() {
-  functions().push({ id: `fn-${Date.now()}`, name: '', title: '', description: '' })
+  functions().push({ id: `fn-${Date.now()}`, name: '', title: '', description: '', params: [] })
 }
 function removeFunction(i: number) {
   functions().splice(i, 1)
+}
+
+// ---- Function parameters ---------------------------------------------------
+/**
+ * The argument rows of one function, seeded from its schema on first read so a
+ * flow saved before this editor (or an imported one) opens with its arguments
+ * listed. The editor speaks flat schemas only — a hand-written nested one is
+ * flattened to its top-level properties, and rewritten in that form once edited.
+ */
+function params(f: Fn): ParamRow[] {
+  if (!Array.isArray(f.params)) f.params = schemaToRows(f.parameters)
+  return f.params
+}
+function addParam(f: Fn) {
+  params(f).push({ id: `p-${Date.now()}`, name: '', type: 'string', description: '', required: false, options: '' })
+  syncParams(f)
+}
+function removeParam(f: Fn, i: number) {
+  params(f).splice(i, 1)
+  syncParams(f)
+}
+/** Mirror the rows into `f.parameters`. Called on every edit of a row. */
+function syncParams(f: Fn) {
+  const schema = rowsToSchema(params(f))
+  if (schema) f.parameters = schema
+  else delete f.parameters
+}
+
+/** Rows → the JSON Schema the provider receives; undefined when nothing is named. */
+function rowsToSchema(rows: ParamRow[]): Record<string, unknown> | undefined {
+  const properties: Record<string, unknown> = {}
+  const required: string[] = []
+  for (const p of rows) {
+    const name = p.name.trim()
+    if (!name) continue // a half-typed row is simply not part of the schema yet
+    const prop: Record<string, unknown> =
+      p.type === 'string[]' ? { type: 'array', items: { type: 'string' } } : { type: p.type }
+    if (p.description.trim()) prop.description = p.description.trim()
+    const options = p.options.split(',').map((o) => o.trim()).filter(Boolean)
+    if (p.type === 'string' && options.length) prop.enum = options
+    properties[name] = prop
+    if (p.required) required.push(name)
+  }
+  if (!Object.keys(properties).length) return undefined
+  const schema: Record<string, unknown> = { type: 'object', properties }
+  if (required.length) schema.required = required
+  return schema
+}
+
+/** The inverse: a stored schema → editable rows. */
+function schemaToRows(schema: Record<string, unknown> | undefined): ParamRow[] {
+  const props = (schema?.properties ?? {}) as Record<string, Record<string, unknown>>
+  const required = new Set(Array.isArray(schema?.required) ? (schema.required as string[]) : [])
+  return Object.entries(props).map(([name, prop], i) => {
+    const raw = String(prop?.type ?? 'string')
+    const type: ParamType =
+      raw === 'array' ? 'string[]' : PARAM_TYPES.includes(raw as ParamType) ? (raw as ParamType) : 'string'
+    return {
+      id: `p-${i}-${name}`,
+      name,
+      type,
+      description: String(prop?.description ?? ''),
+      required: required.has(name),
+      options: Array.isArray(prop?.enum) ? (prop.enum as unknown[]).map(String).join(', ') : '',
+    }
+  })
 }
 
 // ---- LLM / MCP init messages (stored on data.body.messages) ----------------
@@ -124,6 +219,11 @@ function removeFunction(i: number) {
 // these only to seed the FIRST run; once the node's scope holds a conversation,
 // the template is ignored — so they are never re-added on a resumed/looping run.
 // Compiled straight through to the plugin's body.messages array.
+//
+// Either box can be filled from the Prompts library instead of typed: see
+// PromptImporter, which writes a stored template into the box (replacing or
+// appending). What lands here is plain text the drawer owns from then on — there
+// is no live link back to the library record.
 type ChatRole = 'system' | 'user'
 interface ChatMsg {
   role: ChatRole
@@ -533,8 +633,18 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           :language="lang === 'opa' ? 'opa' : 'js'"
           inline
           wrap
-          :placeholder="lang === 'opa' ? 'package flomorphic\n\nscope_data := input # scoped context: input.<field>\ncriteria := data # Conditions key/values: data.<key>\n\nresult := true' : '// last expression is the result\nreturn { ok: true }'"
+          :placeholder="lang === 'opa' ? 'package flomorphic\n\nscope_data := input # scoped context: input.<field>\ncriteria := data # Conditions key/values: data.<key>\n\nresult := true' : 'let scopedData = input // the slice selected by `scope`\n\nlet result = { ok: true }\n\nresult // last expression is the output'"
         />
+        <p class="text-[11px] leading-relaxed text-fg-subtle">
+          <template v-if="lang === 'opa'">
+            The scoped context is <code>input</code> and the Conditions key/values are <code>data</code>. The
+            node outputs whichever Rego variable the <strong>result variable</strong> above names.
+          </template>
+          <template v-else>
+            The scoped context arrives as <code>input</code>. The value of the <strong>last expression</strong>
+            is the node output — there is no <code>return</code>, so end the code by naming the value to emit.
+          </template>
+        </p>
       </div>
 
       <!-- Conditions (OPA criteria / Rule) -->
@@ -600,7 +710,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         </label>
 
         <div class="space-y-1 rounded-lg border p-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System</span>
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System</span>
+            <PromptImporter v-model="systemMsg" label="System" />
+          </div>
           <textarea
             v-model="systemMsg"
             rows="4"
@@ -611,7 +724,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         </div>
 
         <div class="space-y-1 rounded-lg border p-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">User</span>
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">User</span>
+            <PromptImporter v-model="userMsg" label="User" />
+          </div>
           <textarea
             v-model="userMsg"
             rows="5"
@@ -657,9 +773,78 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
             class="input w-full text-xs"
             placeholder="description — tell the model when to call this function (required)"
           />
+
+          <!-- Parameters → the function's JSON-schema arguments -->
+          <div class="space-y-1.5 border-t pt-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+                Parameters
+                <span class="ml-1 font-normal normal-case">— arguments the model fills in</span>
+              </span>
+              <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addParam(f)">
+                <Icon name="plus" :size="12" /> Add
+              </button>
+            </div>
+
+            <div v-for="(p, pi) in params(f)" :key="p.id" class="space-y-1 rounded-lg border border-dashed p-2">
+              <div class="flex items-center gap-2">
+                <input
+                  v-model="p.name"
+                  class="input w-28 font-mono text-xs"
+                  placeholder="arg name"
+                  @input="syncParams(f)"
+                />
+                <select v-model="p.type" class="input w-24 text-xs" title="Type" @change="syncParams(f)">
+                  <option v-for="t in PARAM_TYPES" :key="t" :value="t">{{ t }}</option>
+                </select>
+                <label
+                  class="flex items-center gap-1 text-[11px] text-fg-subtle"
+                  title="The model must supply this argument when it calls the function"
+                >
+                  <input v-model="p.required" type="checkbox" @change="syncParams(f)" />
+                  required
+                </label>
+                <button
+                  class="ml-auto shrink-0 rounded-lg p-1 text-fg-subtle hover:bg-danger-soft hover:text-danger"
+                  @click="removeParam(f, pi)"
+                >
+                  <Icon name="x" :size="14" />
+                </button>
+              </div>
+              <input
+                v-model="p.description"
+                class="input w-full text-xs"
+                placeholder="description — what this argument holds (the model reads it)"
+                @input="syncParams(f)"
+              />
+              <input
+                v-if="p.type === 'string'"
+                v-model="p.options"
+                class="input w-full font-mono text-xs"
+                placeholder="allowed values, comma-separated (optional)"
+                @input="syncParams(f)"
+              />
+            </div>
+
+            <p v-if="params(f).length === 0" class="text-[11px] text-fg-subtle">
+              No parameters — the model calls this function with no arguments.
+            </p>
+          </div>
         </div>
         <p v-if="functions().length === 0" class="text-[11px] text-fg-subtle">
           No functions bound — add one and the model can route to its output port.
+        </p>
+        <p v-else class="text-[11px] leading-relaxed text-fg-subtle">
+          The arguments the model fills in for the called function arrive on this node's output under
+          <code>tool_calls[].arguments</code>, so a downstream node can read them from
+          <code>{{ '$.' + (String(data().key || '') || 'messages') }}</code>.
+        </p>
+        <p v-if="functions().length" class="text-[11px] leading-relaxed text-fg-subtle">
+          Binding functions replaces the node's plain output with these ports, so it also grows an
+          <strong>exception</strong> port: the plugin routes there when it errors or hits an unknown
+          mode, so the flow continues into whatever you wire to it instead of stopping. It is
+          plugin-side and fixed — edges leaving it always carry the
+          <code>{{ EXCEPTION_TAG }}</code> tag.
         </p>
       </div>
     </template>
@@ -714,7 +899,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           </label>
 
           <div class="space-y-1 rounded-lg border p-2">
-            <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System</span>
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System</span>
+              <PromptImporter v-model="systemMsg" label="System" />
+            </div>
             <textarea
               v-model="systemMsg"
               rows="4"
@@ -725,7 +913,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           </div>
 
           <div class="space-y-1 rounded-lg border p-2">
-            <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">User</span>
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">User</span>
+              <PromptImporter v-model="userMsg" label="User" />
+            </div>
             <textarea
               v-model="userMsg"
               rows="5"
