@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { GraphIndex, NamedEdge, NamedNode } from '@inflowenger/flow-trace'
 import { flowsApi } from '@/api/flows'
+import { portTags } from '@/data/nodeCatalog'
 import type { FlowEdge, FlowNode } from '@/types/api'
 
 /**
@@ -48,13 +49,17 @@ function indexNode(node: FlowNode): ResolvedNode {
 }
 
 /**
- * An edge's tags. A routed port (rule/LLM/handler nodes) carries them on the
- * source node's handler rather than on the edge, so fall back to the handler
- * the edge leaves from — that is the tag the user actually sees on the canvas.
+ * An edge's tags. A routed port carries them on the source node's port rather
+ * than on the edge, so fall back to the port the edge leaves from — that is the
+ * tag the user actually sees on the canvas. LLM function edges are stamped with
+ * their tag on save, but graphs saved before that still need the derivation;
+ * rule handlers only ever carry theirs on the node.
  */
 function edgeTags(edge: FlowEdge, source?: FlowNode): string[] {
   const own = (edge.data?.tags ?? []) as string[]
   if (own.length > 0) return own
+  const fromPort = portTags(source, edge.sourceHandle)
+  if (fromPort?.length) return fromPort
   const handlers = ((source?.data as Record<string, unknown>)?.handlers ?? []) as Handler[]
   const handler = Array.isArray(handlers) ? handlers.find((h) => h.id === edge.sourceHandle) : undefined
   return handler?.tags ?? []

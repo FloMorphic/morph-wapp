@@ -6,7 +6,7 @@ import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import FlowNode from './nodes/FlowNode.vue'
 import NodePalette from './NodePalette.vue'
-import { NODE_SPECS, DEFAULT_START_KIND, type NodeSpec, type NodeKind } from '@/data/nodeCatalog'
+import { NODE_SPECS, DEFAULT_START_KIND, portTags, type NodeSpec, type NodeKind } from '@/data/nodeCatalog'
 import type { VueFlowGraph } from '@/types/api'
 import type { NodeExtRef } from '@/lib/nodeSettings'
 import { createId } from '@/lib/id'
@@ -74,6 +74,25 @@ function addNode(kind: NodeKind, position?: { x: number; y: number }, ext?: Node
   return id
 }
 
+// ---- Routed-port tags ------------------------------------------------------
+// The engine routes by tag alone: a node fires tags (the LLM plugin fires the
+// name of the tool the model called) and only outbound edges carrying a
+// matching tag continue. Nothing on the engine side reads the source node's
+// config, so a routed port's tag has to live on the edge — see NodePort.tags.
+// Tags are re-derived from node data rather than frozen at connect time, so
+// renaming a function re-tags the edges already drawn from its port.
+function tagsForPort(sourceId?: string | null, handleId?: string | null): string[] | undefined {
+  return portTags(nodes.value.find((n) => n.id === sourceId), handleId)
+}
+
+/** Re-stamp every edge whose source port dictates tags. */
+function syncPortTags() {
+  for (const e of edges.value) {
+    const tags = tagsForPort(e.source, e.sourceHandle)
+    if (tags) e.data = { ...(e.data ?? {}), tags }
+  }
+}
+
 onConnect((params: Connection) => {
   edges.value.push({
     id: createId('e'),
@@ -83,14 +102,17 @@ onConnect((params: Connection) => {
     targetHandle: params.targetHandle,
     type: 'default',
     markerEnd: MarkerType.ArrowClosed,
-    data: { tags: [] },
+    data: { tags: tagsForPort(params.source, params.sourceHandle) ?? [] },
   })
   emit('dirty')
 })
 
-// Dragging an existing edge's endpoint onto another handle re-wires it in place.
+// Dragging an existing edge's endpoint onto another handle re-wires it in place
+// — and onto a different port, so its tags are re-derived once Vue Flow has
+// pushed the new connection back into `edges`.
 onEdgeUpdate(({ edge, connection }) => {
   updateEdge(edge, connection, false)
+  void nextTick(syncPortTags)
   emit('dirty')
 })
 
@@ -172,6 +194,10 @@ function loadGraph(graph: VueFlowGraph, seedStart = false) {
       ]
       : []
   edges.value = graph?.edges ? graph.edges.map(sanitizeEdge) : []
+  // Flows saved before routed ports stamped their tags come back untagged, so
+  // re-derive on load: the graph is then correct in memory and the next save
+  // writes the tags out. Not a dirty edit — nothing the user did changed.
+  syncPortTags()
   nextTick(() => {
     const p = graph?.position
     if (p && typeof p.x === 'number') setViewport({ x: p.x, y: p.y, zoom: p.zoom })
@@ -181,7 +207,10 @@ function loadGraph(graph: VueFlowGraph, seedStart = false) {
 
 function getGraph(): VueFlowGraph {
   // Clean, serialisable graph from the refs (dropping any runtime-only fields
-  // Vue Flow may attach) plus the current viewport.
+  // Vue Flow may attach) plus the current viewport. Routed-port tags are
+  // refreshed first: the drawer edits node data (a function's name) without
+  // touching the edges, so this is where a rename reaches them.
+  syncPortTags()
   const cleanNodes: VueFlowGraph['nodes'] = nodes.value.map((n) => ({
     id: n.id,
     type: n.type,

@@ -634,7 +634,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         <div class="flex items-center justify-between">
           <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
             Functions
-            <span class="ml-1 font-normal normal-case text-fg-subtle">— one outbound port each</span>
+            <span class="ml-1 font-normal normal-case text-fg-subtle">— one outbound port each, tagged by name</span>
           </label>
           <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addFunction">
             <Icon name="plus" :size="13" /> Add

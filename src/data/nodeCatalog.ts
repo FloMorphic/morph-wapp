@@ -54,6 +54,15 @@ export interface BaseNodeData {
 export interface NodePort {
   id: string
   label: string
+  /**
+   * Route tags every edge leaving this port must carry (`edge.data.tags`).
+   * The engine routes purely by tag — it compares the tags a node fires against
+   * the tags on its outbound edges — and never looks at the source node's own
+   * config, so a port that means something (an LLM function) has to push its
+   * tag onto the edges drawn from it. Leave undefined for a port that doesn't
+   * dictate tags; the edge then keeps whatever tags it already has.
+   */
+  tags?: string[]
 }
 
 export interface NodeSpec {
@@ -220,10 +229,15 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     // Bound functions can grow numerous, so they render as stacked cards under
     // the node body (one right-side outbound handle each), not a bottom row.
     portLayout: 'stack',
+    // A function's `name` is its route tag: when the model calls the tool, the
+    // llm plugin fires that exact name as the next-filter tag, so the edge off
+    // this port carries it (see portTags / WorkflowCanvas) or the branch never
+    // runs. `title` is a canvas label only.
     ports: (d) =>
       asRows(d.functions).map((f, i) => ({
         id: String(f.id ?? f.name ?? `fn${i}`),
         label: String(f.title ?? f.name ?? `fn${i + 1}`),
+        tags: [String(f.name ?? '').trim()].filter(Boolean),
       })),
   }),
   rule: spec({
@@ -452,4 +466,23 @@ export const DEFAULT_START_KIND: NodeKind = 'startNode'
 
 export function specForType(type: string): NodeSpec | undefined {
   return NODE_SPECS[type as NodeKind]
+}
+
+/**
+ * The route tags an edge leaving `handleId` of `node` has to carry, or
+ * undefined when that port doesn't dictate any (a plain handle, or a node kind
+ * whose ports carry no tags) and the edge's own tags should be left alone.
+ *
+ * Ports are derived from node data, so this is re-read whenever an edge is
+ * drawn, re-wired or saved: rename an LLM function and every edge already drawn
+ * from it picks the new name up.
+ */
+export function portTags(
+  node: { type?: string; data?: unknown } | undefined,
+  handleId?: string | null,
+): string[] | undefined {
+  if (!node || !handleId) return undefined
+  const spec = specForType(String(node.type ?? ''))
+  const port = spec?.ports?.(node.data as BaseNodeData)?.find((p) => p.id === handleId)
+  return port?.tags
 }
