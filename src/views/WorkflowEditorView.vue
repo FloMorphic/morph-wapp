@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import WorkflowCanvas from '@/components/flow/WorkflowCanvas.vue'
@@ -8,13 +8,14 @@ import FlowProcessesButton from '@/components/flow/FlowProcessesButton.vue'
 import FlowLogDrawer from '@/components/flow/FlowLogDrawer.vue'
 import RunFlowButton from '@/components/flow/RunFlowButton.vue'
 import AiNodeImporter from '@/components/flow/AiNodeImporter.vue'
+import WorkflowImporter from '@/components/flow/WorkflowImporter.vue'
 import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { useWorkflowsStore } from '@/stores/workflows'
 import { useFlowLogsStore } from '@/stores/flowLogs'
 import { useFlowGraphsStore } from '@/stores/flowGraphs'
 import { useNotificationsStore } from '@/stores/notifications'
-import { summarize, type PlannedPatch } from '@/lib/aiGraph'
+import { offsetPatch, planPatch, summarize, type AiGraphPatch, type PlannedPatch } from '@/lib/aiGraph'
 import { downloadFile, fileBase, workflowExportJson } from '@/lib/exportFlow'
 
 const props = defineProps<{ id?: string }>()
@@ -35,7 +36,11 @@ onMounted(() => {
 const canvas = ref<InstanceType<typeof WorkflowCanvas> | null>(null)
 const selected = ref<GraphNode | null>(null)
 
-const title = ref('Untitled workflow')
+const UNTITLED = 'Untitled workflow'
+/** A workflow still carrying its placeholder name — safe for an import to name. */
+const isUnnamed = (t: string) => !t.trim() || t.trim() === UNTITLED
+
+const title = ref(UNTITLED)
 const currentId = ref<string | undefined>(props.id)
 const dirty = ref(false)
 const saving = ref(false)
@@ -47,14 +52,14 @@ async function init() {
   if (props.id) {
     try {
       const record = await store.get(props.id)
-      title.value = record.title || 'Untitled workflow'
+      title.value = record.title || UNTITLED
       currentId.value = record.id
       canvas.value?.loadGraph(record.view_flow ?? { nodes: [], edges: [] })
     } catch (err) {
       loadError.value = (err as Error).message
     }
   } else {
-    title.value = 'Untitled workflow'
+    title.value = UNTITLED
     currentId.value = undefined
     canvas.value?.loadGraph({ nodes: [], edges: [] }, true)
   }
@@ -82,6 +87,41 @@ function currentGraph() {
 async function onAiPatch(patch: PlannedPatch) {
   await canvas.value?.applyPatch(patch)
   notifications.notify({ level: 'success', title: 'AI nodes added', message: `${summarize(patch)} — review and save.` })
+}
+
+/**
+ * Land an imported workflow file (see WorkflowImporter for the two modes).
+ *
+ * Replacing plans the patch against an *empty* canvas on purpose: planPatch
+ * lays a patch out clear of whatever is already there, and there is about to be
+ * nothing there — planning it against the graph being thrown away would push
+ * the imported nodes off to one side of their own canvas. Adding does the
+ * opposite: the file's layout is shifted clear of the graph it joins
+ * ({@link offsetPatch}), which a file needs and a hand-written patch doesn't,
+ * since a file positions every node it carries.
+ *
+ * The file's name is adopted only for a workflow that hasn't been named yet, so
+ * importing into a workflow you already titled never renames it behind your back.
+ */
+async function onImport({ patch, mode, title: fileTitle }: { patch: AiGraphPatch; mode: 'add' | 'replace'; title?: string }) {
+  if (mode === 'replace') {
+    canvas.value?.loadGraph({ nodes: [], edges: [] })
+    await nextTick()
+    return applyImport(planPatch(patch, null), mode, fileTitle)
+  }
+  const existing = currentGraph()
+  return applyImport(planPatch(offsetPatch(patch, existing), existing), mode, fileTitle)
+}
+
+async function applyImport(planned: PlannedPatch, mode: 'add' | 'replace', fileTitle?: string) {
+  await canvas.value?.applyPatch(planned)
+  if (mode === 'replace' && fileTitle && isUnnamed(title.value)) title.value = fileTitle
+  dirty.value = true
+  notifications.notify({
+    level: 'success',
+    title: mode === 'replace' ? 'Workflow imported' : 'Workflow merged in',
+    message: `${summarize(planned)} — review and save.`,
+  })
 }
 
 /**
@@ -129,7 +169,7 @@ async function save() {
   if (!graph) return
   saving.value = true
   try {
-    const record = await store.save({ id: currentId.value, title: title.value.trim() || 'Untitled workflow', view_flow: graph })
+    const record = await store.save({ id: currentId.value, title: title.value.trim() || UNTITLED, view_flow: graph })
     dirty.value = false
     // The log drawer names nodes/edges by resolving ids against the saved graph;
     // a rename here must not leave it showing the old titles.
@@ -188,8 +228,9 @@ async function save() {
         <span class="tool-sep" />
 
         <AiNodeImporter :resolve-graph="currentGraph" @apply="onAiPatch" />
+        <WorkflowImporter :resolve-graph="currentGraph" @apply="onImport" />
         <ToolButton
-          icon="download"
+          icon="export"
           label="Export"
           title="Export workflow — download this design as a JSON file (unsaved edits included)"
           @click="exportJson"

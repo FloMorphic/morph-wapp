@@ -196,6 +196,36 @@ function sliceFirstObject(text: string): string | null {
 const PATCH_GAP = 320
 
 /**
+ * Move a patch's own coordinate frame clear of a graph already on the canvas,
+ * keeping the shape it was drawn in.
+ *
+ * {@link planPatch} lays out the nodes that ask to be laid out — the ones with
+ * no position — but a patch that *does* carry positions is taken at its word,
+ * and a whole workflow imported from a file carries every one of them. Merged
+ * as-is it would land on top of the graph it was merged into, node for node.
+ * Shifting the frame is the answer rather than dropping the positions: the
+ * imported workflow keeps the layout it was exported with, just further right.
+ *
+ * Nodes without a position are left without one, so they still get laid out.
+ */
+export function offsetPatch(patch: AiGraphPatch, existing?: VueFlowGraph | null): AiGraphPatch {
+  const existingNodes = existing?.nodes ?? []
+  const placed = patch.nodes.filter((n) => n.position)
+  if (existingNodes.length === 0 || placed.length === 0) return patch
+
+  const dx =
+    Math.max(...existingNodes.map((n) => n.position?.x ?? 0)) + PATCH_GAP - Math.min(...placed.map((n) => n.position!.x))
+  const dy = Math.min(...existingNodes.map((n) => n.position?.y ?? 0)) - Math.min(...placed.map((n) => n.position!.y))
+
+  return {
+    ...patch,
+    nodes: patch.nodes.map((n) =>
+      n.position ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n,
+    ),
+  }
+}
+
+/**
  * Validate a patch against the catalog and turn it into canvas nodes / edges.
  *
  * `existing` is the graph currently on the canvas: new nodes are laid out clear

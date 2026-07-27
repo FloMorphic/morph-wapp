@@ -4,7 +4,7 @@ import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
 import Button from '@/components/ui/Button.vue'
 import ToolButton from '@/components/ui/ToolButton.vue'
-import { specForType } from '@/data/nodeCatalog'
+import PatchReview from './PatchReview.vue'
 import {
   buildDesignerPrompt,
   parseAiGraph,
@@ -76,19 +76,7 @@ const plan = computed<PlannedPatch | null>(() =>
   parsed.value.patch ? planPatch(parsed.value.patch, snapshot.value) : null,
 )
 
-const errors = computed(() => plan.value?.problems.filter((p) => p.level === 'error') ?? [])
-const warnings = computed(() => plan.value?.problems.filter((p) => p.level === 'warn') ?? [])
 const canApply = computed(() => (plan.value?.nodes.length ?? 0) > 0)
-
-/** Node ids → their patch ref, so the edge list reads in the model's names. */
-const refById = computed(() => new Map((plan.value?.nodes ?? []).map((n) => [n.id, n.ref])))
-function endpointLabel(id: string): string {
-  const ref = refById.value.get(id)
-  if (ref) return ref
-  const existing = snapshot.value.nodes.find((n) => n.id === id)
-  const title = String((existing?.data as Record<string, unknown>)?.title ?? '').trim()
-  return title || id
-}
 
 function apply() {
   const planned = plan.value
@@ -97,10 +85,6 @@ function apply() {
   open.value = false
   response.value = ''
   goal.value = ''
-}
-
-function specColor(type: string): string {
-  return specForType(type)?.color ?? 'var(--fg-muted)'
 }
 </script>
 
@@ -175,74 +159,7 @@ function specColor(type: string): string {
         <h3 class="text-[13px] font-semibold text-fg">
           <span class="mr-1.5 text-fg-subtle">3.</span>Review
         </h3>
-
-        <p v-if="!canApply" class="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-fg-muted">
-          Nothing to add — the patch declared no usable nodes.
-        </p>
-
-        <div v-else class="space-y-1.5">
-          <div
-            v-for="n in plan.nodes"
-            :key="n.id"
-            class="flex items-start gap-2.5 rounded-xl border px-3 py-2"
-          >
-            <span
-              class="mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-              :style="{ background: `color-mix(in srgb, ${specColor(n.type)} 16%, transparent)`, color: specColor(n.type) }"
-            >
-              <Icon :name="n.spec.icon" :size="13" />
-            </span>
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-baseline gap-x-2">
-                <span class="text-[13px] font-semibold text-fg">{{ n.data.title || n.spec.label }}</span>
-                <span class="chip">{{ n.spec.label }}</span>
-                <span v-if="n.data.key" class="font-mono text-[11px] text-fg-subtle">→ {{ n.data.key }}</span>
-              </div>
-              <p v-if="n.note" class="mt-0.5 text-[12px] leading-relaxed text-fg-muted">{{ n.note }}</p>
-            </div>
-          </div>
-
-          <div v-if="plan.edges.length" class="flex flex-wrap gap-1.5 pt-1">
-            <span v-for="e in plan.edges" :key="e.id" class="chip font-mono text-[11px]">
-              {{ endpointLabel(e.source) }}<template v-if="e.portLabel"> · {{ e.portLabel }}</template> →
-              {{ endpointLabel(e.target) }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Dropped items: said out loud, never applied silently. -->
-        <div v-if="errors.length" class="rounded-xl border border-dashed p-3" style="border-color: var(--danger)">
-          <p class="flex items-center gap-1.5 text-[12px] font-semibold text-danger">
-            <Icon name="alert-triangle" :size="14" />
-            {{ errors.length }} item{{ errors.length === 1 ? '' : 's' }} dropped
-          </p>
-          <ul class="mt-1.5 space-y-1">
-            <li v-for="(p, i) in errors" :key="i" class="text-[12px] leading-relaxed text-fg-muted">
-              <span v-if="p.at" class="font-mono text-fg-subtle">{{ p.at }}</span>
-              {{ p.message }}
-            </li>
-          </ul>
-        </div>
-
-        <div v-if="warnings.length" class="rounded-xl border border-dashed p-3">
-          <p class="flex items-center gap-1.5 text-[12px] font-semibold text-fg">
-            <Icon name="info" :size="14" class="text-fg-subtle" />
-            Finish by hand after adding
-          </p>
-          <ul class="mt-1.5 space-y-1">
-            <li v-for="(p, i) in warnings" :key="i" class="text-[12px] leading-relaxed text-fg-muted">
-              <span v-if="p.at" class="font-mono text-fg-subtle">{{ p.at }}</span>
-              {{ p.message }}
-            </li>
-          </ul>
-        </div>
-
-        <div v-if="plan.notes.length" class="rounded-xl bg-surface-2 p-3">
-          <p class="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">Assistant notes</p>
-          <ul class="mt-1.5 space-y-1">
-            <li v-for="(note, i) in plan.notes" :key="i" class="text-[12px] leading-relaxed text-fg-muted">{{ note }}</li>
-          </ul>
-        </div>
+        <PatchReview :plan="plan" :existing="snapshot" />
       </section>
     </div>
 
