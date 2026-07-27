@@ -8,13 +8,14 @@ import FlowProcessesButton from '@/components/flow/FlowProcessesButton.vue'
 import FlowLogDrawer from '@/components/flow/FlowLogDrawer.vue'
 import RunFlowButton from '@/components/flow/RunFlowButton.vue'
 import AiNodeImporter from '@/components/flow/AiNodeImporter.vue'
-import Button from '@/components/ui/Button.vue'
+import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { useWorkflowsStore } from '@/stores/workflows'
 import { useFlowLogsStore } from '@/stores/flowLogs'
 import { useFlowGraphsStore } from '@/stores/flowGraphs'
 import { useNotificationsStore } from '@/stores/notifications'
 import { summarize, type PlannedPatch } from '@/lib/aiGraph'
+import { downloadFile, fileBase, workflowExportJson } from '@/lib/exportFlow'
 
 const props = defineProps<{ id?: string }>()
 const router = useRouter()
@@ -83,6 +84,46 @@ async function onAiPatch(patch: PlannedPatch) {
   notifications.notify({ level: 'success', title: 'AI nodes added', message: `${summarize(patch)} — review and save.` })
 }
 
+/**
+ * Export the design as a JSON file — what is on the canvas right now, saved or
+ * not, so an unsaved draft can still be taken away. See lib/exportFlow for the
+ * envelope and what a file does *not* carry across installs.
+ */
+function exportJson() {
+  const graph = canvas.value?.getGraph()
+  if (!graph) return
+  downloadFile(
+    new Blob([workflowExportJson(title.value, graph)], { type: 'application/json' }),
+    `${fileBase(title.value)}.flow.json`,
+  )
+  notifications.notify({
+    level: 'success',
+    title: 'Workflow exported',
+    message: `${graph.nodes.length} node${graph.nodes.length === 1 ? '' : 's'} written to a JSON file.`,
+  })
+}
+
+const capturing = ref(false)
+
+/** PNG of the whole graph — for a doc, a ticket or a chat. */
+async function snapshot() {
+  if (capturing.value) return
+  capturing.value = true
+  try {
+    const png = await canvas.value?.captureImage()
+    if (!png) {
+      notifications.notify({ level: 'info', message: 'Nothing to capture — the canvas is empty.' })
+      return
+    }
+    downloadFile(png, `${fileBase(title.value)}.png`)
+    notifications.notify({ level: 'success', title: 'Snapshot saved', message: 'The canvas was exported as a PNG image.' })
+  } catch (err) {
+    notifications.notify({ level: 'error', title: 'Snapshot failed', message: (err as Error).message })
+  } finally {
+    capturing.value = false
+  }
+}
+
 async function save() {
   const graph = canvas.value?.getGraph()
   if (!graph) return
@@ -126,37 +167,66 @@ async function save() {
 
       <span v-if="dirty" class="text-[11px] text-fg-subtle">Unsaved changes</span>
 
-      <div class="ml-auto flex items-center gap-2">
-        <AiNodeImporter :resolve-graph="currentGraph" @apply="onAiPatch" />
-        <FlowProcessesButton :flow-id="currentId" />
-        <Button
-          v-if="logs.isRemote"
-          icon="monitor"
-          :title="logs.isOpen ? 'Hide runtime logs' : 'Show runtime logs'"
-          @click="logs.toggle()"
-        >
-          <span class="hidden sm:inline">Logs</span>
-          <span
-            v-if="logs.errorCount > 0"
-            class="ml-1 inline-flex min-w-4 items-center justify-center rounded-full bg-danger-soft px-1.5 text-[11px] font-semibold text-danger"
-          >
-            {{ logs.errorCount }}
-          </span>
-        </Button>
-        <Button
+      <!-- Tools, grouped: view · design · runtime · commit. Scrolls rather than
+           wraps on a narrow window, so the row always stays one line high. -->
+      <div class="ml-auto flex min-w-0 items-center gap-1 overflow-x-auto">
+        <ToolButton
+          icon="tidy"
+          label="Tidy"
+          title="Auto-arrange — re-lay the graph out left → right (replaces hand-placed positions)"
+          @click="canvas?.autoArrange()"
+        />
+        <ToolButton icon="refresh" label="Fit" title="Fit the whole graph in view" @click="canvas?.fitView({ padding: 0.3 })" />
+        <ToolButton
           icon="map"
+          label="Map"
+          :active="canvas?.showMinimap"
           :title="canvas?.showMinimap ? 'Hide minimap' : 'Show minimap'"
           @click="canvas?.toggleMinimap()"
-        >
-          <span class="hidden sm:inline">{{ canvas?.showMinimap ? 'Map' : 'Map off' }}</span>
-        </Button>
-        <Button icon="refresh" title="Fit view" @click="canvas?.fitView({ padding: 0.3 })">
-          <span class="hidden sm:inline">Fit</span>
-        </Button>
+        />
+
+        <span class="tool-sep" />
+
+        <AiNodeImporter :resolve-graph="currentGraph" @apply="onAiPatch" />
+        <ToolButton
+          icon="download"
+          label="Export"
+          title="Export workflow — download this design as a JSON file (unsaved edits included)"
+          @click="exportJson"
+        />
+        <ToolButton
+          icon="camera"
+          :label="capturing ? 'Saving…' : 'Snapshot'"
+          :disabled="capturing"
+          title="Snapshot — save a PNG image of the whole graph"
+          @click="snapshot"
+        />
+
+        <span class="tool-sep" />
+
+        <FlowProcessesButton :flow-id="currentId" />
+        <ToolButton
+          v-if="logs.isRemote"
+          icon="monitor"
+          label="Logs"
+          :active="logs.isOpen"
+          :badge="logs.errorCount || undefined"
+          badge-tone="danger"
+          :title="logs.isOpen ? 'Hide runtime logs' : 'Show runtime logs'"
+          @click="logs.toggle()"
+        />
         <RunFlowButton :flow-id="currentId" :dirty="dirty" />
-        <Button variant="primary" icon="save" :disabled="saving" @click="save">
-          {{ saving ? 'Saving…' : 'Save' }}
-        </Button>
+
+        <span class="tool-sep" />
+
+        <ToolButton
+          tone="primary"
+          icon="save"
+          :label="saving ? 'Saving…' : 'Save'"
+          :disabled="saving"
+          :title="dirty ? 'Save this workflow — you have unsaved changes' : 'Save this workflow'"
+          @click="save"
+        />
       </div>
     </div>
 

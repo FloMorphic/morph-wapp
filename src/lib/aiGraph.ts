@@ -27,6 +27,7 @@
 
 import {
   NODE_SPECS,
+  handlerTags,
   specForType,
   type BaseNodeData,
   type NodeKind,
@@ -34,6 +35,7 @@ import {
   type NodeSpec,
 } from '@/data/nodeCatalog'
 import { createId } from '@/lib/id'
+import { layeredLayout } from '@/lib/graphLayout'
 import type { FlowNode, VueFlowGraph } from '@/types/api'
 
 /* ------------------------------------------------------------------ contract */
@@ -190,9 +192,8 @@ function sliceFirstObject(text: string): string | null {
 
 /* ------------------------------------------------------------------- planning */
 
-/** Layout grid for auto-placed nodes (roughly a node's footprint plus air). */
-const COL_W = 300
-const ROW_H = 170
+/** Clearance between the graph already on the canvas and a patch dropped beside it. */
+const PATCH_GAP = 320
 
 /**
  * Validate a patch against the catalog and turn it into canvas nodes / edges.
@@ -249,7 +250,6 @@ export function planPatch(patch: AiGraphPatch, existing?: VueFlowGraph | null): 
   // ---- edges ----
   const plannedById = new Map(planned.map((n) => [n.id, n]))
   const edges: PlannedEdge[] = []
-  const links: { from: string; to: string }[] = []
 
   for (const raw of patch.edges ?? []) {
     const label = `${String(raw.from)} → ${String(raw.to)}`
@@ -276,10 +276,9 @@ export function planPatch(patch: AiGraphPatch, existing?: VueFlowGraph | null): 
       targetHandle: null,
       portLabel: port.label,
     })
-    links.push({ from: source, to: target })
   }
 
-  layout(planned, links, existingNodes)
+  layout(planned, edges, existingNodes)
 
   return { nodes: planned, edges, problems, notes: patch.notes ?? [] }
 }
@@ -308,7 +307,10 @@ function mergeData(spec: NodeSpec, raw: AiNodeSpec): BaseNodeData {
   // would point at a handle that no longer exists. The drawer stamps an id on
   // anything it creates, so do the same here.
   if (spec.kind === 'llm') data.functions = stampIds(data.functions, 'fn')
-  if (spec.kind === 'rule') data.handlers = stampIds(data.handlers, 'h')
+  // A handler names its branch; `tags` is the field the engine and the compiler
+  // read, so derive it here rather than trusting the model to write both.
+  if (spec.kind === 'rule')
+    data.handlers = stampIds(data.handlers, 'h').map((h) => ({ ...h, tags: handlerTags(h) }))
   return data
 }
 
@@ -360,12 +362,25 @@ function asRows(v: unknown): Record<string, unknown>[] {
 function inspectNode(spec: NodeSpec, data: BaseNodeData, at: string): PatchProblem[] {
   const out: PatchProblem[] = []
 
-  if (spec.plugin) {
+  // MCP in tool mode drives no model — it calls one named tool — so the
+  // provider/model wording would be actively misleading there.
+  const toolOnlyMcp = spec.kind === 'mcp' && String(data.mcpMode ?? 'tool') === 'tool'
+  if (spec.plugin && !toolOnlyMcp) {
     out.push({
       level: 'warn',
       at,
       message: `${spec.label} needs a settings profile (provider / model) before it can run — pick one in the node drawer.`,
     })
+  }
+  if (toolOnlyMcp) {
+    out.push({
+      level: 'warn',
+      at,
+      message: 'MCP in tool mode calls one named tool — load the server\'s tools in the node drawer and check the selected tool and its arguments.',
+    })
+    if (!String(data.tool ?? '').trim()) {
+      out.push({ level: 'warn', at, message: 'No tool selected, so there is nothing for this node to call.' })
+    }
   }
 
   if (spec.kind === 'llm') {
@@ -532,56 +547,157 @@ function portNames(ports: NodePort[]): string {
 }
 
 /**
- * Place the new nodes: explicit positions win, the rest are laid out left → right
- * by their depth in the patch's own wiring (a rough column-per-hop diagram),
- * anchored clear of whatever is already on the canvas so nothing lands on top of
- * an existing node.
+ * Place the new nodes: explicit positions win, the rest go through the shared
+ * layered layout ({@link layeredLayout} — columns by hop count, rows ordered to
+ * cut edge crossings), anchored clear of whatever is already on the canvas so
+ * nothing lands on top of an existing node.
+ *
+ * Nothing is rendered yet at this point, so node heights are estimated from the
+ * catalog rather than measured — see {@link estimateHeight}.
  */
-function layout(nodes: PlannedNode[], links: { from: string; to: string }[], existing: FlowNode[]): void {
-  const originX = existing.length ? Math.max(...existing.map((n) => n.position?.x ?? 0)) + COL_W : 120
+function layout(nodes: PlannedNode[], edges: PlannedEdge[], existing: FlowNode[]): void {
+  const auto = nodes.filter((n) => !n.position.x && !n.position.y)
+  if (auto.length === 0) return
+
+  const originX = existing.length ? Math.max(...existing.map((n) => n.position?.x ?? 0)) + PATCH_GAP : 120
   const originY = existing.length ? Math.min(...existing.map((n) => n.position?.y ?? 0)) : 120
 
-  const own = new Set(nodes.map((n) => n.id))
-  const outbound = new Map<string, string[]>()
-  const hasInbound = new Set<string>()
-  for (const l of links) {
-    if (!own.has(l.to) || !own.has(l.from)) continue
-    outbound.set(l.from, [...(outbound.get(l.from) ?? []), l.to])
-    hasInbound.add(l.to)
-  }
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const placements = layeredLayout(
+    auto.map((n) => ({ id: n.id, height: estimateHeight(n.spec, n.data) })),
+    edges.map((e) => ({ source: e.source, target: e.target, rank: portRank(byId.get(e.source), e.sourceHandle) })),
+    { originX, originY },
+  )
 
-  // Depth = hops from an entry node, by breadth-first search. Distance to first
-  // visit, not longest chain: a graph may legitimately contain a CYCLE (a loop
-  // built from a back edge), and longest-path would chase that cycle around and
-  // fling the columns off into the distance. First-visit depth ignores the back
-  // edge for free, because its target has already been placed.
-  const depth = new Map<string, number>()
-  // Entry points, then anything still unplaced — a node reachable only from
-  // inside a cycle still needs a column.
-  const roots = [...nodes.filter((n) => !hasInbound.has(n.id)), ...nodes]
-  for (const root of roots) {
-    if (depth.has(root.id)) continue
-    depth.set(root.id, 0)
-    const queue = [root.id]
-    while (queue.length) {
-      const id = queue.shift()!
-      for (const next of outbound.get(id) ?? []) {
-        if (depth.has(next)) continue // already placed — back edge or a merge
-        depth.set(next, (depth.get(id) ?? 0) + 1)
-        queue.push(next)
-      }
-    }
-  }
-
-  const perColumn = new Map<number, number>()
-  for (const n of nodes) {
-    if (n.position.x || n.position.y) continue
-    const col = depth.get(n.id) ?? 0
-    const row = perColumn.get(col) ?? 0
-    perColumn.set(col, row + 1)
-    n.position = { x: originX + col * COL_W, y: originY + row * ROW_H }
+  for (const n of auto) {
+    const p = placements.get(n.id)
+    if (p) n.position = p
   }
 }
+
+/** Where a port sits on its node, so a fan of branches keeps the ports' order. */
+function portRank(node: PlannedNode | undefined, handleId: string | null): number {
+  if (!node || !handleId) return 0
+  const i = node.spec.ports?.(node.data)?.findIndex((p) => p.id === handleId) ?? -1
+  return i < 0 ? 0 : i
+}
+
+/**
+ * Roughly how tall a node will render (see FlowNode.vue): header + footer, plus
+ * a card per port when the ports stack down the side, or one label strip when
+ * they sit along the bottom edge. Only has to be close — it decides how much
+ * vertical room the layout leaves around the node, and an LLM with a dozen
+ * bound functions is several times the height of a bare one.
+ */
+function estimateHeight(spec: NodeSpec, data: BaseNodeData): number {
+  const ports = spec.ports?.(data)?.length ?? 0
+  const base = 72
+  if (ports === 0) return base
+  return spec.portLayout === 'stack' ? base + ports * 28 : base + 20
+}
+
+/* ------------------------------------------------------------------ lowering */
+
+/**
+ * The canvas graph *back* into a patch — the inverse of {@link planPatch}, and
+ * the document the Export button writes.
+ *
+ * The patch is the readable form of a workflow, so it is the one worth handing
+ * to a person or a model: designer-named refs instead of generated ids, ports
+ * named the way the prompt teaches them (an LLM function's name, a Rule
+ * handler's tag, `_exception`), and only the `data` a node actually *changed* —
+ * everything equal to its catalog default is left out, because planPatch merges
+ * the defaults back in on the way in. That is what keeps the file short enough
+ * to read, and it round-trips: what comes out of here goes straight back
+ * through parseAiGraph / planPatch.
+ *
+ * Two things are deliberately dropped. Canvas ids and handle ids, because they
+ * are regenerated on import and mean nothing outside the graph that made them;
+ * and the extension identity (`extensionId` / `pluginId`), because those name
+ * rows in *one* install's extension table — applyPatch re-stamps them from the
+ * local table, which is exactly what makes the file portable. Settings profile
+ * ids are kept: they are a choice the designer made, and a file carried to
+ * another install reports them as something to re-pick (see inspectNode).
+ */
+export function graphToPatch(graph: VueFlowGraph): AiGraphPatch {
+  const refById = new Map<string, string>()
+  const taken = new Set<string>()
+
+  const nodes: AiNodeSpec[] = (graph.nodes ?? []).map((n, i) => {
+    const spec = specForType(String(n.type ?? ''))
+    const data = asObject(n.data) ?? {}
+    const defaults = (spec?.defaults() ?? {}) as Record<string, unknown>
+    const title = str(data.title)
+
+    const ref = uniqueRef(title || spec?.label || String(n.type ?? `node${i + 1}`), taken)
+    refById.set(n.id, ref)
+
+    const out: AiNodeSpec = { ref, kind: n.type as NodeKind }
+    if (title) out.title = title
+    // key / scope are hoisted out of `data` like the patch shape wants, but only
+    // when they say something the catalog default doesn't.
+    if (str(data.key) && data.key !== defaults.key) out.key = str(data.key)
+    if (str(data.scope) && data.scope !== defaults.scope) out.scope = str(data.scope)
+    if (n.position) out.position = { x: Math.round(n.position.x), y: Math.round(n.position.y) }
+
+    const custom = changedData(data, defaults)
+    if (Object.keys(custom).length) out.data = custom
+    return out
+  })
+
+  const edges: AiEdgeSpec[] = []
+  for (const e of graph.edges ?? []) {
+    const from = refById.get(e.source)
+    const to = refById.get(e.target)
+    // An edge whose endpoints are not both in this graph has nothing to name it
+    // by; it cannot exist in a saved flow, so there is nothing to report.
+    if (!from || !to) continue
+    const edge: AiEdgeSpec = { from, to }
+    const port = portName(graph.nodes.find((n) => n.id === e.source), e.sourceHandle)
+    if (port) edge.port = port
+    edges.push(edge)
+  }
+
+  return { nodes, edges }
+}
+
+/** Node data minus the hoisted fields, the install-local identity and anything left at its default. */
+function changedData(data: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> {
+  const skip = new Set(['title', 'key', 'scope', 'extensionId', 'pluginId'])
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(data)) {
+    if (skip.has(k) || v === undefined) continue
+    if (JSON.stringify(v) === JSON.stringify(defaults[k])) continue
+    out[k] = v
+  }
+  return out
+}
+
+/** What a designer calls the port an edge leaves through — the name resolvePort reads back. */
+function portName(node: FlowNode | undefined, handleId?: string | null): string | undefined {
+  if (!node || !handleId) return undefined
+  const ports = specForType(String(node.type ?? ''))?.ports?.(node.data as BaseNodeData) ?? []
+  const hit = ports.find((p) => p.id === handleId)
+  if (!hit) return undefined
+  return hit.tags?.[0] || hit.label || hit.id
+}
+
+/** A node's title as a short, unique, readable patch ref (`classify`, `classify-2`). */
+function uniqueRef(source: string, taken: Set<string>): string {
+  const base =
+    source
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32)
+      .replace(/-+$/, '') || 'node'
+  let ref = base
+  for (let i = 2; taken.has(ref); i++) ref = `${base}-${i}`
+  taken.add(ref)
+  return ref
+}
+
+const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 /* --------------------------------------------------------------- the prompt */
 
@@ -644,7 +760,7 @@ export function buildDesignerPrompt(goal: string, existing?: VueFlowGraph | null
     '- A node with derived output ports (LLM with bound functions, Rule with handlers) has NO default handle: every edge leaving it MUST name a `port`.',
     '- For an LLM node, `port` is the bound function\'s `name` — the model calling that function is what routes the flow down that edge.',
     "- Every LLM node with functions also has an `_exception` port: use `port: \"_exception\"` for the branch that handles a plugin error or the model picking no function.",
-    '- For a Rule node, `port` is the handler tag.',
+    "- For a Rule node, `port` is the handler's `name` — the tag its branch fires.",
     '- Other kinds have a single unnamed output: omit `port`.',
     '- Fanning out to several nodes runs them in parallel. Put a `promissall` node in front of a step that must wait for all of them.',
     '',
@@ -674,7 +790,11 @@ export function buildDesignerPrompt(goal: string, existing?: VueFlowGraph | null
       lines.push('Set `mcpMode` to "tool" (call one tool, `request: "call_tool"`) or "llm" (drive a model over the server\'s tools, `request: "run"`), and keep `request` in step. Tools are loaded from the server in the app, not written here.')
     }
     if (spec.kind === 'rule') {
-      lines.push('Handlers are `{ "id": "h1", "tags": ["approved"] }`; each is a routed branch. `logic_rule` is JS returning a value (`lang: "js"`) or Rego (`lang: "opa"`).')
+      lines.push(
+        'Handlers are `{ "id": "h1", "name": "approved", "title": "Approved" }`; each is a routed branch.',
+        '`name` is the branch\'s route tag — the decision has to fire it and the edge leaving that port carries it — while `title` only labels the port on the canvas.',
+        '`logic_rule` is JS returning a value (`lang: "js"`) or Rego (`lang: "opa"`).',
+      )
     }
     if (spec.kind === 'hitl') {
       lines.push('`operationData` is the list of questions asked of the person.')

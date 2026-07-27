@@ -9,10 +9,25 @@
 .vue-flow__connection-path {
   stroke: var(--line-strong);
   stroke-width: 1.5;
+  stroke-linecap: round;
+  transition: stroke 120ms ease, stroke-width 120ms ease;
 }
+/* In a dense graph the only way to follow one line through a bundle is to make
+   the one under the pointer stand out — colour alone is not enough where the
+   paths overlap, so it thickens too and rides above its neighbours. */
 .vue-flow__edge.selected .vue-flow__edge-path,
 .vue-flow__edge:hover .vue-flow__edge-path {
   stroke: var(--accent);
+  stroke-width: 2.75;
+}
+.vue-flow__edge:hover,
+.vue-flow__edge.selected {
+  z-index: 10 !important;
+}
+/* A fat, invisible hit area: an edge is a 1.5px line, and picking one out of a
+   bundle should not demand pixel-perfect aim. */
+.vue-flow__edge-interaction {
+  stroke-width: 18;
 }
 .vue-flow__edge-text {
   fill: var(--fg-muted);

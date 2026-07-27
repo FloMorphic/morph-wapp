@@ -80,6 +80,12 @@ export interface NodePort {
   variant?: 'exception'
   /** Tooltip explaining what routes through this port (hover on the node). */
   hint?: string
+  /**
+   * The designer's own note on what this branch is for. Unlike {@link hint} it is
+   * rendered on the port card itself (under the tag + title line), so a reader of
+   * the canvas sees what each branch means without hovering.
+   */
+  description?: string
 }
 
 /**
@@ -154,6 +160,23 @@ const spec = (s: NodeSpec): NodeSpec => s
 /** Coerce an unknown array-of-objects field to a typed list (defensive). */
 function asRows(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? (value.filter((v) => v && typeof v === 'object') as Record<string, unknown>[]) : []
+}
+
+/**
+ * The route tags a Contract handler fires. `name` is what the drawer edits — one
+ * tag per branch, like an LLM function's name — and it is mirrored into `tags`,
+ * the shape the engine and the compiler read. Handlers authored before the name
+ * existed carry `tags` only (possibly several), so they keep routing off those.
+ */
+export function handlerTags(h: Record<string, unknown>): string[] {
+  const name = String(h.name ?? '').trim()
+  if (name) return [name]
+  return (Array.isArray(h.tags) ? (h.tags as unknown[]) : []).map((t) => String(t).trim()).filter(Boolean)
+}
+
+/** A handler's name as the drawer edits it — legacy rows fall back to their first tag. */
+export function handlerName(h: Record<string, unknown>): string {
+  return handlerTags(h)[0] ?? ''
 }
 
 export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
@@ -292,7 +315,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       return [
         ...fns.map((f, i) => ({
           id: String(f.id ?? f.name ?? `fn${i}`),
-          label: String(f.title ?? f.name ?? `fn${i + 1}`),
+          label: String(f.title ?? '').trim() || String(f.name ?? '').trim() || `fn${i + 1}`,
+          description: String(f.description ?? '').trim() || undefined,
           tags: [String(f.name ?? '').trim()].filter(Boolean),
         })),
         exceptionPort(),
@@ -320,27 +344,34 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       opa_result: '',
       // [{ key, value }]
       conditions: [],
-      // [{ id, tags: [], color }] — each renders as an output port (see ports()).
+      // [{ id, name, title, color, tags }] — each renders as an output port (see
+      // ports()). `name` is the branch's route tag, mirrored into `tags` (the
+      // shape the engine reads); `title` is a canvas label only. Same split as an
+      // LLM function's name / title, minus the description — a contract branch is
+      // chosen by the rule's own code, so there is no model to describe it to.
       handlers: [],
     }),
     preview: (d) => {
       const n = asRows(d.handlers).length
       return `${String(d.lang ?? 'js')} · ${n} handler${n === 1 ? '' : 's'}`
     },
-    // A handler's tags are its route tags, exactly like an LLM function's name:
+    // Handlers stack as cards, like the LLM's functions: their branches lead
+    // rightward, and a right-side handle per handler sends each edge straight at
+    // its target instead of dropping it off the bottom edge to curve back up
+    // across its siblings.
+    portLayout: 'stack',
+    // A handler's `name` is its route tag, exactly like an LLM function's name:
     // the contract fires the tags its matching handler declares and only edges
     // carrying one of them continue, so the port has to stamp them onto its
     // outbound edges (see portTags / WorkflowCanvas) or the branch never runs.
-    // A fresh handler with no tags yet stamps an empty list — same as an unnamed
+    // A fresh handler with no name yet stamps an empty list — same as an unnamed
     // LLM function — rather than leaving a stale tag on the edge.
     ports: (d) =>
       asRows(d.handlers).map((h, i) => {
-        const tags = (Array.isArray(h.tags) ? (h.tags as unknown[]) : [])
-          .map((t) => String(t).trim())
-          .filter(Boolean)
+        const tags = handlerTags(h)
         return {
           id: String(h.id ?? `h${i}`),
-          label: tags.join(' / ') || `branch ${i + 1}`,
+          label: String(h.title ?? '').trim() || tags.join(' / ') || `branch ${i + 1}`,
           tags,
         }
       }),

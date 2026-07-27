@@ -37,7 +37,7 @@ interface CachedGraph {
   edges: Record<string, ResolvedEdge>
 }
 
-/** A handler port on a node — `{ id, tags[], color }`, see NodeConfig.vue. */
+/** A handler port on a node — `{ id, name, title, tags[], … }`, see NodeConfig.vue. */
 interface Handler {
   id: string
   tags?: string[]

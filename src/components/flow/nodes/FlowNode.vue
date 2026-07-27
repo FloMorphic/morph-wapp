@@ -55,7 +55,23 @@ function portColor(port: NodePort): string {
 
 /** Hover text for a port: its explanation when it has one, else just its name. */
 function portTitle(port: NodePort): string {
-  return port.hint ? `${port.label} — ${port.hint}` : port.label
+  const note = port.hint ?? port.description
+  const head = portTag(port) ? `${portTag(port)} · ${port.label}` : port.label
+  return note ? `${head} — ${note}` : head
+}
+
+/**
+ * The route tag a port stamps on its edges, rendered as a chip on the port card
+ * — it is what the engine actually matches on, so it reads as the port's real
+ * identity while the label is just a human name for the branch.
+ */
+function portTag(port: NodePort): string {
+  return (port.tags ?? []).join(' / ')
+}
+
+/** Suppress the label when it would only repeat the tag chip beside it. */
+function portLabel(port: NodePort): string {
+  return port.label === portTag(port) ? '' : port.label
 }
 
 /** Spread N bottom handles evenly across the node width (20% → 80%). */
@@ -327,26 +343,41 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
         class="port-card relative border-t px-3 py-1.5 last:rounded-b-xl"
         :class="{ 'port-card--exception': port.variant === 'exception' }"
       >
+        <!-- Route tag as a chip, then the human title beside it: the tag is what
+             the engine matches on (and what the outbound edge carries), the title
+             is only a label — so they must not read as the same thing. The
+             exception port's fixed `_exception` tag carries its own danger tone,
+             which is why it needs no extra badge. -->
         <div class="flex items-center gap-1.5">
+          <span
+            v-if="portTag(port)"
+            class="max-w-[62%] shrink-0 truncate rounded px-1 py-0.5 font-mono text-[9px] font-semibold"
+            :style="{
+              background: `color-mix(in srgb, ${portColor(port)} 16%, transparent)`,
+              color: portColor(port),
+            }"
+            :title="portTitle(port)"
+          >
+            {{ portTag(port) }}
+          </span>
           <p
+            v-if="portLabel(port)"
             class="min-w-0 flex-1 truncate text-[10.5px] font-medium"
             :class="port.variant === 'exception' ? '' : 'text-fg-muted'"
             :style="port.variant === 'exception' ? { color: 'var(--danger)' } : undefined"
             :title="portTitle(port)"
           >
-            {{ port.label }}
+            {{ portLabel(port) }}
           </p>
-          <!-- The exception port is a fixed, plugin-side branch — say so on the
-               node so it isn't read as another bound function. -->
-          <span
-            v-if="port.variant === 'exception'"
-            class="shrink-0 rounded px-1 py-0.5 text-[8.5px] font-semibold uppercase tracking-wide"
-            :style="{ background: 'var(--danger-soft)', color: 'var(--danger)' }"
-            :title="portTitle(port)"
-          >
-            exception
-          </span>
         </div>
+        <!-- The designer's note on the branch, in plain body text under the tag. -->
+        <p
+          v-if="port.description"
+          class="port-desc mt-0.5 text-[9.5px] leading-snug text-fg-subtle"
+          :title="port.description"
+        >
+          {{ port.description }}
+        </p>
         <Handle
           :id="port.id"
           type="source"
@@ -400,6 +431,15 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
 /* Stacked port cards read as attachments under the node body. */
 .port-card {
   background: var(--surface);
+}
+/* A port's note is free text the designer wrote, so cap it at two lines — the
+   node keeps its shape and the full text stays on hover. */
+.port-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 /* The exception card is the odd one out — a tinted band, dashed off from the
    defined ports above it, so it never reads as another bound function. */

@@ -8,7 +8,7 @@ import JsonSchemaForm from '@/components/flow/JsonSchemaForm.vue'
 import PromptImporter from '@/components/flow/PromptImporter.vue'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
-import { EXCEPTION_TAG } from '@/data/nodeCatalog'
+import { EXCEPTION_TAG, handlerName } from '@/data/nodeCatalog'
 import type { FlowRecord, McpTool } from '@/types/api'
 
 /**
@@ -68,9 +68,15 @@ function removeCondition(i: number) {
   conditions().splice(i, 1)
 }
 
-// ---- Handlers ({ id, tags[], color }[]) — routed output ports --------------
+// ---- Handlers ({ id, name, title, color, tags[] }[]) — routed output ports ---
+// Same split as an LLM function, minus the description: `name` is the branch's
+// route tag — the contract fires it and only edges carrying it continue — and
+// `title` is the label its port card shows. `tags` is the shape the engine and
+// the compiler read, so every name edit mirrors into it.
 interface Handler {
   id: string
+  name?: string
+  title?: string
   tags: string[]
   color: string
 }
@@ -81,17 +87,22 @@ function handlers(): Handler[] {
 }
 function addHandler() {
   const color = HANDLER_COLORS[handlers().length % HANDLER_COLORS.length]
-  handlers().push({ id: `h-${Date.now()}`, tags: [], color })
+  handlers().push({ id: `h-${Date.now()}`, name: '', title: '', tags: [], color })
 }
 function removeHandler(i: number) {
   handlers().splice(i, 1)
 }
-/** Edit a handler's tags as a comma-separated string. */
-function handlerTags(h: Handler): string {
-  return (h.tags ?? []).join(', ')
+/** A handler saved before it had a name shows its stored tag in the name box. */
+function handlerNameOf(h: Handler): string {
+  return handlerName(h as unknown as Record<string, unknown>)
 }
-function setHandlerTags(h: Handler, raw: string) {
-  h.tags = raw.split(',').map((t) => t.trim()).filter(Boolean)
+function setHandlerName(h: Handler, raw: string) {
+  const name = raw.trim()
+  h.name = raw
+  // Keep the wire field in lockstep: one branch fires one tag. Editing the name
+  // of a legacy multi-tag handler collapses it to that single tag — which is
+  // what the port then stamps on its edges (see handlerTags in nodeCatalog).
+  h.tags = name ? [name] : []
 }
 
 // ---- LLM functions ({ id, name, title, description, params, parameters }[]) —
@@ -673,7 +684,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         <div class="flex items-center justify-between">
           <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
             Output handlers
-            <span class="ml-1 font-normal normal-case text-fg-subtle">— one outbound port each</span>
+            <span class="ml-1 font-normal normal-case text-fg-subtle">— one outbound port each, tagged by name</span>
           </label>
           <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addHandler">
             <Icon name="plus" :size="13" /> Add
@@ -682,11 +693,13 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         <div v-for="(h, i) in handlers()" :key="h.id" class="flex items-center gap-2">
           <span class="h-3 w-3 shrink-0 rounded-full" :style="{ background: h.color }" />
           <input
-            :value="handlerTags(h)"
-            class="input flex-1 text-xs"
-            placeholder="tags to fire (comma-separated), e.g. done, retry"
-            @input="setHandlerTags(h, ($event.target as HTMLInputElement).value)"
+            :value="handlerNameOf(h)"
+            class="input w-28 font-mono text-xs"
+            placeholder="name"
+            title="The route tag this branch fires — edges leaving its port carry it"
+            @input="setHandlerName(h, ($event.target as HTMLInputElement).value)"
           />
+          <input v-model="h.title" class="input flex-1 text-xs" placeholder="title" />
           <button
             class="shrink-0 rounded-lg p-1.5 text-fg-subtle hover:bg-danger-soft hover:text-danger"
             @click="removeHandler(i)"
@@ -696,6 +709,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         </div>
         <p v-if="handlers().length === 0" class="text-[11px] text-fg-subtle">
           No handlers yet — add one to expose a routed output port.
+        </p>
+        <p v-else class="text-[11px] leading-relaxed text-fg-subtle">
+          <strong>Name</strong> is the tag the contract fires and every edge drawn from that port carries, so
+          the rule's decision has to name it. <strong>Title</strong> only labels the port on the canvas.
         </p>
       </div>
     </template>

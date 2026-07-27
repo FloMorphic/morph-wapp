@@ -186,6 +186,53 @@
     color: var(--accent);
   }
 
+  /* Editor toolbar tool: icon over a small caption. See ui/ToolButton.vue. */
+  .tool-btn {
+    @apply relative inline-flex h-11 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-transparent px-2 transition-colors select-none disabled:cursor-not-allowed disabled:opacity-40;
+    min-width: 3.25rem;
+  }
+  .tool-btn__label {
+    @apply text-[10px] font-semibold leading-none tracking-wide;
+  }
+  .tool-btn__icon {
+    @apply transition-transform;
+  }
+  .tool-btn:hover:not(:disabled) .tool-btn__icon {
+    transform: translateY(-1px);
+  }
+  .tool-btn--quiet {
+    @apply text-fg-muted;
+  }
+  .tool-btn--quiet:hover:not(:disabled),
+  .tool-btn--quiet.is-active {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+    color: var(--accent);
+  }
+  .tool-btn--primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  .tool-btn--primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  .tool-btn__badge {
+    @apply absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4;
+  }
+  .tool-btn__badge--info {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  .tool-btn__badge--danger {
+    background: var(--danger);
+    color: #fff;
+  }
+  /* Hairline between groups of tools. */
+  .tool-sep {
+    @apply mx-0.5 h-7 w-px shrink-0;
+    background: var(--line-strong);
+  }
+
   .card {
     @apply rounded-xl border bg-surface;
     box-shadow: var(--shadow-sm);

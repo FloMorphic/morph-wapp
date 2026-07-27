@@ -6,6 +6,7 @@ import { contextsApi } from '@/api/contexts'
 import { processesApi } from '@/api/processes'
 import { processStatusClass, formatProcessTime } from '@/lib/process'
 import Button from '@/components/ui/Button.vue'
+import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
 
@@ -176,15 +177,14 @@ function summary(c: ContextRecord): string {
 <template>
   <!-- Only meaningful against a backend; disabled (with a hint) until the flow is saved. -->
   <div v-if="remote">
-    <Button
-      variant="primary"
+    <ToolButton
+      tone="primary"
       icon="play"
+      label="Run"
       :disabled="!flowId"
       :title="flowId ? 'Run this workflow against a context' : 'Save the workflow before running it'"
       @click="openPicker"
-    >
-      Run
-    </Button>
+    />
 
     <Modal
       :open="open"

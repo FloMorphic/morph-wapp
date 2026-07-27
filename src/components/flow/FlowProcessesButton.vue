@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import type { Process } from '@/types/api'
 import { processesApi } from '@/api/processes'
 import Button from '@/components/ui/Button.vue'
+import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
 import { processStatusClass, formatProcessTime, formatDuration, isStoppable } from '@/lib/process'
@@ -90,19 +91,14 @@ watch(liveOnFlow, load)
 <template>
   <!-- Only when a saved flow is open against a backend. -->
   <div v-if="remote && flowId">
-    <Button
-      icon="monitor"
+    <ToolButton
+      icon="play-circle"
+      label="Runs"
+      :active="total > 0"
+      :badge="total || undefined"
       :title="total ? `${total} live run(s) on this flow` : 'No live runs on this flow'"
       @click="showPanel = true"
-    >
-      <span class="hidden sm:inline">Runs</span>
-      <span
-        v-if="total"
-        class="ml-1 inline-flex min-w-4 items-center justify-center rounded-full bg-sky-500/15 px-1.5 text-[11px] font-semibold text-sky-600 dark:text-sky-400"
-      >
-        {{ total }}
-      </span>
-    </Button>
+    />
 
     <Modal
       :open="showPanel"

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
 import Button from '@/components/ui/Button.vue'
+import ToolButton from '@/components/ui/ToolButton.vue'
 import { specForType } from '@/data/nodeCatalog'
 import {
   buildDesignerPrompt,
@@ -104,9 +105,12 @@ function specColor(type: string): string {
 </script>
 
 <template>
-  <Button icon="sparkles" title="Design nodes with an AI assistant and add them to this canvas" @click="openDialog">
-    <span class="hidden sm:inline">Build with AI</span>
-  </Button>
+  <ToolButton
+    icon="sparkles"
+    label="AI build"
+    title="Build with AI — design nodes with an assistant and add them to this canvas"
+    @click="openDialog"
+  />
 
   <Modal
     :open="open"
