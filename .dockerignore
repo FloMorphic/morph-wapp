@@ -1,0 +1,17 @@
+# Everything the image builds for itself, plus anything that must never leak in.
+.git
+.gitignore
+.vscode
+.claude
+Dockerfile
+.dockerignore
+README.md
+
+# Installed and built inside the image.
+node_modules
+dist
+
+# Local env (the built SPA carries VITE_API_BASE_URL from a build arg instead).
+.env
+.env.*
+!.env.example

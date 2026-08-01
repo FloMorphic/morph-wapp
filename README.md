@@ -117,6 +117,28 @@ VITE_API_BASE_URL=http://localhost:9000   # your inspector-api base URL
 When set, the header shows **Connected** and workflow list/read/save/delete go through the API
 (`/flow`, `/flow/id/:id`), with `Run` enabled against the process endpoints (`/ps`).
 
+### In Docker
+
+```sh
+docker build -t flomorphic-wapp:local .
+docker run --rm -p 8090:80 --network inflow_net \
+  -e API_UPSTREAM=http://flomorphic-api:8025 flomorphic-wapp:local
+```
+
+`VITE_API_BASE_URL` is baked at build time, so baking a host name would tie one
+image to one machine and bring CORS along with it. This image bakes a **relative**
+base (`/api`) instead, and nginx proxies `/api/*` and `/ws/*` to `API_UPSTREAM`,
+read at container start. One port, same origin, no CORS — and the same image runs
+on a laptop, a LAN box or a server. For a backend this container cannot itself
+reach, build with an absolute base instead:
+
+```sh
+docker build --build-arg VITE_API_BASE_URL=https://api.example.com -t flomorphic-wapp:local .
+```
+
+For the whole product in one container — canvas, API and plugin nodes — see
+[FloMorphic/getting-started](https://github.com/FloMorphic/getting-started).
+
 ## Project structure
 
 ```
