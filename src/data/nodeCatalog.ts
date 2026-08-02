@@ -47,8 +47,16 @@ export type NodeKind =
   | 'opa'
   | 'until'
   | 'cast'
+  // Not a builtin: one action of an imported inflowv1 plugin. Every such node
+  // shares this single kind — what it does is decided by the `pluginId` +
+  // `action` stamped on its data when it was dragged from the palette, and by
+  // the form the plugin advertised for that action. See the `plugin` spec.
+  | 'plugin'
 
-export type PaletteGroupId = 'flow' | 'ai' | 'stores' | 'human'
+/** `plugins` is not a builtin tab: it is the palette section fed by imported
+ *  plugins, listed separately (and searchably) because its contents come from
+ *  the registry rather than this catalog. */
+export type PaletteGroupId = 'flow' | 'ai' | 'stores' | 'human' | 'plugins'
 
 /** Universal fields present on every node's `data`, plus per-kind extras. */
 export interface BaseNodeData {
@@ -537,6 +545,43 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       const n = asRows(d.mappings).length
       return n ? `${n} mapping${n === 1 ? '' : 's'}` : 'no mappings'
     },
+  }),
+
+  // ---- Imported plugins ----
+  // One spec for every action of every imported plugin. The builtins above each
+  // describe one fixed node; this one is a shell whose behaviour arrives with
+  // the node — `pluginId` and `action` say which plugin method to call, and the
+  // action's own form (stamped as `form`) says which fields the drawer shows.
+  // That is why its label and icon are so generic: they are only ever seen
+  // before a real action fills them in.
+  plugin: spec({
+    kind: 'plugin',
+    type: 'plugin',
+    label: 'Plugin action',
+    icon: 'plugin',
+    color: '#8b2fe0',
+    group: 'plugins',
+    tagline: 'An imported plugin action',
+    description:
+      'One action of an inflowv1 plugin imported through Extensions. Its fields come from the form the plugin advertises for that action, and its runtime config from a settings profile shared by every node of the plugin. Compiles to a Plugin node calling that action.',
+    primitives: 'Plugin',
+    plugin: true,
+    defaults: () => ({
+      title: 'Plugin action',
+      key: 'result',
+      scope: '$',
+      // Stamped from the palette row: which plugin, which method.
+      pluginId: '',
+      action: '',
+      // The action's advertised form ({ schema, ui }), carried on the node so
+      // the drawer renders without asking the plugin again — a plugin that is
+      // temporarily down must not make its nodes uneditable.
+      form: { schema: {}, ui: {} },
+      // The values collected through that form; shipped to the plugin verbatim.
+      body: {},
+      idle_min: 5,
+    }),
+    preview: (d) => String(d.action || 'no action'),
   }),
 
   // ---- Human ----

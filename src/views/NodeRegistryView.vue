@@ -129,7 +129,9 @@ async function submit() {
       type: form.type,
       name: form.name.trim(),
       description: form.description.trim(),
-      pluginId: form.kind === 'extension' ? form.pluginId.trim() : '',
+      // Extensions: the backend owns the plugin id (issues one on create, keeps
+      // it on update), so nothing is sent for them. Builtins carry the seed's.
+      pluginId: form.kind === 'builtin' ? form.pluginId.trim() : undefined,
       icon: { class: 'flomorphic', name: form.iconName, meta: {} },
       params: { schema: JSON.parse(form.schemaJson || '{}'), ui: JSON.parse(form.uiJson || '{}') },
       bindTo:
@@ -260,9 +262,18 @@ function fmtDate(ts: number): string {
               <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
             </select>
           </div>
+          <!-- An extension's plugin id is issued by the backend (a UUID) and never
+               changes, so it is shown rather than edited. Builtins keep theirs
+               from the seed. -->
           <div v-if="form.kind === 'extension'" class="space-y-1">
             <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Plugin ID (inflowv1)</label>
-            <input v-model="form.pluginId" class="input font-mono text-xs" placeholder="jira-connector" />
+            <input
+              :value="form.pluginId || 'issued on save'"
+              class="input font-mono text-xs"
+              readonly
+              disabled
+              title="Issued by the backend — an extension's inflow address cannot be reassigned"
+            />
           </div>
         </div>
 

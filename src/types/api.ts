@@ -141,8 +141,113 @@ export interface ExtensionRecord {
   icon: ExtensionIcon
   params: FormParameters
   bindTo: ExtensionBind
+  /** How the user runs the plugin behind this row (source + env). Absent on
+   * builtins and on rows registered without a repository. */
+  install?: InstallSpec
+  /** For a row synced from a plugin's `@actions`: the one method this palette
+   * entry runs (a Jira plugin contributes an "add task" node, an "update task"
+   * node, …). Empty on a plugin's own registration row and on builtins. It
+   * compiles to the plugin node's `request`. */
+  action?: string
+  /** The registration row a synced action row came from. */
+  parentId?: string
   createdAt: number
   updatedAt: number
+}
+
+/* ---- inflowv1 descriptors (read live from a running plugin) ----
+ * Mirrors of the plugin SDK's wire shapes. Fetched through the backend's NATS
+ * proxy; only what `sync` derives from `@actions` is ever stored.
+ */
+
+/** A plugin's form descriptor. `jsonschema` / `jsonui` are JSON documents
+ * carried as *strings* — that is the SDK's format on the wire. */
+export interface PluginFormBuilder {
+  submit_to?: string
+  jsonui?: string
+  jsonschema?: string
+}
+
+/** `@intro` — who the plugin is, plus the settings it needs before any action
+ * runs. That settings form is the plugin's onboarding: the portal renders it
+ * into a reusable settings profile. */
+export interface PluginIntro {
+  name?: string
+  author?: string
+  version?: string
+  settings?: PluginFormBuilder
+}
+
+/** One entry of `@actions` — a method the plugin exposes, with the label/icon a
+ * palette needs and the form its parameters are collected through. */
+export interface PluginAction {
+  method: string
+  title?: string
+  description?: string
+  icon?: { ref?: string; icon?: string }
+  form?: PluginFormBuilder
+}
+
+/** POST /extension/id/:id/sync — what re-reading a plugin's descriptors did to
+ * its palette rows. Derived rows are replaced, never merged, so `removed` is the
+ * previous set and `added` the live one. */
+export interface SyncResult {
+  intro: PluginIntro
+  actions: PluginAction[]
+  added: number
+  removed: number
+  pluginId: string
+}
+
+/** One extra environment entry a plugin needs beyond the three the inflowv1 SDK
+ * requires (PLUGIN_ID / INFRA_URL / INFRA_CRED) — an upstream API key, an
+ * endpoint, a mode flag. */
+export interface EnvVar {
+  key: string
+  value: string
+}
+
+/** How the generated installer builds and starts a plugin. `auto` detects it
+ * from the checkout (go.mod → go, package.json → node, Dockerfile → docker). */
+export type InstallRuntime = 'auto' | 'go' | 'node' | 'docker'
+
+/** The "how do I run this plugin" half of an extension row. Every field is
+ * optional: a plugin the user already has on disk only needs the env half. */
+export interface InstallSpec {
+  /** Git remote to clone. Empty ⇒ the user brings their own checkout. */
+  repo: string
+  /** Branch / tag / commit; empty ⇒ the remote's head. */
+  ref: string
+  /** Path inside the repo holding the plugin module, for multi-plugin repos. */
+  subdir: string
+  runtime: InstallRuntime
+  /** Dotenv filename the plugin reads (SDK convention: `.env.inflow`). */
+  envFile: string
+  /** Plugin-specific variables written alongside the minted credential. */
+  env: EnvVar[]
+}
+
+/** GET /extension/id/:id/env — the dotenv for a plugin the user already has
+ * checked out. Carries a freshly minted, plugin-scoped credential. */
+export interface PluginEnvResponse {
+  env: string
+  envFile: string
+  cred: string
+  pluginId: string
+}
+
+/** GET /extension/id/:id/install — everything needed to install and start a
+ * plugin from source: the one-liner to paste, the script it pipes into bash,
+ * and the env that script writes. Secret-bearing (the env holds the cred). */
+export interface InstallInfo {
+  /** `curl -fsSL <scriptUrl> | bash -s -- <dir>` */
+  command: string
+  scriptUrl: string
+  script: string
+  env: string
+  envFile: string
+  dir: string
+  pluginId: string
 }
 
 /** How broad a minted plugin credential is: `multi` grants an open account
@@ -280,32 +385,6 @@ export interface NodeSetting {
   /** Profile name shown in the selector (e.g. "OpenAI prod"). */
   title: string
   settings: Record<string, unknown>
-  createdAt: number
-  updatedAt: number
-}
-
-/* ---- Project extensions (FloMorphic-specific) ----
- * Not the inspector's ExtensionRecord: a project extension is a source repo the
- * backend clones and runs with the given env so it can join the inflow
- * ecosystem. Once running it surfaces plugin nodes in the workflow palette.
- */
-export type ExtensionStatus = 'registered' | 'installing' | 'running' | 'stopped' | 'error'
-
-export interface EnvVar {
-  key: string
-  value: string
-}
-
-export interface ProjectExtension {
-  id: string
-  name: string
-  /** Git repository to clone (e.g. https://github.com/org/inflow-plugin-x). */
-  repo: string
-  /** Optional branch / tag / commit. */
-  ref: string
-  description: string
-  env: EnvVar[]
-  status: ExtensionStatus
   createdAt: number
   updatedAt: number
 }

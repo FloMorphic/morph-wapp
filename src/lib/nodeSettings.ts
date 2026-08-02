@@ -10,6 +10,16 @@ import { specForType } from '@/data/nodeCatalog'
 export interface NodeExtRef {
   extensionId: string
   pluginId?: string
+  /**
+   * For a node contributed by an imported plugin: the action (inflowv1 method)
+   * this palette entry calls, plus the label and form the plugin advertised for
+   * it. Carried onto the node so it is self-contained — the drawer renders the
+   * action's fields without asking the plugin again, which matters because a
+   * plugin that is temporarily down would otherwise make its nodes uneditable.
+   */
+  action?: string
+  label?: string
+  form?: { schema: Record<string, unknown>; ui: Record<string, unknown> }
 }
 
 /**
@@ -52,5 +62,7 @@ export function nodeUniqLabel(nodeUniqId: string): string {
 export const SETTINGS_DATA_KEYS = ['settingsId', 'settingsName', 'settings'] as const
 
 /** Node-identity keys stamped from the palette's backing extension row. They are
- * system-managed (see {@link NodeExtRef}), not user-editable generic fields. */
-export const NODE_REF_DATA_KEYS = ['extensionId', 'pluginId'] as const
+ * system-managed (see {@link NodeExtRef}), not user-editable generic fields.
+ * `action` and `form` join them for plugin-contributed nodes: the method to call
+ * and the form that method advertised. */
+export const NODE_REF_DATA_KEYS = ['extensionId', 'pluginId', 'action', 'form'] as const

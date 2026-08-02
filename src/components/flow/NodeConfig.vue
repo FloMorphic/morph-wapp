@@ -37,6 +37,34 @@ const isLlm = computed(() => type.value === 'llm')
 const isMcp = computed(() => type.value === 'mcp')
 const isGoto = computed(() => type.value === 'goto')
 const isUntil = computed(() => type.value === 'until')
+
+// ---- Imported plugin action ------------------------------------------------
+// A plugin node has no fields of its own: the plugin advertised a form for the
+// action this node calls, and that form was stamped onto the node when it was
+// dropped. So the drawer renders whatever the plugin asked for, and the values
+// go straight into `body` — the shape the compiler ships to the plugin.
+const isPluginAction = computed(() => type.value === 'plugin')
+
+const pluginActionName = computed(() => String(data().action ?? ''))
+
+const pluginForm = computed<Record<string, unknown>>(() => {
+  const form = data().form as { schema?: Record<string, unknown> } | undefined
+  return form?.schema ?? {}
+})
+
+const pluginHasFields = computed(() => {
+  const props_ = pluginForm.value.properties as Record<string, unknown> | undefined
+  return !!props_ && Object.keys(props_).length > 0
+})
+
+/** The collected values. Bound straight to `data.body`, created on first edit
+ *  so a node dropped and never opened stays as the palette made it. */
+const pluginBody = computed<Record<string, unknown>>({
+  get: () => (data().body as Record<string, unknown>) ?? {},
+  set: (v) => {
+    data().body = v ?? {}
+  },
+})
 const showLangToggle = computed(() => type.value === 'rule')
 const lang = computed<string>({
   get: () => {
@@ -715,6 +743,38 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           the rule's decision has to name it. <strong>Title</strong> only labels the port on the canvas.
         </p>
       </div>
+    </template>
+
+    <!-- ================= Imported plugin action ================= -->
+    <template v-else-if="isPluginAction">
+      <div class="flex items-center gap-2 rounded-lg border bg-surface-2 px-3 py-2">
+        <Icon name="plugin" :size="14" class="shrink-0 text-accent" />
+        <div class="min-w-0">
+          <p class="truncate text-[12px] font-medium text-fg">{{ pluginActionName || 'no action' }}</p>
+          <p class="truncate font-mono text-[10.5px] text-fg-subtle">{{ data().pluginId }}</p>
+        </div>
+      </div>
+
+      <div v-if="!pluginActionName" class="rounded-lg border border-dashed px-3 py-4 text-[12px] text-fg-muted">
+        This node carries no action. Drag it from the palette's Plugins tab so it knows which method to call.
+      </div>
+
+      <div v-else-if="!pluginHasFields" class="rounded-lg border border-dashed px-3 py-4 text-[12px] text-fg-muted">
+        This action takes no parameters — it runs on the node's scope alone.
+      </div>
+
+      <div v-else class="space-y-1">
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+          Parameters
+          <span class="ml-1 font-normal normal-case text-fg-subtle">— as the plugin defined them</span>
+        </label>
+        <JsonSchemaForm :schema="pluginForm" v-model="pluginBody" />
+      </div>
+
+      <p class="text-[11px] leading-relaxed text-fg-subtle">
+        Credentials and endpoints come from the settings profile above, shared by every node of this plugin. Re-sync the
+        plugin in Extensions if it has gained or dropped actions.
+      </p>
     </template>
 
     <!-- ================= LLM ================= -->

@@ -84,6 +84,15 @@ function addNode(kind: NodeKind, position?: { x: number; y: number }, ext?: Node
   if (ext?.extensionId) {
     data.extensionId = ext.extensionId
     if (ext.pluginId) data.pluginId = ext.pluginId
+    // A node contributed by an imported plugin also arrives with the method it
+    // calls and the form that method advertised, so it is self-contained from
+    // the moment it lands: the drawer can render its fields, and the compiler
+    // knows which action to request, with no further round trip to the plugin.
+    if (ext.action) {
+      data.action = ext.action
+      data.title = ext.label || String(data.title ?? '')
+      if (ext.form) data.form = ext.form
+    }
   }
   nodes.value.push({ id, type: spec.type, position: pos, data })
   emit('dirty')

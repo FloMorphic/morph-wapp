@@ -38,3 +38,66 @@ async function load(): Promise<NodeExtRefMap | null> {
   }
   return Object.keys(map).length ? map : null
 }
+
+/**
+ * One palette entry contributed by an imported plugin — a single action of it.
+ *
+ * These exist because a plugin was synced (Extensions → refresh), which writes
+ * one extension row per live action. They are grouped by the plugin they came
+ * from so the palette can show "Jira · Add task" rather than a flat list of
+ * methods from unrelated plugins.
+ */
+export interface PluginActionEntry {
+  /** What gets stamped on the node when this entry is dragged. */
+  ref: NodeExtRef
+  action: string
+  label: string
+  description: string
+  icon: string
+  /** The plugin this action belongs to, for grouping and search. */
+  pluginId: string
+  pluginName: string
+}
+
+let actionCache: Promise<PluginActionEntry[]> | null = null
+
+/**
+ * The plugin-contributed palette entries. Empty when nothing is imported, no
+ * plugin has been synced yet, or there is no backend — in every case the palette
+ * simply has no Plugins section to show.
+ *
+ * Cached like the builtin map, and invalidated with `force` after a sync so the
+ * palette reflects a plugin's new action list without a page reload.
+ */
+export function fetchPluginActions(force = false): Promise<PluginActionEntry[]> {
+  if (!force && actionCache) return actionCache
+  actionCache = loadActions().catch(() => [])
+  return actionCache
+}
+
+async function loadActions(): Promise<PluginActionEntry[]> {
+  const page = await nodeRegistryApi.list({ kind: 'extension', per_page: 200 })
+  // A row with an `action` is one method of a plugin; the rest are the plugins'
+  // own registration rows, which name them.
+  const pluginNames = new Map<string, string>()
+  for (const row of page.list) {
+    if (!row.action && row.pluginId) pluginNames.set(row.pluginId, row.name)
+  }
+  return page.list
+    .filter((row) => row.action && row.pluginId)
+    .map((row) => ({
+      ref: {
+        extensionId: row.id,
+        pluginId: row.pluginId,
+        action: row.action,
+        label: row.name,
+        form: { schema: row.params?.schema ?? {}, ui: row.params?.ui ?? {} },
+      },
+      action: row.action as string,
+      label: row.name,
+      description: row.description,
+      icon: row.icon?.name || 'plugin',
+      pluginId: row.pluginId,
+      pluginName: pluginNames.get(row.pluginId) ?? row.pluginId,
+    }))
+}
