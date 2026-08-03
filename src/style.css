@@ -256,3 +256,368 @@
     color: var(--accent);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Plugin forms — JSON Forms (vanilla) + x-inflow-ui, themed to the tokens.
+
+   These class names are not written anywhere in this app's markup: they are the
+   ones handed to the JSON Forms widget set in main.ts, so they land on the
+   fields of forms that only exist at runtime (a plugin's @intro settings, an
+   action's @form). Defining them here against the same tokens as everything
+   else is what makes a third-party form read as part of FloMorphic in light and
+   dark mode alike — while plugin-form-builder itself ships no colours.
+
+   Outside @layer components on purpose, and scoped under `.plugin-form` (the
+   wrapper components/plugin/PluginForm renders) for the same reason: vanilla.css
+   is a plain stylesheet imported *after* this one, so on an equal-specificity
+   tie it would win. The extra class buys the margin — which the array rules
+   below genuinely need, e.g. an item's label is `flex: 1` on a hardcoded grey
+   there, and its content pane `display: none`.
+
+   Geometry that any host would have to re-derive is not here: it comes from
+   plugin-form-builder's style.css and vanilla-fixes.css, both imported in
+   main.ts. What is left below is colour, type and spacing, plus the few places
+   this app decides something the package deliberately leaves open.
+   --------------------------------------------------------------------------- */
+/* The column itself is vanilla's (`.control`), as it is for the two layouts
+   below; the rhythm inside and under it is ours. */
+.plugin-form .if-control {
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.plugin-form .if-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.plugin-form .if-input {
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.plugin-form input.if-input:not([type='checkbox']):not([type='radio']),
+.plugin-form select.if-input,
+.plugin-form textarea.if-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  line-height: 1.4;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.plugin-form input.if-input:focus,
+.plugin-form select.if-input:focus,
+.plugin-form textarea.if-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.plugin-form input.if-input::placeholder,
+.plugin-form textarea.if-input::placeholder {
+  color: var(--fg-subtle);
+}
+
+/* Size and colour only: vanilla-fixes undoes the `flex: 1` that would zero the
+   basis of these two and smear them across the drawer, and re-places the rows
+   as "box, then label, on one line". */
+.plugin-form input.if-input[type='checkbox'],
+.plugin-form input.if-input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* A field label is a caption over its input; a checkbox's sits beside the box
+   as its name, and reads better without the caption weight. */
+.plugin-form .if-control:has(> .wrapper > input[type='checkbox']) > .if-label {
+  font-weight: 500;
+}
+
+.plugin-form .if-error {
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.plugin-form .if-desc {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--fg-subtle);
+}
+
+.plugin-form .if-vstack,
+.plugin-form .if-hstack {
+  gap: 12px;
+}
+
+/* vanilla gives every layout item `flex: 1`; without a zero basis to shrink
+   from, one long value in a row pushes its neighbour off the drawer. */
+.plugin-form .if-hstack-item {
+  min-width: 0;
+}
+
+.plugin-form .if-group {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.plugin-form .if-group-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+  margin-bottom: 10px;
+}
+
+/* An array is <fieldset><legend>[+][label]</legend>…</fieldset>. vanilla-fixes
+   puts the fieldset back to a block and the legend on a row of its own reading
+   "Labels ….. +"; what is left here is the box it draws. */
+.plugin-form .if-array {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 0 0 12px;
+}
+
+.plugin-form .if-array .array-list-legend {
+  margin-bottom: 8px;
+}
+
+.plugin-form .if-array .array-list-no-data {
+  font-size: 11px;
+  color: var(--fg-subtle);
+}
+
+/* vanilla.css bakes literal greys into the array-item chrome; scoping these
+   under .if-array wins on specificity and puts them back on the tokens.
+
+   vanilla-fixes collapses an array of plain values onto one row per item and
+   leaves arrays of objects as the accordion they are. The rules here dress
+   both: a card per item, and the item's label — an index, mostly — as a badge
+   rather than the full-width bar `flex: 1` makes of it. */
+.plugin-form .if-array .array-list-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+}
+
+.plugin-form .if-array .array-list-item-wrapper + .array-list-item-wrapper {
+  margin-top: 8px;
+}
+
+/* The header row of an object item — a value item's toolbar is `display:
+   contents` from vanilla-fixes, which out-specifies this and keeps that row on
+   one line. The pointer goes because the panes below are open already (see
+   .array-list-item-content), so there is nothing left to expand. */
+.plugin-form .if-array .array-list-item-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  cursor: default;
+}
+
+.plugin-form .if-array .array-list-item-label {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  margin-right: auto;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  /* the label is an index far more often than a name, and a proportional digit
+     set makes every row a different width. */
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-2);
+  color: var(--fg-muted);
+  border-radius: 999px;
+}
+
+/* ↑ ↓ 🗙 are the button's text, so they are drawn in the button's font — the
+   page's face, since vanilla-fixes hands these the family they inherit, but
+   the size and the box are ours. Fixed square, so the three stay the same size
+   whichever glyph the font ends up supplying. */
+.plugin-form .if-array .array-list-item-toolbar > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  transition: border-color 0.15s, color 0.15s, opacity 0.15s;
+}
+
+.plugin-form .if-array .array-list-item-toolbar > button:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+/* Vanilla only takes the pointer away; at the top and bottom of a list two of
+   the three buttons are always disabled, and they should read that way. */
+.plugin-form .if-array .array-list-item-toolbar > button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The delete glyph is U+1F5D9, which Inter has no cut of — the browser falls
+   back to the emoji face, and on a colour-emoji platform that arrives as a
+   picture, immune to `color` and out of scale with the arrows beside it. The
+   glyph is swapped for a plain ✕ rather than the font being fought. */
+.plugin-form .if-array .array-list-item-toolbar > button.array-list-item-delete {
+  /* out-specifies the `font-size: 12px` above rather than sitting under it —
+     at 12px the original glyph draws beside the replacement, not instead. */
+  font-size: 0;
+}
+
+.plugin-form .if-array .array-list-item-toolbar > button.array-list-item-delete::before {
+  content: '✕';
+  font-size: 12px;
+}
+
+/* An object item's pane, opened for good: these forms are a few rows long and
+   a click to see each one is a click too many. A value item's pane is opened
+   and placed on the header's row by vanilla-fixes, which out-specifies this
+   and drops the padding with it. */
+.plugin-form .if-array .array-list-item-content {
+  display: block;
+  padding: 8px 0 0;
+  min-width: 0;
+}
+
+/* x-inflow-ui: the action button a control can carry. */
+.plugin-form .if-inflow-field {
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+/* Where an append/prepend button sits — promoted into the control's grid so it
+   keeps the input's row rather than drifting as validation changes the box's
+   height — is the package's own layout, in its style.css. It used to be
+   duplicated here against the `if-*` names; the two said the same thing, and
+   only the gap above is ours.
+
+   The button classes are listed twice — once inside the form, once inside the
+   oneOf dialog — because both have to out-specify the package's own
+   `.inflow-action-button` (border: none; background: transparent), which is
+   loaded after this file and would otherwise win the tie. */
+.plugin-form .if-btn,
+.if-dialog .if-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  /* same as the array toolbar: a button starts on the UA font, not the page's. */
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.plugin-form .if-btn:hover,
+.if-dialog .if-btn:hover {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.plugin-form .if-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.plugin-form .if-btn-icon:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+/* oneOf "clear data?" confirm — a native <dialog> inside vanilla's renderer. */
+.if-dialog {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px 22px;
+  max-width: 340px;
+  background: var(--elevated);
+  color: var(--fg);
+  box-shadow: var(--shadow-lg);
+}
+
+.if-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.if-dialog-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.if-dialog-body {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.if-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.if-dialog .if-btn-secondary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.if-dialog .if-btn-secondary:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}

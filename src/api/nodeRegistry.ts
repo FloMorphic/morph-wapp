@@ -215,7 +215,22 @@ export const nodeRegistryApi = {
    * the one descriptor every SDK version answers, so a plugin that replies here
    * is genuinely up. */
   actions: (id: string) => http.get<PluginAction[]>(`/extension/id/${id}/actions`),
-  actionForm: (id: string, method: string) => http.get<unknown>(`/extension/id/${id}/actions/${method}/form`),
+
+  /** `<method>.@form`: the form one action advertises for its parameters, read
+   * live from the running plugin. This is the authority on what a plugin node's
+   * drawer shows — the copy stamped on the node at drag time is only the
+   * fallback for when the plugin is down (see NodeConfig). `id` is the
+   * extension row of the action, which is what the palette stamped on the node. */
+  actionForm: (id: string, method: string) =>
+    http.get<PluginFormBuilder>(`/extension/id/${id}/actions/${method}/form`),
+
+  /** Call one of a plugin's meta functions — its live RPC side, outside the job
+   * lifecycle — and get the raw answer back. `pluginId` is the inflowv1 plugin
+   * id addressed directly (no extension row involved). This is how a rendered
+   * form's `x-inflow-ui` buttons reach their plugin (see plugin/PluginForm);
+   * `mcpTools` below is the same door with a fixed function name. */
+  pluginFn: <T = unknown>(pluginId: string, fn: string, body?: unknown) =>
+    http.post<T>(`/extension/id/${pluginId}/${fn}`, body ?? {}),
 
   /** Live: connect to the MCP server configured on an MCP node and list its
    * tools, so each can be bound as a function (the MCP-with-LLM "load tools"

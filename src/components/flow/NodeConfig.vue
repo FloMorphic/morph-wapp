@@ -5,10 +5,17 @@ import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
 import CodeEditor from '@/components/ui/CodeEditor.vue'
 import JsonSchemaForm from '@/components/flow/JsonSchemaForm.vue'
+import PluginForm from '@/components/plugin/PluginForm.vue'
 import PromptImporter from '@/components/flow/PromptImporter.vue'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
 import { EXCEPTION_TAG, handlerName } from '@/data/nodeCatalog'
+import {
+  toPluginForm,
+  toStoredPluginForm,
+  withSchemaDefaults,
+  type PluginForm as PluginFormSpec,
+} from '@/lib/pluginForm'
 import type { FlowRecord, McpTool } from '@/types/api'
 
 /**
@@ -39,23 +46,63 @@ const isGoto = computed(() => type.value === 'goto')
 const isUntil = computed(() => type.value === 'until')
 
 // ---- Imported plugin action ------------------------------------------------
-// A plugin node has no fields of its own: the plugin advertised a form for the
-// action this node calls, and that form was stamped onto the node when it was
-// dropped. So the drawer renders whatever the plugin asked for, and the values
-// go straight into `body` — the shape the compiler ships to the plugin.
+// A plugin node has no fields of its own. The plugin is the authority on what
+// its action needs, and it says so as a JSON Schema + JSON Forms UI schema on
+// `<action>.@form` — so the drawer draws that document at runtime (see
+// plugin/PluginForm) rather than any field list written here, and the values go
+// straight into `body`, the shape the compiler ships to the plugin.
 const isPluginAction = computed(() => type.value === 'plugin')
 
 const pluginActionName = computed(() => String(data().action ?? ''))
 
-const pluginForm = computed<Record<string, unknown>>(() => {
-  const form = data().form as { schema?: Record<string, unknown> } | undefined
-  return form?.schema ?? {}
-})
+/**
+ * The form re-read live from the plugin when the drawer opened.
+ *
+ * The palette stamps a copy of the form onto the node at drag time, which is
+ * what makes a dropped node self-contained — but that copy ages: a plugin that
+ * has been redeployed since asks for different fields, and re-syncing it in
+ * Extensions only rewrites the palette row, never the nodes already on a
+ * canvas. So the drawer asks the plugin itself, and falls back to the stamped
+ * copy when it cannot (no backend, plugin down) — a plugin being temporarily
+ * unreachable must not make its nodes uneditable.
+ */
+const livePluginForm = ref<PluginFormSpec | null>(null)
+const pluginFormStale = ref(false)
 
-const pluginHasFields = computed(() => {
-  const props_ = pluginForm.value.properties as Record<string, unknown> | undefined
-  return !!props_ && Object.keys(props_).length > 0
-})
+const pluginForm = computed<PluginFormSpec | null>(
+  () => livePluginForm.value ?? toStoredPluginForm(data().form as { schema?: unknown; ui?: unknown } | undefined),
+)
+
+const pluginHasFields = computed(() => !!pluginForm.value)
+
+/** The settings profile the node resolved, passed to the form so an
+ *  `x-inflow-ui` button has the credentials it needs to reach the service. */
+const pluginSettings = computed(() => (data().settings as Record<string, unknown>) ?? {})
+
+async function loadPluginForm() {
+  livePluginForm.value = null
+  pluginFormStale.value = false
+  const extensionId = String(data().extensionId ?? '')
+  const method = pluginActionName.value
+  if (extensionId && method && nodeRegistryApi.isRemote()) {
+    try {
+      const live = toPluginForm(await nodeRegistryApi.actionForm(extensionId, method))
+      if (live) {
+        livePluginForm.value = live
+        // Keep the node's copy in step, so the next open (and an offline one)
+        // starts from what the plugin last said.
+        data().form = { schema: live.schema, ui: live.uischema ?? {} }
+      }
+    } catch {
+      // Down, or no runtime. The stamped copy still renders; say it may be old.
+      pluginFormStale.value = true
+    }
+  }
+  // Materialise the schema's defaults. JSON Forms only applies a default once
+  // its control is touched, so without this the node would ship without values
+  // the form visibly shows — and a plugin's defaults are meaningful.
+  if (pluginForm.value) pluginBody.value = withSchemaDefaults(pluginForm.value.schema, pluginBody.value)
+}
 
 /** The collected values. Bound straight to `data.body`, created on first edit
  *  so a node dropped and never opened stays as the palette made it. */
@@ -603,6 +650,10 @@ async function loadTargetNodes(flowId: string) {
   }
 }
 
+// Re-read a plugin node's action form whenever the drawer lands on one. The
+// component is keyed by node id upstream, so this fires once per node opened.
+watch(isPluginAction, (on) => on && loadPluginForm(), { immediate: true })
+
 // Load the flow list (and any already-selected target's nodes) for a Goto node.
 watch(
   isGoto,
@@ -766,10 +817,23 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
       <div v-else class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
           Parameters
-          <span class="ml-1 font-normal normal-case text-fg-subtle">— as the plugin defined them</span>
+          <span class="ml-1 font-normal normal-case text-fg-subtle">— the form the plugin serves for this action</span>
         </label>
-        <JsonSchemaForm :schema="pluginForm" v-model="pluginBody" />
+        <PluginForm
+          :form="pluginForm!"
+          v-model="pluginBody"
+          :plugin-id="String(data().pluginId ?? '')"
+          :settings="pluginSettings"
+        />
       </div>
+
+      <p v-if="pluginFormStale" class="flex items-start gap-1.5 text-[11px] leading-relaxed text-warning">
+        <Icon name="info" :size="12" class="mt-0.5 shrink-0" />
+        <span>
+          The plugin didn't answer, so these are the fields it asked for when this node was added. Start it to get the
+          current form.
+        </span>
+      </p>
 
       <p class="text-[11px] leading-relaxed text-fg-subtle">
         Credentials and endpoints come from the settings profile above, shared by every node of this plugin. Re-sync the

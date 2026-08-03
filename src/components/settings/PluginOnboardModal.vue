@@ -3,10 +3,11 @@ import { computed, ref, watch } from 'vue'
 import Modal from '@/components/ui/Modal.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
-import JsonSchemaForm from '@/components/flow/JsonSchemaForm.vue'
+import PluginForm from '@/components/plugin/PluginForm.vue'
 import { nodeSettingsApi } from '@/api/nodeSettings'
 import type { ExtensionRecord, PluginIntro } from '@/types/api'
 import { nodeUniqId } from '@/lib/nodeSettings'
+import { toPluginForm, withSchemaDefaults } from '@/lib/pluginForm'
 
 /**
  * A plugin's onboarding: turn the settings form it advertises on `@intro` into
@@ -29,24 +30,19 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'saved', title: string): void }>()
 
-/** The SDK ships the form as a JSON document inside a string. Kept loosely typed
- *  (like the MCP tool schemas elsewhere) — it is a plugin's document, not ours,
- *  and JsonSchemaForm is what interprets it. */
-const schema = computed<Record<string, unknown> | null>(() => {
-  const raw = props.intro?.settings?.jsonschema?.trim()
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
-  } catch {
-    return null
-  }
-})
-
-const hasFields = computed(() => {
-  const fields = schema.value?.properties as Record<string, unknown> | undefined
-  return !!fields && Object.keys(fields).length > 0
-})
+/**
+ * The form the plugin asked for — schema *and* UI schema, both JSON documents
+ * the SDK carries as strings.
+ *
+ * Rendering the UI schema too is the point: it is where the plugin says how it
+ * wants to be asked (field order, groups, a textarea here, and the `x-inflow-ui`
+ * buttons that let a field call back into the plugin while it is being filled
+ * in). Dropping it would leave the plugin only able to describe its data, not
+ * its dialog — so this goes through the same runtime renderer the Inflow
+ * inspector uses rather than a hand-written field list.
+ */
+const form = computed(() => toPluginForm(props.intro?.settings))
+const hasFields = computed(() => !!form.value)
 
 const title = ref('')
 const values = ref<Record<string, unknown>>({})
@@ -84,13 +80,15 @@ function collect(): Record<string, unknown> {
   return out
 }
 
-// Reset whenever a different plugin is onboarded.
+// Reset whenever a different plugin is onboarded. The form starts on whatever
+// defaults its schema declares — JSON Forms only materialises those once a
+// control is touched, and a plugin means them (`"deployment": "cloud"`).
 watch(
-  () => [props.open, props.plugin?.id],
+  () => [props.open, props.plugin?.id, form.value],
   () => {
     if (!props.open) return
     title.value = props.plugin ? `${props.plugin.name} default` : ''
-    values.value = {}
+    values.value = withSchemaDefaults(form.value?.schema, {})
     manual.value = [{ key: '', value: '' }]
     error.value = null
   },
@@ -148,7 +146,7 @@ async function save() {
       <!-- The plugin advertised a form: render exactly what it asked for. -->
       <div v-if="hasFields" class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Plugin settings</label>
-        <JsonSchemaForm :schema="schema!" v-model="values" />
+        <PluginForm :form="form!" v-model="values" :plugin-id="plugin?.pluginId" :settings="values" />
       </div>
 
       <!-- It didn't. Either it needs nothing, or it couldn't tell us — both look

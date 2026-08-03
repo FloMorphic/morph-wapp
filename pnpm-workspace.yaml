@@ -4,3 +4,7 @@ allowBuilds:
   vue-demi: true
 minimumReleaseAgeExclude:
   - '@inflowenger/flow-trace@0.2.0'
+  - '@inflowenger/plugin-form-builder@0.1.4'
+  - '@inflowenger/plugin-form-builder@0.1.6'
+  - '@inflowenger/plugin-form-builder@0.1.7'
+  - '@inflowenger/plugin-form-builder@0.1.8'

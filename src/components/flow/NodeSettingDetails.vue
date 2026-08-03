@@ -11,7 +11,11 @@ import type { MemoryType } from '@/types/api'
 
 // Kinds with a bespoke editor (NodeConfig). Their kind-specific data keys are
 // managed there, so the generic field list drops to the universal fields only.
-const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'mcp', 'goto', 'until'])
+// `plugin` is here for the opposite reason to the rest: it has no fields we
+// could name, because they are the ones its plugin serves on `<action>.@form` —
+// NodeConfig renders that document at runtime, and a raw-JSON `body` box is the
+// only thing the generic list could offer instead.
+const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'mcp', 'goto', 'until', 'plugin'])
 
 /**
  * Generic, catalog-driven property panel. It edits the selected node's `data`
@@ -116,6 +120,35 @@ const identityFields = computed<Field[]>(() => {
   const hideBinding = !!props.node && NO_BINDING_KINDS.has(props.node.type)
   const names = hideBinding ? UNIVERSAL.filter((n) => n === 'title') : UNIVERSAL
   return names.map((name) => ({ name, label: humanize(name), type: 'text' as FieldType }))
+})
+
+/**
+ * The drawer's heading — the node's own title, not its kind.
+ *
+ * A node's title is the only thing that tells two nodes of the same kind apart,
+ * and for plugin nodes it is *all* there is: every imported action is backed by
+ * the one generic `plugin` spec, so a header on `spec.label` reads "Plugin
+ * action" on every one of them. It falls back to the kind for a node whose
+ * title was cleared.
+ */
+const headTitle = computed(() => {
+  const title = String((props.node?.data as BaseNodeData)?.title ?? '').trim()
+  return title || spec.value?.label || ''
+})
+
+/**
+ * The line under it: what this node is, then what it compiles to. The "what" is
+ * the kind — except for a plugin node, where the kind is the same words on
+ * every one and the method it calls is the identifying fact. Dropped entirely
+ * when the title above already says it.
+ */
+const headSubtitle = computed(() => {
+  if (!spec.value) return ''
+  const action = props.node?.type === 'plugin' ? String((props.node.data as BaseNodeData).action ?? '').trim() : ''
+  const kind = action || spec.value.label
+  const parts = kind && kind !== headTitle.value ? [kind] : []
+  parts.push(`Compiles to ${spec.value.primitives}`)
+  return parts.join(' · ')
 })
 
 // Split the spec description into plain-text and URL segments so bare links
@@ -262,8 +295,8 @@ onBeforeUnmount(stopResize)
           <Icon :name="spec.icon" :size="16" />
         </span>
         <div class="min-w-0">
-          <p class="truncate text-sm font-semibold text-fg">{{ spec.label }}</p>
-          <p class="truncate text-[11px] text-fg-subtle">Compiles to {{ spec.primitives }}</p>
+          <p class="truncate text-sm font-semibold text-fg" :title="headTitle">{{ headTitle }}</p>
+          <p class="truncate text-[11px] text-fg-subtle" :title="headSubtitle">{{ headSubtitle }}</p>
         </div>
       </div>
       <button class="text-fg-subtle hover:text-fg" title="Close" @click="emit('close')">
