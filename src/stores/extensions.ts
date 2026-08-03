@@ -9,7 +9,7 @@ import type {
   SyncResult,
 } from '@/types/api'
 import { nodeRegistryApi, type SaveExtensionInput } from '@/api/nodeRegistry'
-import { fetchPluginActions } from '@/lib/nodeExtRefs'
+import { fetchPluginActions, invalidatePluginRegistrations } from '@/lib/nodeExtRefs'
 
 /**
  * Extensions portal store — the user-imported half of the node registry
@@ -118,6 +118,9 @@ export const useExtensionsStore = defineStore('extensions', () => {
    *  set once here and then never changes. */
   async function save(input: SaveExtensionInput): Promise<ExtensionRecord> {
     const saved = await nodeRegistryApi.save({ ...input, kind: 'extension' })
+    // The pluginId → row lookup a settings dialog resolves its plugin through is
+    // cached for the session, so a plugin registered now has to drop it.
+    invalidatePluginRegistrations()
     await refresh()
     return saved
   }
@@ -126,6 +129,7 @@ export const useExtensionsStore = defineStore('extensions', () => {
    *  list is re-read rather than filtered locally. */
   async function remove(id: string): Promise<void> {
     await nodeRegistryApi.remove(id)
+    invalidatePluginRegistrations()
     await refresh()
   }
 

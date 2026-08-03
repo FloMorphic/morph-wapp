@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { emptyInstall, useExtensionsStore, type PluginStatus } from '@/stores/extensions'
 import { useNotificationsStore } from '@/stores/notifications'
-import { nodeRegistryApi } from '@/api/nodeRegistry'
+import { fetchPluginIntro } from '@/lib/pluginSettings'
 import type { EnvVar, ExtensionRecord, InstallInfo, InstallRuntime, PluginIntro } from '@/types/api'
 import PluginOnboardModal from '@/components/settings/PluginOnboardModal.vue'
 import PageShell from '@/components/ui/PageShell.vue'
@@ -215,11 +215,9 @@ const showOnboard = ref(false)
 /**
  * Read the plugin's settings requirements live, then offer them as a profile.
  *
- * Two sources for the same thing, tried in order: `@intro` carries the form
- * alongside the plugin's identity, and `@settings` serves it on its own. Both
- * are needed because a plugin may declare its requirements through either, and
- * the Go SDK through v0.1.3 never answers `@intro` at all — so a plugin that is
- * demonstrably running would otherwise look unreachable here.
+ * The two descriptors this reads and why it takes both live in lib/pluginSettings
+ * — the same fetch the node settings dialog uses, so a plugin's profile is built
+ * from its own form wherever it is created.
  */
 async function openOnboard(ext: ExtensionRecord) {
   busy.value = { ...busy.value, [ext.id]: 'onboard' }
@@ -227,15 +225,7 @@ async function openOnboard(ext: ExtensionRecord) {
   onboardIntro.value = null
   showOnboard.value = true
   try {
-    const intro = await nodeRegistryApi.intro(ext.id).catch(() => null)
-    if (intro?.settings?.jsonschema) {
-      onboardIntro.value = intro
-    } else {
-      const settings = await nodeRegistryApi.settings(ext.id).catch(() => null)
-      // An empty result is a real answer: this plugin asks for nothing, and the
-      // modal says so rather than pretending the call failed.
-      onboardIntro.value = { ...(intro ?? {}), settings: settings ?? undefined }
-    }
+    onboardIntro.value = await fetchPluginIntro(ext.id)
     store.states[ext.id] = { ...store.states[ext.id], status: 'up', intro: onboardIntro.value, error: undefined }
   } catch (err) {
     showOnboard.value = false

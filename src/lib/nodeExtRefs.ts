@@ -59,6 +59,50 @@ export interface PluginActionEntry {
   pluginName: string
 }
 
+/**
+ * An imported plugin's own registration row, keyed by the inflowv1 plugin id.
+ *
+ * The live `@`-descriptor fetches are addressed by *extension row id*, while
+ * everything downstream of the palette only carries the `pluginId` (it is what a
+ * node is stamped with and what a settings profile is filed under). This is the
+ * lookup between the two, so a dialog holding nothing but a plugin id can still
+ * ask that plugin what it needs.
+ */
+export interface PluginRegistration {
+  extensionId: string
+  pluginId: string
+  name: string
+}
+
+let registrationCache: Promise<PluginRegistration[]> | null = null
+
+/** Every imported plugin, without its synced action rows. Empty when nothing is
+ *  imported or there is no backend — both mean "no plugin to ask". */
+export function fetchPluginRegistrations(force = false): Promise<PluginRegistration[]> {
+  if (!force && registrationCache) return registrationCache
+  registrationCache = loadRegistrations().catch(() => [])
+  return registrationCache
+}
+
+/** Drop the cached list — the Extensions portal calls this after registering or
+ *  removing a plugin, so the next dialog opened sees the current set. */
+export function invalidatePluginRegistrations(): void {
+  registrationCache = null
+}
+
+/** The registration behind one plugin id, or null when nothing is imported under it. */
+export async function pluginRegistration(pluginId: string): Promise<PluginRegistration | null> {
+  if (!pluginId) return null
+  return (await fetchPluginRegistrations()).find((p) => p.pluginId === pluginId) ?? null
+}
+
+async function loadRegistrations(): Promise<PluginRegistration[]> {
+  const page = await nodeRegistryApi.list({ kind: 'extension', per_page: 200 })
+  return page.list
+    .filter((row) => !row.action && row.pluginId)
+    .map((row) => ({ extensionId: row.id, pluginId: row.pluginId, name: row.name }))
+}
+
 let actionCache: Promise<PluginActionEntry[]> | null = null
 
 /**
