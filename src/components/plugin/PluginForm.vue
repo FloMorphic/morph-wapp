@@ -20,6 +20,12 @@ import type { PluginForm } from '@/lib/pluginForm'
  * form as that new document, which is how a `<select>` gets options that did
  * not exist when the plugin was compiled.
  *
+ * `x-inflow-notif` is the other half: what the form has to *say* — declared help
+ * on a field, and what a lookup reported back. Those appear against the field
+ * they are about; the ones addressed to no field, or to a field this schema no
+ * longer renders, collect under the form and are themed below. Which of them
+ * become toasts instead is decided once, in main.ts.
+ *
  * **All of that lives in `@inflowenger/plugin-form-builder`, not here.** This
  * component used to re-implement the action (`pluginFn`), the request body, the
  * answer handling and the status line by hand; every host of the package was
@@ -73,8 +79,40 @@ function onData(next: unknown) {
       :readonly="props.readonly"
       @update:data="onData"
     >
-      <!-- The only channel an action has to say anything: its contract is void.
-           Themed to match the rest of the drawer. -->
+      <!-- Messages no field is showing — addressed to the form as a whole, or to
+           a field a re-rendered schema dropped. They are not allowed to vanish
+           with it, so they collect here. -->
+      <template #notifications="{ notifications, dismiss }">
+        <ul v-if="notifications.length" class="mt-1 flex list-none flex-col gap-1 p-0">
+          <li
+            v-for="n in notifications"
+            :key="n.key"
+            class="flex items-start justify-between gap-2 text-[11px] leading-snug"
+            :class="{
+              'text-danger': n.severity === 'error',
+              'text-warning': n.severity === 'warning',
+              'text-success': n.severity === 'success',
+              'text-fg-subtle': n.severity === 'info' || n.severity === 'help',
+            }"
+          >
+            <span class="min-w-0 whitespace-pre-line">
+              <strong v-if="n.title" class="mr-1 font-semibold">{{ n.title }}</strong>{{ n.message }}
+            </span>
+            <button
+              type="button"
+              class="shrink-0 cursor-pointer border-0 bg-transparent px-1 leading-none text-current"
+              :aria-label="`Dismiss: ${n.message}`"
+              @click="dismiss(n.key)"
+            >
+              ×
+            </button>
+          </li>
+        </ul>
+      </template>
+
+      <!-- The form's own line: what is in flight, and the failures the renderer
+           raises itself (no plugin bound, a 502). A plugin's own report is a
+           notification, not this. -->
       <template #status="{ busy, status, error }">
         <p v-if="busy" class="mt-1 text-[11px] text-fg-subtle">Asking the plugin…</p>
         <p v-else-if="error" class="mt-1 text-[11px] text-danger">{{ error }}</p>

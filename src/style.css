@@ -516,6 +516,47 @@
   margin-bottom: 12px;
 }
 
+/* x-inflow-notif: what a field has to say about itself — declared help, and
+   what the last ↻ reported.
+ *
+ * Sized and coloured like the description line it sits beside, because that is
+ * what it is to the reader: one more line under the field. Severity is the only
+ * thing that separates them, and it is the whole reason the plugin sent a
+ * severity at all. The package lays these out and takes its colours from
+ * `--inflow-*` variables; naming ours here is what puts them on the same tokens
+ * as the rest of the drawer, in both themes.
+ *
+ * A message the listener in main.ts claimed never reaches any of this — it is a
+ * toast by then. */
+.plugin-form .if-inflow-notif {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--fg-subtle);
+}
+
+.plugin-form .if-inflow-notif.inflow-notif-success {
+  color: var(--success);
+}
+
+.plugin-form .if-inflow-notif.inflow-notif-warning {
+  color: var(--warning);
+}
+
+.plugin-form .if-inflow-notif.inflow-notif-error {
+  color: var(--danger);
+}
+
+/* The dismiss × — an affordance, not a control worth noticing. */
+.plugin-form .inflow-notif-dismiss {
+  color: inherit;
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.plugin-form .inflow-notif-dismiss:hover {
+  opacity: 1;
+}
+
 /* Where an append/prepend button sits — promoted into the control's grid so it
    keeps the input's row rather than drifting as validation changes the box's
    height — is the package's own layout, in its style.css. It used to be

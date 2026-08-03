@@ -1,10 +1,15 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { mergeStyles, defaultStyles } from '@jsonforms/vue-vanilla'
-import { InflowUiPlugin, createInflowUi } from '@inflowenger/plugin-form-builder'
+import {
+  InflowUiPlugin,
+  createInflowUi,
+  type InflowNotificationEvent,
+} from '@inflowenger/plugin-form-builder'
 import App from './App.vue'
 import router from './router'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
+import { useNotificationsStore, type NotificationLevel } from '@/stores/notifications'
 
 // Base styles + design tokens (Tailwind v4)
 import './style.css'
@@ -29,6 +34,12 @@ import '@inflowenger/plugin-form-builder/vanilla-fixes.css'
 import './assets/vue-flow.css'
 
 const app = createApp(App)
+
+// Installed before the form renderer, not with the router at the end: the
+// x-inflow-notif listener below reaches the toast store, and a store cannot be
+// resolved before its pinia is the active one.
+const pinia = createPinia()
+app.use(pinia)
 
 /**
  * Theme the plugin form renderer.
@@ -73,21 +84,65 @@ app.provide(
   }),
 )
 
-// The x-inflow-ui button look, and the one thing a host has to supply: how to
-// reach a plugin's meta functions.
+/** A plugin's severities are the toast store's levels, minus one it lacks. */
+const TOAST_LEVEL: Record<InflowNotificationEvent['severity'], NotificationLevel> = {
+  help: 'info',
+  info: 'info',
+  success: 'success',
+  warning: 'warning',
+  error: 'error',
+}
+
+/**
+ * Where a plugin's messages are shown.
+ *
+ * A form says things while it is being filled in — what a lookup found, why a
+ * token was refused, what to fill in first — under `x-inflow-notif`. Every one
+ * of them is offered here, and **returning `true` claims it**: FloMorphic then
+ * owns showing it and the form renders nothing for it.
+ *
+ * The policy is to claim only what asked to interrupt. A verification result
+ * belongs against the field it is about, where the user is already looking, and
+ * a toast for every ↻ press would be noise — so `inline` and `banner` are left
+ * to render in the drawer. `toast` and `dialog` are the plugin saying this
+ * cannot wait for the user to look down; both are served by the toast stack,
+ * because that is the one interruption surface this app has.
+ *
+ * Nothing is lost either way: a message this function does not claim still
+ * appears at its field.
+ */
+function onNotify(event: InflowNotificationEvent): boolean | void {
+  if (event.display !== 'toast' && event.display !== 'dialog') return
+
+  useNotificationsStore(pinia).notify({
+    level: TOAST_LEVEL[event.severity] ?? 'info',
+    title: event.title,
+    message: event.message,
+  })
+  return true
+}
+
+// The x-inflow-ui button look, where a message goes, and the one thing a host
+// has to supply: how to reach a plugin's meta functions.
 //
 // The action itself — `pluginFn`, the name every plugin writes in its UI schema
 // — ships inside plugin-form-builder, together with the whole contract around
 // it: the flat request body, and applying the answer by shape (a patch of
-// fields, or a whole new form). So all that belongs here is transport. Which
-// plugin a call addresses and which settings profile it carries are per form,
-// passed by components/plugin/PluginForm.
+// fields, a whole new form, or a message). So all that belongs here is transport
+// and presentation. Which plugin a call addresses and which settings profile it
+// carries are per form, passed by components/plugin/PluginForm.
 app.use(
   InflowUiPlugin,
   createInflowUi({
-    theme: { containerClass: 'if-inflow-field', buttonClass: 'if-btn', iconButtonClass: 'if-btn-icon' },
+    theme: {
+      containerClass: 'if-inflow-field',
+      buttonClass: 'if-btn',
+      iconButtonClass: 'if-btn-icon',
+      notifClass: 'if-inflow-notif',
+    },
     call: ({ pluginId, fn, body }) => nodeRegistryApi.pluginFn(pluginId, fn, body),
+    onNotify,
   }),
 )
 
-app.use(createPinia()).use(router).mount('#app')
+app.use(router).mount('#app')

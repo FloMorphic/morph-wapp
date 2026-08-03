@@ -8,3 +8,5 @@ minimumReleaseAgeExclude:
   - '@inflowenger/plugin-form-builder@0.1.6'
   - '@inflowenger/plugin-form-builder@0.1.7'
   - '@inflowenger/plugin-form-builder@0.1.8'
+  - '@inflowenger/plugin-form-builder@0.1.9'
+  - '@inflowenger/plugin-form-builder@0.2.0'
