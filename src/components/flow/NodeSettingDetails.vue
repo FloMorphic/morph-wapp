@@ -5,6 +5,7 @@ import Icon from '@/components/ui/Icon.vue'
 import NodeSettingsSelector from '@/components/flow/NodeSettingsSelector.vue'
 import NodeConfig from '@/components/flow/NodeConfig.vue'
 import NodeStoreField from '@/components/flow/NodeStoreField.vue'
+import NodeCastMapping from '@/components/flow/NodeCastMapping.vue'
 import { specForType, type BaseNodeData } from '@/data/nodeCatalog'
 import { SETTINGS_DATA_KEYS, NODE_REF_DATA_KEYS, usesSettingsProfile } from '@/lib/nodeSettings'
 import type { MemoryType } from '@/types/api'
@@ -54,6 +55,9 @@ const BACKEND_PLUGIN_KEYS = ['subject_prefix', 'idle_min', 'request'] as const
 // hitl carries its key/value payload in `operationData`, edited by a bespoke
 // row editor below — so it is dropped from the generic field list.
 const OPERATION_DATA_KEY = 'operationData'
+// Cast carries its field map in `mappings`, edited by NodeCastMapping below, and
+// a `body` the backend compiles from that map — neither is a generic field.
+const CAST_KEYS = ['mappings', 'body'] as const
 // Managed by the settings selector / stamped from the backing extension row —
 // not editable as generic fields.
 const HIDDEN = new Set<string>([
@@ -61,6 +65,7 @@ const HIDDEN = new Set<string>([
   ...NODE_REF_DATA_KEYS,
   ...BACKEND_PLUGIN_KEYS,
   ...STORE_ACTION_KEYS,
+  ...CAST_KEYS,
   STORE_FIELD,
   OPERATION_DATA_KEY,
 ])
@@ -191,6 +196,7 @@ interface OpRow {
 }
 
 const isHitl = computed(() => props.node?.type === 'hitl')
+const isCast = computed(() => props.node?.type === 'cast')
 
 function opRows(): OpRow[] {
   const d = data() as Record<string, unknown>
@@ -352,6 +358,9 @@ onBeforeUnmount(stopResize)
         :memory-type="storeMemoryType"
         :data="node.data as any"
       />
+
+      <!-- Cast: schema-driven field mapping table (keys → static / variable). -->
+      <NodeCastMapping v-if="isCast" :key="node.id" :node="node" />
 
       <!-- Human-in-the-Loop: key/value operation data. -->
       <div v-if="isHitl" class="space-y-1.5">
