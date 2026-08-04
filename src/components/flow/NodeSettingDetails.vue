@@ -6,7 +6,9 @@ import NodeSettingsSelector from '@/components/flow/NodeSettingsSelector.vue'
 import NodeConfig from '@/components/flow/NodeConfig.vue'
 import NodeStoreField from '@/components/flow/NodeStoreField.vue'
 import NodeCastMapping from '@/components/flow/NodeCastMapping.vue'
+import NodeHitlSettings from '@/components/flow/NodeHitlSettings.vue'
 import { specForType, type BaseNodeData } from '@/data/nodeCatalog'
+import { HITL_DATA_KEYS } from '@/lib/hitl'
 import { SETTINGS_DATA_KEYS, NODE_REF_DATA_KEYS, usesSettingsProfile } from '@/lib/nodeSettings'
 import type { MemoryType } from '@/types/api'
 
@@ -52,8 +54,9 @@ const STORE_ACTION_KEYS = ['action', 'query', 'input'] as const
 // Plugin runtime wiring for builtin plugin nodes (llm / mcp / cast). These are
 // configured on the backend, not by hand — so they stay out of the drawer.
 const BACKEND_PLUGIN_KEYS = ['subject_prefix', 'idle_min', 'request'] as const
-// hitl carries its key/value payload in `operationData`, edited by a bespoke
-// row editor below — so it is dropped from the generic field list.
+// hitl carries its session config (mode / prompt / refs / questions / channel)
+// in NodeHitlSettings below, plus the dead `operationData` that editor migrates
+// away — none of them belong in the generic field list.
 const OPERATION_DATA_KEY = 'operationData'
 // Cast carries its field map in `mappings`, edited by NodeCastMapping below, and
 // a `body` the backend compiles from that map — neither is a generic field.
@@ -66,6 +69,7 @@ const HIDDEN = new Set<string>([
   ...BACKEND_PLUGIN_KEYS,
   ...STORE_ACTION_KEYS,
   ...CAST_KEYS,
+  ...HITL_DATA_KEYS,
   STORE_FIELD,
   OPERATION_DATA_KEY,
 ])
@@ -187,30 +191,8 @@ function data(): BaseNodeData {
   return props.node!.data as BaseNodeData
 }
 
-// --- hitl operation data ---------------------------------------------------
-// Human-in-the-Loop nodes carry a list of key/value fields in
-// `data.operationData`, edited with an add/remove row list.
-interface OpRow {
-  key: string
-  value: string
-}
-
 const isHitl = computed(() => props.node?.type === 'hitl')
 const isCast = computed(() => props.node?.type === 'cast')
-
-function opRows(): OpRow[] {
-  const d = data() as Record<string, unknown>
-  if (!Array.isArray(d[OPERATION_DATA_KEY])) d[OPERATION_DATA_KEY] = []
-  return d[OPERATION_DATA_KEY] as OpRow[]
-}
-
-function addOpRow() {
-  opRows().push({ key: '', value: '' })
-}
-
-function removeOpRow(i: number) {
-  opRows().splice(i, 1)
-}
 
 function jsonText(name: string): string {
   try {
@@ -362,26 +344,9 @@ onBeforeUnmount(stopResize)
       <!-- Cast: schema-driven field mapping table (keys → static / variable). -->
       <NodeCastMapping v-if="isCast" :key="node.id" :node="node" />
 
-      <!-- Human-in-the-Loop: key/value operation data. -->
-      <div v-if="isHitl" class="space-y-1.5">
-        <div class="flex items-center justify-between">
-          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Operation data</label>
-          <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addOpRow">
-            <Icon name="plus" :size="13" /> Add
-          </button>
-        </div>
-        <div v-for="(row, i) in opRows()" :key="i" class="flex items-center gap-2">
-          <input v-model="row.key" class="input w-32 font-mono text-xs" placeholder="key" />
-          <input v-model="row.value" class="input flex-1 font-mono text-xs" placeholder="value" />
-          <button
-            class="shrink-0 rounded-lg p-1.5 text-fg-subtle hover:bg-danger-soft hover:text-danger"
-            @click="removeOpRow(i)"
-          >
-            <Icon name="x" :size="15" />
-          </button>
-        </div>
-        <p v-if="opRows().length === 0" class="text-[11px] text-fg-subtle">No fields yet — add one to collect from the human.</p>
-      </div>
+      <!-- Human-in-the-Loop: session mode, prompt + context refs, questions,
+           channel — the whole compile-time payload the hitl svc records. -->
+      <NodeHitlSettings v-if="isHitl" :key="node.id" :node="node" />
 
       <div v-for="field in fields" :key="field.name" class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">{{ field.label }}</label>

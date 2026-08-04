@@ -510,6 +510,23 @@ export interface HumanTaskMessage {
   at: number
 }
 
+/** One named context pointer the node declared, resolved when the task opens. */
+export interface HumanTaskRef {
+  name: string
+  /** JSONPath into the captured data, e.g. `$.messages`. */
+  path: string
+  /** The value it resolved to — filled in by the backend on read. */
+  value?: unknown
+}
+
+/** The outbound edge of the parked node, kept so the flow can resume from it. */
+export interface HumanTaskNext {
+  flowId: string
+  nodeId: string
+  tags: string[]
+  active: number
+}
+
 export interface HumanTask {
   id: string
   title: string
@@ -519,10 +536,24 @@ export interface HumanTask {
   flowId: string
   nodeId: string
   contextId: string
+  /** How the node behaved when the run reached it — see lib/hitl's HitlMode. */
+  mode?: 'park' | 'continue'
+  /** Where the session is held. Only `direct` is served today. */
+  channel?: 'direct' | 'telegram' | 'whatsapp'
+  /** The conversation opener as authored, `{{$.path}}` variables intact. An
+   *  Extrinsic svc handler cannot resolve them at run time, so the template is
+   *  what gets recorded. */
+  prompt?: string
+  /** The same prompt with its variables filled in against the captured data —
+   *  produced by the backend when the task is read, never stored. */
+  promptResolved?: string
+  refs?: HumanTaskRef[]
   questions: HumanTaskQuestion[]
   messages: HumanTaskMessage[]
-  /** Raw node-data snapshot recorded at creation. */
+  /** Scoped data snapshot recorded when the flow parked at this node. */
   data?: Record<string, unknown>
+  /** The parked node's outbound edges — where a resumed run picks up. */
+  nexts?: HumanTaskNext[]
   createdAt: number
   updatedAt: number
   closedAt: number

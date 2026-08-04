@@ -827,7 +827,11 @@ export function buildDesignerPrompt(goal: string, existing?: VueFlowGraph | null
       )
     }
     if (spec.kind === 'hitl') {
-      lines.push('`operationData` is the list of questions asked of the person.')
+      lines.push(
+        '`prompt` opens the conversation with the person and may embed `{{$.path}}` context variables; `refs` are `{ "id": "ref-1", "name": "thread", "path": "$.messages" }` pointers recorded with the session.',
+        '`questions` is `{ "id": "q1", "text": "…" }` — what the person must answer.',
+        '`mode` is "park" (the run stops here and resumes once the session closes) or "continue" (record the task, carry on). `channel` is "direct" (only one supported today), "telegram" or "whatsapp".',
+      )
     }
   }
 

@@ -629,12 +629,25 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'human',
     tagline: 'Ask a human',
     description:
-      'Pause the flow for a person: pose one or more questions and wait for their answers before continuing (or a human closes the task to finish here). Compiles to an Extrinsic against the backend `hitl` service (`svc.hitl.add`), which records a Human Task surfaced under Operate → Human Task.',
+      'Hand the flow to a person: open a conversation with a prompt built from the run’s context, pose the questions they must answer, and either park the run until they are done or record the task and carry on. Compiles to an Extrinsic against the backend `hitl` service (`svc.hitl.add`), which records a Human Task surfaced under Operate → Human Task.',
     primitives: 'Extrinsic · svc.hitl.add',
-    defaults: () => ({ title: 'Human in the Loop', key: 'humanReply', scope: '$', operationData: [] }),
+    defaults: () => ({
+      title: 'Human in the Loop',
+      key: 'humanReply',
+      scope: '$',
+      // See lib/hitl for what each of these means on the wire. `park` and
+      // `direct` are the defaults because they are the behaviour that exists
+      // end to end today: stop the run here, answer it in the app.
+      mode: 'park',
+      prompt: '',
+      refs: [],
+      questions: [],
+      channel: 'direct',
+    }),
     preview: (d) => {
-      const n = asRows(d.operationData).length
-      return n ? `${n} field${n === 1 ? '' : 's'}` : 'no fields'
+      const n = asRows(d.questions).length
+      const mode = d.mode === 'continue' ? 'continue' : 'park'
+      return `${mode} · ${n ? `${n} question${n === 1 ? '' : 's'}` : 'no questions'}`
     },
   }),
 }
