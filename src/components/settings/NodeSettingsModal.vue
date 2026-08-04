@@ -286,7 +286,9 @@ function settingsFromSchema(fields: SettingsField[]): { settings: Record<string,
   const settings: Record<string, unknown> = {}
   const missing: string[] = []
   for (const f of fields) {
-    const raw = (form.values[f.key] ?? '').trim()
+    // Coerce before trimming: a `type="number"` field binds a number (not a
+    // string) once edited, and an existing profile can carry numeric values.
+    const raw = String(form.values[f.key] ?? '').trim()
     if (raw === '') {
       if (f.required) missing.push(f.label)
       continue

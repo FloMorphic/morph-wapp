@@ -48,6 +48,9 @@ watch(
 
 const answeredCount = computed(() => task.value?.questions.filter((q) => q.answer !== '').length ?? 0)
 const isClosed = computed(() => task.value?.status === 'closed')
+// The bot is producing a turn (start / reply). Drives the input lock + indicator.
+const thinking = ref(false)
+const canConverse = computed(() => !!task.value && !isClosed.value)
 
 async function openTask(t: HumanTask) {
   await store.open(t.id)
@@ -66,20 +69,35 @@ async function saveAnswer(questionId: string) {
   }
 }
 
-async function send() {
-  if (!task.value || !chatInput.value.trim()) return
+// Open the session: the bot produces its first turn from the node's prompt.
+async function startSession() {
+  if (!task.value || thinking.value) return
   panelError.value = null
-  busy.value = true
-  const text = chatInput.value.trim()
-  chatInput.value = ''
+  thinking.value = true
   try {
-    await store.sendMessage(task.value.id, text)
-    // The assistant reply is produced client-side (LLM wiring lands later);
-    // for now the human's context questions are persisted to the thread.
+    await store.startSession(task.value.id)
   } catch (err) {
     panelError.value = (err as Error).message
   } finally {
-    busy.value = false
+    thinking.value = false
+  }
+}
+
+// Send a turn to the conversation bot and apply its reply. The human turn is
+// recorded server-side (or client-side in local mode) before the model runs, so
+// it survives a provider failure — the error just surfaces here.
+async function send() {
+  if (!task.value || !chatInput.value.trim() || thinking.value) return
+  panelError.value = null
+  thinking.value = true
+  const text = chatInput.value.trim()
+  chatInput.value = ''
+  try {
+    await store.chat(task.value.id, text)
+  } catch (err) {
+    panelError.value = (err as Error).message
+  } finally {
+    thinking.value = false
   }
 }
 
@@ -273,10 +291,14 @@ function formatTime(ms: number): string {
           </div>
         </section>
 
-        <!-- Chat: understand the context -->
+        <!-- Conversation: the bot works out what to ask, the person answers, and
+             the whole thread is saved on the task until it is closed. -->
         <section class="space-y-2">
-          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Discuss context</h4>
-          <div v-if="task.messages.length" class="max-h-56 space-y-2 overflow-y-auto rounded-lg border bg-surface-2 p-3">
+          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Conversation</h4>
+          <div
+            v-if="task.messages.length || thinking"
+            class="max-h-72 space-y-2 overflow-y-auto rounded-lg border bg-surface-2 p-3"
+          >
             <div v-for="m in task.messages" :key="m.id" class="flex" :class="m.role === 'human' ? 'justify-end' : 'justify-start'">
               <div
                 class="max-w-[80%] rounded-lg px-3 py-1.5 text-[13px]"
@@ -286,20 +308,43 @@ function formatTime(ms: number): string {
                 <p class="mt-0.5 text-[10px] opacity-70">{{ formatTime(m.at) }}</p>
               </div>
             </div>
+            <!-- Bot is producing a turn. -->
+            <div v-if="thinking" class="flex justify-start">
+              <div class="flex items-center gap-1.5 rounded-lg bg-surface px-3 py-2 text-[13px] text-fg-muted">
+                <Icon name="refresh" :size="14" class="animate-spin" />
+                <span>Assistant is thinking…</span>
+              </div>
+            </div>
           </div>
-          <p v-else class="text-[12px] text-fg-subtle">
-            Ask a question here to reason about the task before you answer. Replies from the assistant are wired on the
-            client (coming soon); your notes are saved to the task.
-          </p>
-          <div v-if="!isClosed" class="flex items-end gap-2">
+
+          <!-- No thread yet: offer to open the session from the node's prompt. -->
+          <div v-else class="rounded-lg border border-dashed bg-surface-2 p-4 text-center">
+            <p class="text-[12px] text-fg-subtle">
+              Start the session to have the assistant read the task and begin the conversation. It works out the
+              questions with you; answer them, then close the task.
+            </p>
+            <Button
+              v-if="canConverse"
+              class="mt-3"
+              variant="primary"
+              icon="prompt"
+              :disabled="thinking"
+              @click="startSession"
+            >
+              Start session
+            </Button>
+          </div>
+
+          <div v-if="canConverse && task.messages.length" class="flex items-end gap-2">
             <textarea
               v-model="chatInput"
               rows="1"
               class="input text-[13px]"
-              placeholder="Ask about this task…"
+              placeholder="Reply to the assistant…"
+              :disabled="thinking"
               @keydown.enter.exact.prevent="send"
             />
-            <Button variant="outline" icon="chevron-right" :disabled="busy || !chatInput.trim()" @click="send">Send</Button>
+            <Button variant="outline" icon="chevron-right" :disabled="thinking || !chatInput.trim()" @click="send">Send</Button>
           </div>
         </section>
 

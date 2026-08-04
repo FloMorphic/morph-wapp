@@ -11,6 +11,7 @@ import {
 } from '@inflowenger/flow-trace'
 import { apiBaseUrl, apiEnabled, getAuthToken } from '@/api/client'
 import { useNotificationsStore } from '@/stores/notifications'
+import { useHitlStore } from '@/stores/hitl'
 
 /**
  * Live runtime log stream for the workflow editor.
@@ -238,6 +239,12 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
     // separate `notification` event and surface as toasts, not drawer lines.
     const notifications = useNotificationsStore()
     socket.on('notification', (payload: unknown) => notifications.ingest(payload))
+
+    // Human-in-the-Loop conversation turns pushed by the chat service. The store
+    // applies one only when it is about a task it is currently showing, so an
+    // open conversation panel refreshes without polling. Resolved lazily to keep
+    // this store free of a hard dependency on the hitl store.
+    socket.on('hitl.message', (payload: unknown) => useHitlStore().ingestSocketTask(payload))
   }
 
   function disconnect(): void {

@@ -47,6 +47,25 @@ function toQuery(params?: Record<string, unknown>): string {
   return s ? `?${s}` : ''
 }
 
+/**
+ * Pull a human-readable message out of the backend's `error` field. The API
+ * returns it either as a plain string (a controller's `etc.Send(..., err.Error())`)
+ * or as an `{ code, message }` object (`etc.Fail`). Anything else falls back to
+ * the raw text so a message is never lost — which matters for the LLM endpoints,
+ * whose failures carry the provider's own error text.
+ */
+function errorDetail(payload: unknown): string | null {
+  if (typeof payload === 'string') {
+    const s = payload.trim()
+    return s.length ? s : null
+  }
+  if (payload && typeof payload === 'object') {
+    const msg = (payload as { message?: unknown }).message
+    if (typeof msg === 'string' && msg.trim()) return msg.trim()
+  }
+  return null
+}
+
 async function request<T>(method: string, path: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
   if (!apiEnabled()) {
     throw new ApiError('No backend configured (VITE_API_BASE_URL is empty)', 0)
@@ -77,10 +96,11 @@ async function request<T>(method: string, path: string, body?: unknown, params?:
   }
 
   if (!res.ok) {
-    throw new ApiError(`Request failed (${res.status})`, res.status, envelope?.error ?? text)
+    const detail = errorDetail(envelope?.error ?? text)
+    throw new ApiError(detail ? `${detail} (${res.status})` : `Request failed (${res.status})`, res.status, envelope?.error ?? text)
   }
   if (envelope?.error) {
-    throw new ApiError('Backend returned an error', res.status, envelope.error)
+    throw new ApiError(errorDetail(envelope.error) ?? 'Backend returned an error', res.status, envelope.error)
   }
   return (envelope?.data as T) ?? (undefined as T)
 }

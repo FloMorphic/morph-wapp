@@ -539,6 +539,14 @@ export interface HumanTask {
    *  `{{$.path}}` variables and the runtime resolves them against the run's
    *  context before the svc handler records the task. */
   prompt?: string
+  /** The node-settings profile id holding the conversation bot's LLM provider
+   *  config (provider / model / token / base URL). The backend chat service reads
+   *  the token from the settings store by this id, so it never rides on the task;
+   *  in local mode the client resolves the profile the same way. */
+  settingsId?: string
+  /** The HITL node's result binding. Closing the task writes the conversation
+   *  outcome into the run's context under `$.<key>`. */
+  key?: string
   /** Raised during the session, not by the node. Empty on a fresh task. */
   questions: HumanTaskQuestion[]
   messages: HumanTaskMessage[]

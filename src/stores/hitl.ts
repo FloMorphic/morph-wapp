@@ -95,6 +95,29 @@ export const useHitlStore = defineStore('hitl', () => {
     apply(await hitlApi.message(id, text, 'human'))
   }
 
+  // The conversation bot: `chat` sends a turn and applies the task carrying the
+  // bot's reply; `start` opens the session with the bot's first turn from the
+  // node's prompt. Both go through the backend chat service (token stays
+  // server-side) or the local client-side fallback (see api/hitl).
+  async function chat(id: string, text: string): Promise<void> {
+    apply(await hitlApi.chat(id, text))
+  }
+
+  async function startSession(id: string): Promise<void> {
+    apply(await hitlApi.start(id))
+  }
+
+  /** Apply a task pushed on the `hitl.message` socket event (backend mode), so an
+   *  open panel reflects a turn delivered out of band — a reply the bot produced,
+   *  or, later, a message that arrived over a messenger channel. Ignored when it
+   *  is not about a task this store is currently showing. */
+  function ingestSocketTask(payload: unknown): void {
+    const task = payload as HumanTask | null
+    if (!task || typeof task.id !== 'string') return
+    const known = active.value?.id === task.id || items.value.some((t) => t.id === task.id)
+    if (known) apply(task)
+  }
+
   async function closeTask(id: string): Promise<void> {
     apply(await hitlApi.close(id))
   }
@@ -129,6 +152,9 @@ export const useHitlStore = defineStore('hitl', () => {
     close,
     answer,
     sendMessage,
+    chat,
+    startSession,
+    ingestSocketTask,
     closeTask,
     remove,
   }

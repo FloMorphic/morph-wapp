@@ -111,6 +111,10 @@ const showSettingsProfile = computed(() => {
   if (!props.node) return false
   const data = props.node.data as Record<string, unknown>
   if (props.node.type === 'mcp') return data.mcpMode === 'llm'
+  // HITL is not plugin-lowered, but its conversation bot needs an LLM provider:
+  // the picker binds a provider profile the backend chat service reads at run
+  // time. It stores only the profile id (see NodeSettingsSelector.referenceOnly).
+  if (props.node.type === 'hitl') return true
   return usesSettingsProfile(props.node.type, data)
 })
 

@@ -121,6 +121,21 @@ const mcpSchema: SettingsSchema = {
 }
 
 /**
+ * HITL node — the provider config the backend `hitl` chat service uses to run
+ * the conversation bot with the person. It is the same provider contract as the
+ * LLM node (langchaingo-style provider / model / token / base URL), so the
+ * fields are reused. Unlike the LLM node, this profile's values are **not**
+ * denormalized onto the node's `data.settings` (see NodeSettingsSelector): the
+ * task carries only the profile *id*, and the backend reads the token from the
+ * settings store at chat time — so a provider key never rides along in an
+ * exported flow graph.
+ */
+const hitlSchema: SettingsSchema = {
+  summary: 'LLM provider config the HITL chat service uses to run the conversation bot.',
+  fields: llmSchema.fields,
+}
+
+/**
  * HTTP node — mirrors the SDK `HTTPSettings` contract the `run` action reads as
  * `body.settings` (see the backend httpSettingsBody projection). These are the
  * connection-level defaults shared by every request the node makes: base URL,
@@ -184,6 +199,7 @@ export const SETTINGS_SCHEMAS: Record<string, SettingsSchema> = {
   llm: llmSchema,
   mcp: mcpSchema,
   http: httpSchema,
+  hitl: hitlSchema,
 }
 
 /** The typed schema for a node kind, or null when it uses the key/value editor. */

@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { GraphNode } from '@vue-flow/core'
 import type { NodeSetting } from '@/types/api'
 import { nodeSettingsApi } from '@/api/nodeSettings'
-import { nodeUniqId as computeNodeUniqId } from '@/lib/nodeSettings'
+import { nodeUniqId as computeNodeUniqId, usesSettingsProfile } from '@/lib/nodeSettings'
 import Icon from '@/components/ui/Icon.vue'
 import NodeSettingsModal from '@/components/settings/NodeSettingsModal.vue'
 
@@ -20,6 +20,29 @@ import NodeSettingsModal from '@/components/settings/NodeSettingsModal.vue'
 const props = defineProps<{ node: GraphNode }>()
 
 const uniqId = computed(() => computeNodeUniqId(props.node.type, props.node.data as Record<string, unknown>))
+
+/**
+ * Whether this node only *references* a profile rather than shipping its values.
+ *
+ * Plugin nodes (usesSettingsProfile) denormalize the resolved profile onto
+ * `data.settings`, because the backend compiler ships that as the plugin body's
+ * `settings` contract. A node that shows the picker without being plugin-lowered
+ * — the HITL node, whose provider config is read server-side by the chat service
+ * from the settings store at run time — must NOT carry the values: the token
+ * would otherwise ride along in the saved / exported flow graph. Such a node
+ * stores only the profile id + name and never `data.settings`.
+ */
+const referenceOnly = computed(() => !usesSettingsProfile(props.node.type, props.node.data as Record<string, unknown>))
+
+/** Write the resolved profile onto node data, honouring {@link referenceOnly}. */
+function applyProfile(match: NodeSetting | null): void {
+  data().settingsName = match?.title ?? ''
+  if (referenceOnly.value) {
+    delete data().settings
+  } else {
+    data().settings = match ? { ...match.settings } : {}
+  }
+}
 
 const profiles = ref<NodeSetting[]>([])
 const loading = ref(false)
@@ -44,9 +67,7 @@ async function load() {
     profiles.value = await nodeSettingsApi.listForNode(uniqId.value)
     // Keep the denormalized name + values in sync (or clear a dangling reference).
     if (selectedId.value) {
-      const match = profiles.value.find((p) => p.id === selectedId.value)
-      data().settingsName = match ? match.title : ''
-      data().settings = match ? { ...match.settings } : {}
+      applyProfile(profiles.value.find((p) => p.id === selectedId.value) ?? null)
     }
   } catch (err) {
     error.value = (err as Error).message
@@ -60,16 +81,13 @@ async function load() {
 watch(uniqId, load, { immediate: true })
 
 function onPick(id: string) {
-  const match = profiles.value.find((p) => p.id === id)
   data().settingsId = id
-  data().settingsName = match?.title ?? ''
-  data().settings = match ? { ...match.settings } : {}
+  applyProfile(profiles.value.find((p) => p.id === id) ?? null)
 }
 
 function clearSelection() {
   data().settingsId = ''
-  data().settingsName = ''
-  data().settings = {}
+  applyProfile(null)
 }
 
 function openNew() {
