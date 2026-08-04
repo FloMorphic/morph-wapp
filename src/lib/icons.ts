@@ -104,6 +104,10 @@ export const icons: Record<string, string> = {
     '<path d="M5 3v16a2 2 0 0 0 2 2h14"/><circle cx="9" cy="15" r="1.4" fill="currentColor" stroke="none"/><circle cx="13" cy="10" r="1.4" fill="currentColor" stroke="none"/><circle cx="17" cy="13" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/>',
   'node-cast':
     '<path d="M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-1"/>',
+  // Integrations
+  // Globe — an HTTP request out to an external API.
+  'node-http':
+    '<circle cx="12" cy="12" r="10"/><line x1="2" x2="22" y1="12" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
   // Human
   'node-human':
     '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/>',

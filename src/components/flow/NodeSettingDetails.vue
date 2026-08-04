@@ -16,7 +16,7 @@ import type { MemoryType } from '@/types/api'
 // could name, because they are the ones its plugin serves on `<action>.@form` —
 // NodeConfig renders that document at runtime, and a raw-JSON `body` box is the
 // only thing the generic list could offer instead.
-const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'mcp', 'goto', 'until', 'plugin'])
+const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'mcp', 'goto', 'until', 'plugin', 'http'])
 
 /**
  * Generic, catalog-driven property panel. It edits the selected node's `data`

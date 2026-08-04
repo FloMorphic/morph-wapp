@@ -47,6 +47,7 @@ export type NodeKind =
   | 'opa'
   | 'until'
   | 'cast'
+  | 'http'
   // Not a builtin: one action of an imported inflowv1 plugin. Every such node
   // shares this single kind — what it does is decided by the `pluginId` +
   // `action` stamped on its data when it was dragged from the palette, and by
@@ -56,7 +57,7 @@ export type NodeKind =
 /** `plugins` is not a builtin tab: it is the palette section fed by imported
  *  plugins, listed separately (and searchably) because its contents come from
  *  the registry rather than this catalog. */
-export type PaletteGroupId = 'flow' | 'ai' | 'stores' | 'human' | 'plugins'
+export type PaletteGroupId = 'flow' | 'ai' | 'stores' | 'integrations' | 'human' | 'plugins'
 
 /** Universal fields present on every node's `data`, plus per-kind extras. */
 export interface BaseNodeData {
@@ -547,6 +548,40 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     },
   }),
 
+  // ---- Integrations ----
+  http: spec({
+    kind: 'http',
+    type: 'http',
+    label: 'HTTP',
+    icon: 'node-http',
+    color: '#0d9488',
+    group: 'integrations',
+    tagline: 'Call an external API',
+    description:
+      'Make an HTTP request to an external API and write the response back to `key`. The method, URL, headers, query params and request body are set on the node; each may embed {{$.path}} context vars, resolved at run time. Compiles to a Plugin node.',
+    primitives: 'Plugin',
+    plugin: true,
+    defaults: () => ({
+      title: 'HTTP',
+      key: 'response',
+      scope: '$',
+      subject_prefix: 'http',
+      idle_min: 5,
+      request: 'run',
+      // Shipped to the http plugin verbatim as body (see the backend NODE_HTTP
+      // compiler case) — matches the plugin's RunBody contract. headers / query
+      // are [{ key, value }] rows the drawer edits; body_type (json|form|text)
+      // sets the default Content-Type when a body is present.
+      body: { method: 'GET', url: '', headers: [], query: [], body: '', body_type: 'json' },
+    }),
+    preview: (d) => {
+      const b = (d.body ?? {}) as Record<string, unknown>
+      const method = String(b.method ?? 'GET')
+      const url = String(b.url ?? '').trim()
+      return url ? `${method} ${url}` : `${method} — no url`
+    },
+  }),
+
   // ---- Imported plugins ----
   // One spec for every action of every imported plugin. The builtins above each
   // describe one fixed node; this one is a shell whose behaviour arrives with
@@ -608,6 +643,7 @@ export const PALETTE_GROUPS: { id: PaletteGroupId; label: string; kinds: NodeKin
   { id: 'flow', label: 'Flow', kinds: ['startNode', 'promissall', 'until', 'goto'] },
   { id: 'ai', label: 'AI & Logic', kinds: ['llm', 'mcp', 'rule', 'js', 'opa'] },
   { id: 'stores', label: 'Stores', kinds: ['docstore', 'vecstore', 'cast'] },
+  { id: 'integrations', label: 'Integrations', kinds: ['http'] },
   { id: 'human', label: 'Human', kinds: ['hitl'] },
 ]
 

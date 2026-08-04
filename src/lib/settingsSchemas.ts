@@ -120,9 +120,70 @@ const mcpSchema: SettingsSchema = {
   fields: llmSchema.fields,
 }
 
+/**
+ * HTTP node — mirrors the SDK `HTTPSettings` contract the `run` action reads as
+ * `body.settings` (see the backend httpSettingsBody projection). These are the
+ * connection-level defaults shared by every request the node makes: base URL,
+ * auth and TLS/timeout. The per-request method / url / headers / query / body
+ * live on the node data and are edited in the node's bespoke config, not here.
+ */
+const httpSchema: SettingsSchema = {
+  summary: 'Connection defaults (base URL, auth, TLS) the HTTP node applies to every request.',
+  fields: [
+    {
+      key: 'base_url',
+      label: 'Base URL',
+      type: 'text',
+      placeholder: 'https://api.example.com',
+      help: 'Optional — prepended to a relative request URL. Leave empty to give each request an absolute URL.',
+    },
+    {
+      key: 'auth_type',
+      label: 'Auth',
+      type: 'select',
+      default: 'none',
+      options: [
+        { value: 'none', label: 'None' },
+        { value: 'basic', label: 'Basic (username / password)' },
+        { value: 'bearer', label: 'Bearer token' },
+        { value: 'api_key', label: 'API key header' },
+      ],
+    },
+    { key: 'username', label: 'Username', type: 'text', help: 'Basic auth only.' },
+    { key: 'password', label: 'Password', type: 'password', help: 'Basic auth only.' },
+    {
+      key: 'token',
+      label: 'Token',
+      type: 'password',
+      placeholder: 'Bearer token / API key value',
+      help: 'Bearer or API-key auth: the secret sent on every request.',
+    },
+    {
+      key: 'header_name',
+      label: 'API-key header',
+      type: 'text',
+      placeholder: 'X-API-Key',
+      help: 'API-key auth only — the header the token is sent under.',
+    },
+    { key: 'timeout_seconds', label: 'Timeout (seconds)', type: 'number', default: 30, min: 0, step: 1 },
+    {
+      key: 'insecure_skip_verify',
+      label: 'Skip TLS verify',
+      type: 'select',
+      default: 'false',
+      options: [
+        { value: 'false', label: 'No (verify certificates)' },
+        { value: 'true', label: 'Yes (insecure)' },
+      ],
+      help: 'Leave off unless calling a host with a self-signed certificate.',
+    },
+  ],
+}
+
 export const SETTINGS_SCHEMAS: Record<string, SettingsSchema> = {
   llm: llmSchema,
   mcp: mcpSchema,
+  http: httpSchema,
 }
 
 /** The typed schema for a node kind, or null when it uses the key/value editor. */

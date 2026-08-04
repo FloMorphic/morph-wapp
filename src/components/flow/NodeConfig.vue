@@ -44,6 +44,7 @@ const isLlm = computed(() => type.value === 'llm')
 const isMcp = computed(() => type.value === 'mcp')
 const isGoto = computed(() => type.value === 'goto')
 const isUntil = computed(() => type.value === 'until')
+const isHttp = computed(() => type.value === 'http')
 
 // ---- Imported plugin action ------------------------------------------------
 // A plugin node has no fields of its own. The plugin is the authority on what
@@ -516,6 +517,77 @@ async function loadMcpTools() {
   } finally {
     mcpLoading.value = false
   }
+}
+
+// ---- HTTP (data.body: { method, url, headers[], query[], body }) -----------
+// The per-request fields. They live under `data.body`, which the backend
+// NODE_HTTP compiler case ships to the http plugin verbatim (connection-level
+// auth / base URL come from the Settings profile above, not here). headers and
+// query are { key, value } rows the plugin turns into request headers / query
+// string; the body is a raw string (may embed {{$.path}} context vars).
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const
+interface HttpKV {
+  key: string
+  value: string
+}
+/** The node's `body` object, created on first edit (a node dropped and never
+ *  opened stays exactly as the palette made it). */
+function httpBody(): Record<string, unknown> {
+  if (!data().body || typeof data().body !== 'object') data().body = {}
+  return data().body as Record<string, unknown>
+}
+const httpMethod = computed<string>({
+  get: () => (httpBody().method as string) || 'GET',
+  set: (v) => {
+    httpBody().method = v
+  },
+})
+const httpUrl = computed<string>({
+  get: () => (httpBody().url as string) || '',
+  set: (v) => {
+    httpBody().url = v
+  },
+})
+const httpReqBody = computed<string>({
+  get: () => (httpBody().body as string) || '',
+  set: (v) => {
+    httpBody().body = v
+  },
+})
+/** body_type (json|form|text) → the default Content-Type the plugin sets when a
+ *  body is present and no explicit Content-Type header was given. */
+const HTTP_BODY_TYPES = [
+  { value: 'json', label: 'JSON' },
+  { value: 'form', label: 'Form' },
+  { value: 'text', label: 'Text' },
+] as const
+const httpBodyType = computed<string>({
+  get: () => (httpBody().body_type as string) || 'json',
+  set: (v) => {
+    httpBody().body_type = v
+  },
+})
+/** Methods that carry no request body — the body editor is hidden for them. */
+const httpHasBody = computed(() => !['GET', 'HEAD'].includes(httpMethod.value))
+function httpHeaders(): HttpKV[] {
+  if (!Array.isArray(httpBody().headers)) httpBody().headers = []
+  return httpBody().headers as HttpKV[]
+}
+function addHttpHeader() {
+  httpHeaders().push({ key: '', value: '' })
+}
+function removeHttpHeader(i: number) {
+  httpHeaders().splice(i, 1)
+}
+function httpQuery(): HttpKV[] {
+  if (!Array.isArray(httpBody().query)) httpBody().query = []
+  return httpBody().query as HttpKV[]
+}
+function addHttpQuery() {
+  httpQuery().push({ key: '', value: '' })
+}
+function removeHttpQuery(i: number) {
+  httpQuery().splice(i, 1)
 }
 
 // ---- Code (logic_rule) -----------------------------------------------------
@@ -1196,6 +1268,99 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           </template>
         </div>
       </template>
+    </template>
+
+    <!-- ================= HTTP ================= -->
+    <template v-else-if="isHttp">
+      <!-- Method + URL -->
+      <div class="space-y-2">
+        <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Request</label>
+        <div class="flex gap-2">
+          <select v-model="httpMethod" class="input w-28 text-xs" title="HTTP method">
+            <option v-for="m in HTTP_METHODS" :key="m" :value="m">{{ m }}</option>
+          </select>
+          <input
+            v-model="httpUrl"
+            class="input flex-1 font-mono text-xs"
+            placeholder="/path or https://api.example.com/path"
+          />
+        </div>
+        <p class="text-[11px] leading-relaxed text-fg-subtle">
+          A relative path is joined to the Base URL from the Settings profile above; an absolute URL is
+          used as-is. May embed <code v-pre>{{$.path}}</code> context vars.
+        </p>
+      </div>
+
+      <!-- Query params ({ key, value }[]) -->
+      <div class="space-y-1.5 border-t pt-3">
+        <div class="flex items-center justify-between">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Query params</label>
+          <button
+            class="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px] text-accent hover:bg-accent-soft"
+            style="border-color: var(--line-strong)"
+            @click="addHttpQuery"
+          >
+            <Icon name="plus" :size="13" />
+            Add
+          </button>
+        </div>
+        <div v-for="(q, i) in httpQuery()" :key="i" class="flex gap-2">
+          <input v-model="q.key" class="input flex-1 font-mono text-xs" placeholder="name" />
+          <input v-model="q.value" class="input flex-1 font-mono text-xs" placeholder="value / {{$.path}}" />
+          <button class="rounded border px-1.5 text-fg-subtle hover:text-danger" style="border-color: var(--line-strong)" title="Remove" @click="removeHttpQuery(i)">
+            <Icon name="trash" :size="13" />
+          </button>
+        </div>
+        <p v-if="httpQuery().length === 0" class="text-[11px] text-fg-subtle">No query params.</p>
+      </div>
+
+      <!-- Headers ({ key, value }[]) -->
+      <div class="space-y-1.5 border-t pt-3">
+        <div class="flex items-center justify-between">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Headers</label>
+          <button
+            class="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px] text-accent hover:bg-accent-soft"
+            style="border-color: var(--line-strong)"
+            @click="addHttpHeader"
+          >
+            <Icon name="plus" :size="13" />
+            Add
+          </button>
+        </div>
+        <div v-for="(h, i) in httpHeaders()" :key="i" class="flex gap-2">
+          <input v-model="h.key" class="input flex-1 font-mono text-xs" placeholder="Header-Name" />
+          <input v-model="h.value" class="input flex-1 font-mono text-xs" placeholder="value / {{$.path}}" />
+          <button class="rounded border px-1.5 text-fg-subtle hover:text-danger" style="border-color: var(--line-strong)" title="Remove" @click="removeHttpHeader(i)">
+            <Icon name="trash" :size="13" />
+          </button>
+        </div>
+        <p class="text-[11px] leading-relaxed text-fg-subtle">
+          Per-request headers. Default headers and auth come from the Settings profile above.
+        </p>
+      </div>
+
+      <!-- Request body (methods that carry one) -->
+      <div v-if="httpHasBody" class="space-y-1.5 border-t pt-3">
+        <div class="flex items-center justify-between">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Body</label>
+          <select v-model="httpBodyType" class="input w-24 text-xs" title="Body type — sets the default Content-Type">
+            <option v-for="t in HTTP_BODY_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+          </select>
+        </div>
+        <CodeEditor
+          :model-value="httpReqBody"
+          language="json"
+          inline
+          wrap
+          placeholder='{ "id": "{{$.input.id}}" }'
+          @update:model-value="(v: string) => (httpReqBody = v)"
+        />
+        <p class="text-[11px] leading-relaxed text-fg-subtle">
+          The raw request body sent with {{ httpMethod }}. The body type sets a default
+          <code>Content-Type</code> ({{ httpBodyType === 'json' ? 'application/json' : httpBodyType === 'form' ? 'application/x-www-form-urlencoded' : 'text/plain' }}) —
+          an explicit Content-Type header above wins. May embed <code v-pre>{{$.path}}</code> context vars.
+        </p>
+      </div>
     </template>
 
     <!-- ================= Goto ================= -->
