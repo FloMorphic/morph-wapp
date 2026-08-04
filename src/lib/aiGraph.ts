@@ -828,8 +828,7 @@ export function buildDesignerPrompt(goal: string, existing?: VueFlowGraph | null
     }
     if (spec.kind === 'hitl') {
       lines.push(
-        '`prompt` opens the conversation with the person and may embed `{{$.path}}` context variables; `refs` are `{ "id": "ref-1", "name": "thread", "path": "$.messages" }` pointers recorded with the session.',
-        '`questions` is `{ "id": "q1", "text": "…" }` — what the person must answer.',
+        '`prompt` is the node: it tells the session what to establish with the person and may embed `{{$.path}}` context variables, which the runtime resolves before the task is recorded. Write it to read the run\'s history and work out what to ask — there is no static question list, because a flow reaches a human exactly when what to ask is not yet known.',
         '`mode` is "park" (the run stops here and resumes once the session closes) or "continue" (record the task, carry on). `channel` is "direct" (only one supported today), "telegram" or "whatsapp".',
       )
     }

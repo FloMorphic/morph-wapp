@@ -3,14 +3,19 @@
  * edits, the node catalog previews, and the backend compiler lowers into the
  * Extrinsic's operation payload (`op`) on `svc.hitl.add`.
  *
- * Why this shape and not a live one: an Extrinsic svc handler runs outside the
- * flow's expression scope and cannot resolve context variables. So everything a
- * human session needs is decided here, at design time, and shipped whole; the
- * handler records it on the Human Task together with the run identity
- * (pid / flowId / nodeId / contextId), the scoped data snapshot, and the node's
- * outbound edges. The prompt is therefore stored as an unresolved TEMPLATE and
- * only filled in later — when a person opens the session and the conversation
- * begins — against the snapshot the node captured.
+ * The prompt is the node. A flow reaches a human because it could not settle
+ * something itself — usually an LLM that ran out of certainty — so what the
+ * person has to be asked is not knowable when the canvas is drawn. It is worked
+ * out in the session, from the run's own history: the prompt tells the session
+ * where to look and what to establish, and the questions come out of that
+ * conversation. Hence no question list here, and no context-pointer list either.
+ *
+ * The prompt is written with `{{$.path}}` variables like any other node's
+ * template, and they resolve the same way: the runtime resolves every
+ * `{{JSONPATH}}` it finds in an extrinsic's `op` against the run's context
+ * *before* handing the payload to the svc handler. So the session opens on real
+ * text — the message stack an upstream MCP/LLM node built, the point it got
+ * stuck on.
  */
 
 import type { BaseNodeData } from '@/data/nodeCatalog'
@@ -19,9 +24,8 @@ import type { BaseNodeData } from '@/data/nodeCatalog'
  * What the svc handler answers with when the run reaches the node.
  *
  *   park     → a `stop` command: the runtime drops this node's next and the run
- *              finishes here. The captured outbound edges (`nexts` on the task)
- *              are what a resume run rebuilds its start from once the session is
- *              closed — the same park/resume shape the Continue After node uses.
+ *              finishes here. The node's outbound edges are captured on the task
+ *              and a resume run starts from all of them once the session closes.
  *   continue → a plain success reply with no command: the task is recorded (so a
  *              person can pick it up out of band) and the flow carries straight
  *              on through this node's next.
@@ -30,21 +34,6 @@ export type HitlMode = 'park' | 'continue'
 
 /** Where the conversation with the person happens. */
 export type HitlChannel = 'direct' | 'telegram' | 'whatsapp'
-
-/** One named pointer into the run's context, resolved when the session opens. */
-export interface HitlRef {
-  id: string
-  /** Label the session shows the captured value under. */
-  name: string
-  /** JSONPath into the node's captured data, e.g. `$.messages`. */
-  path: string
-}
-
-/** One thing the person has to answer before the task counts as answered. */
-export interface HitlQuestion {
-  id: string
-  text: string
-}
 
 export const HITL_MODES: { id: HitlMode; label: string; icon: string; hint: string }[] = [
   {
@@ -92,83 +81,36 @@ export const HITL_CHANNELS: {
 ]
 
 /** The node-data keys this node owns beyond the universal ones. */
-export const HITL_DATA_KEYS = ['mode', 'prompt', 'refs', 'questions', 'channel'] as const
-
-/** The `{{$.path}}` variables written in a prompt, de-duplicated, in order. */
-export function detectPromptRefs(prompt: string): string[] {
-  const found: string[] = []
-  for (const m of prompt.matchAll(/\{\{\s*(\$[^}\s]*)\s*\}\}/g)) {
-    const path = m[1]
-    if (path && !found.includes(path)) found.push(path)
-  }
-  return found
-}
+export const HITL_DATA_KEYS = ['mode', 'prompt', 'channel'] as const
 
 /**
- * A name for a newly recorded reference: the path's last segment, made unique
- * against the names already taken. An empty path yields `ref`, `ref2`, …
+ * The prompt a fresh node starts with — the node's philosophy written out, so a
+ * designer who drops one and reads it understands what it is for. It is meant to
+ * be edited: the path it reads and the ground it has to cover are specific to
+ * the flow it sits in.
  */
-export function suggestRefName(path: string, existing: { name: string }[]): string {
-  const segments = path.replace(/\[\d+\]/g, '').split('.').filter((s) => s && s !== '$')
-  const base = segments[segments.length - 1] || 'ref'
-  const taken = new Set(existing.map((r) => r.name))
-  if (!taken.has(base)) return base
-  let i = 2
-  while (taken.has(`${base}${i}`)) i += 1
-  return `${base}${i}`
-}
+export const DEFAULT_HITL_PROMPT = `Review what the flow has produced so far:
 
-/** The refs array, created in place so the editor mutates the node's own array. */
-export function hitlRefs(data: BaseNodeData): HitlRef[] {
-  const d = data as Record<string, unknown>
-  if (!Array.isArray(d.refs)) d.refs = []
-  const arr = d.refs as HitlRef[]
-  for (const r of arr) {
-    r.name ??= ''
-    r.path ??= ''
-  }
-  return arr
-}
+{{$.llm.messages}}
 
-/** The questions array, same in-place contract as {@link hitlRefs}. */
-export function hitlQuestions(data: BaseNodeData): HitlQuestion[] {
-  const d = data as Record<string, unknown>
-  if (!Array.isArray(d.questions)) d.questions = []
-  const arr = d.questions as HitlQuestion[]
-  for (const q of arr) {
-    q.text ??= ''
-  }
-  return arr
-}
+Identify the point it could not settle on its own, explain it to the person in plain language, and ask them the questions you need answered before the flow can continue.`
 
 /**
  * Bring a node authored before this contract up to it.
  *
- * The first HITL drawer collected `operationData` key/value rows — which the
- * backend compiler never read, so they were never asked of anyone. They are the
- * closest thing the old node had to questions, so they are folded in as such
- * (the row's value is the question text, its key the question id) and the dead
- * field is dropped. Missing mode/channel default to the safe pair: park, and
- * the one channel that exists.
+ * Three fields have been dropped along the way, and a node saved with any of
+ * them keeps them forever unless they are cleared here: `operationData` (an
+ * early key/value list the compiler never read), `refs` (context pointers the
+ * runtime resolves on its own), and `questions` (a static list, which the node
+ * cannot know — see the module note). Missing mode/channel default to the safe
+ * pair: park, and the one channel that exists.
  */
 export function migrateHitlData(data: BaseNodeData): void {
   const d = data as Record<string, unknown>
-  const legacy = d.operationData
-  if (Array.isArray(legacy)) {
-    const questions = hitlQuestions(data)
-    if (questions.length === 0) {
-      for (const [i, raw] of legacy.entries()) {
-        const row = (raw ?? {}) as Record<string, unknown>
-        const text = String(row.value ?? '').trim()
-        if (!text) continue
-        questions.push({ id: String(row.key ?? '').trim() || `q${i + 1}`, text })
-      }
-    }
-    delete d.operationData
-  }
+  delete d.operationData
+  delete d.refs
+  delete d.questions
   if (d.mode !== 'continue') d.mode = 'park'
   if (typeof d.prompt !== 'string') d.prompt = ''
   if (!HITL_CHANNELS.some((c) => c.id === d.channel)) d.channel = 'direct'
-  hitlRefs(data)
-  hitlQuestions(data)
 }

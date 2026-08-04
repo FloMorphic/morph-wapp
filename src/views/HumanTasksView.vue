@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useHitlStore } from '@/stores/hitl'
-import type { HumanTask, HumanTaskRef, HumanTaskStatus } from '@/types/api'
+import type { HumanTask, HumanTaskStatus } from '@/types/api'
 import PageShell from '@/components/ui/PageShell.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Button from '@/components/ui/Button.vue'
@@ -85,7 +85,7 @@ async function send() {
 
 async function closeTask() {
   if (!task.value) return
-  if (!window.confirm('Close this task? The workflow will finish at this step.')) return
+  if (!window.confirm('Close this task? A parked workflow continues from here.')) return
   busy.value = true
   try {
     await store.closeTask(task.value.id)
@@ -123,17 +123,6 @@ function progress(t: HumanTask): string {
   return `${done}/${t.questions.length}`
 }
 
-/** A resolved reference's value, rendered readably (objects as pretty JSON). */
-function refValue(r: HumanTaskRef): string {
-  if (r.value === undefined || r.value === null) return '—'
-  if (typeof r.value === 'string') return r.value
-  try {
-    return JSON.stringify(r.value, null, 2)
-  } catch {
-    return String(r.value)
-  }
-}
-
 function formatTime(ms: number): string {
   if (!ms) return ''
   return new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -143,7 +132,7 @@ function formatTime(ms: number): string {
 <template>
   <PageShell
     title="Human Tasks"
-    subtitle="Steps where a running workflow needs a person. Each task is a conversation: answer its questions to let the flow continue, or close it to finish the flow at this step."
+    subtitle="Steps where a running workflow could not decide on its own. Each task is a conversation: work out what is being asked, answer it, then close the task — a workflow parked at this step continues from where it stopped."
   >
     <div class="mb-5 flex flex-wrap items-center gap-3">
       <div class="flex items-center gap-1 rounded-lg bg-surface-2 p-1">
@@ -232,34 +221,22 @@ function formatTime(ms: number): string {
       @close="store.close()"
     >
       <div v-if="task" class="space-y-5">
-        <!-- The opening turn: the node's prompt with its `{{$.path}}` variables
-             filled in against the data the flow captured when it parked. The
-             svc handler could not resolve them at run time, so the backend does
-             it on read — `promptResolved` is that, `prompt` the raw template. -->
-        <section v-if="task.promptResolved || task.prompt" class="space-y-2">
+        <!-- The opening turn: the node's prompt, already carrying whatever the
+             flow built up to the point it parked — the runtime resolved its
+             `{{$.path}}` variables before the task was recorded. -->
+        <section v-if="task.prompt" class="space-y-2">
           <h4 class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Prompt</h4>
           <p class="whitespace-pre-wrap rounded-lg border bg-surface-2 p-3 text-[13px] leading-relaxed text-fg">
-            {{ task.promptResolved || task.prompt }}
+            {{ task.prompt }}
           </p>
-        </section>
-
-        <!-- Context the node pointed at by name, resolved the same way. -->
-        <section v-if="task.refs?.length" class="space-y-2">
-          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Context</h4>
-          <details v-for="r in task.refs" :key="r.name" class="rounded-lg border bg-surface-2 p-2">
-            <summary class="cursor-pointer text-[12px] text-fg-muted">
-              <span class="font-medium text-fg">{{ r.name }}</span>
-              <span class="ml-1.5 font-mono text-[11px] text-fg-subtle">{{ r.path }}</span>
-            </summary>
-            <pre class="mt-2 max-h-40 overflow-auto rounded-md bg-surface p-2 font-mono text-[11px] leading-relaxed">{{ refValue(r) }}</pre>
-          </details>
         </section>
 
         <!-- Questions -->
         <section class="space-y-3">
           <h4 class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Questions</h4>
           <p v-if="task.questions.length === 0" class="text-[13px] text-fg-muted">
-            This task has no explicit questions — review the context and close it when done.
+            No questions yet — they are raised in the conversation below as the subject gets pinned down. Close the task
+            when you are done.
           </p>
           <div v-for="(q, i) in task.questions" :key="q.id" class="rounded-lg border bg-surface-2 p-3">
             <div class="flex items-start gap-2">

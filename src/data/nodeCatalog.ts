@@ -33,6 +33,11 @@
  * nothing but its scope — there is no separate iterator node.
  */
 
+// The HITL node's starter prompt lives with the rest of its contract in
+// lib/hitl. That module only imports this one for a type, which erases, so
+// there is no runtime cycle.
+import { DEFAULT_HITL_PROMPT } from '@/lib/hitl'
+
 export type NodeKind =
   | 'startNode'
   | 'goto'
@@ -629,7 +634,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'human',
     tagline: 'Ask a human',
     description:
-      'Hand the flow to a person: open a conversation with a prompt built from the run’s context, pose the questions they must answer, and either park the run until they are done or record the task and carry on. Compiles to an Extrinsic against the backend `hitl` service (`svc.hitl.add`), which records a Human Task surfaced under Operate → Human Task.',
+      'Hand the flow to a person when it cannot settle something itself. The prompt tells the session what to establish — read from the run’s own context — and the questions come out of the conversation, not the canvas. Either park the run until the person is done (it resumes from here) or record the task and carry on. Compiles to an Extrinsic against the backend `hitl` service (`svc.hitl.add`), which records a Human Task surfaced under Operate → Human Task.',
     primitives: 'Extrinsic · svc.hitl.add',
     defaults: () => ({
       title: 'Human in the Loop',
@@ -639,15 +644,16 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       // `direct` are the defaults because they are the behaviour that exists
       // end to end today: stop the run here, answer it in the app.
       mode: 'park',
-      prompt: '',
-      refs: [],
-      questions: [],
+      // A fresh node opens with the starter prompt rather than a blank box: the
+      // prompt IS the node's configuration, so an empty one is a node that does
+      // nothing, and the default doubles as the explanation of what to write.
+      prompt: DEFAULT_HITL_PROMPT,
       channel: 'direct',
     }),
     preview: (d) => {
-      const n = asRows(d.questions).length
       const mode = d.mode === 'continue' ? 'continue' : 'park'
-      return `${mode} · ${n ? `${n} question${n === 1 ? '' : 's'}` : 'no questions'}`
+      const opener = String(d.prompt ?? '').trim().split('\n')[0]
+      return `${mode} · ${opener || 'no prompt'}`
     },
   }),
 }

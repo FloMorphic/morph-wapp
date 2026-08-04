@@ -489,11 +489,15 @@ export interface PromptTemplate {
  * conversation, answers its questions, and closes it. Backed by `/hitl`.
  *
  *   open     → created, awaiting answers
- *   answered → every question answered (flow may continue)
- *   closed   → force-finished by the human (workflow ends at this step)
+ *   answered → every question answered; ready to close
+ *   closed   → the person is done. For a `park` task this is what releases the
+ *              flow: the backend starts a fresh run on the captured next nodes
  */
 export type HumanTaskStatus = 'open' | 'answered' | 'closed'
 
+/** One question put to the person during the session. Questions are raised in
+ *  the conversation — worked out from the run's history against the node's
+ *  prompt — not declared on the node, so a freshly recorded task has none. */
 export interface HumanTaskQuestion {
   id: string
   text: string
@@ -508,15 +512,6 @@ export interface HumanTaskMessage {
   role: 'human' | 'assistant' | 'system'
   text: string
   at: number
-}
-
-/** One named context pointer the node declared, resolved when the task opens. */
-export interface HumanTaskRef {
-  name: string
-  /** JSONPath into the captured data, e.g. `$.messages`. */
-  path: string
-  /** The value it resolved to — filled in by the backend on read. */
-  value?: unknown
 }
 
 /** The outbound edge of the parked node, kept so the flow can resume from it. */
@@ -540,14 +535,11 @@ export interface HumanTask {
   mode?: 'park' | 'continue'
   /** Where the session is held. Only `direct` is served today. */
   channel?: 'direct' | 'telegram' | 'whatsapp'
-  /** The conversation opener as authored, `{{$.path}}` variables intact. An
-   *  Extrinsic svc handler cannot resolve them at run time, so the template is
-   *  what gets recorded. */
+  /** The conversation opener, ready to show. The node authors it with
+   *  `{{$.path}}` variables and the runtime resolves them against the run's
+   *  context before the svc handler records the task. */
   prompt?: string
-  /** The same prompt with its variables filled in against the captured data —
-   *  produced by the backend when the task is read, never stored. */
-  promptResolved?: string
-  refs?: HumanTaskRef[]
+  /** Raised during the session, not by the node. Empty on a fresh task. */
   questions: HumanTaskQuestion[]
   messages: HumanTaskMessage[]
   /** Scoped data snapshot recorded when the flow parked at this node. */
