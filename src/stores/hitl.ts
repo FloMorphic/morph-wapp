@@ -24,6 +24,11 @@ export const useHitlStore = defineStore('hitl', () => {
   // The task open in the conversation panel.
   const active = ref<HumanTask | null>(null)
 
+  // Live assistant reply being streamed over the `hitl.stream` socket event,
+  // accumulated per task id. Cleared when the turn completes (a `done` marker or
+  // the final persisted task applied), at which point the stored message shows.
+  const streaming = ref<Record<string, string>>({})
+
   const isRemote = hitlApi.isRemote()
 
   async function fetchPage(target = 1): Promise<void> {
@@ -77,6 +82,15 @@ export const useHitlStore = defineStore('hitl', () => {
     active.value = task
     const idx = items.value.findIndex((t) => t.id === task.id)
     if (idx >= 0) items.value[idx] = task
+    // The persisted turn is now on the task — drop any live stream buffer for it.
+    clearStream(task.id)
+  }
+
+  function clearStream(taskId: string): void {
+    if (streaming.value[taskId] === undefined) return
+    const next = { ...streaming.value }
+    delete next[taskId]
+    streaming.value = next
   }
 
   async function open(id: string): Promise<void> {
@@ -85,6 +99,7 @@ export const useHitlStore = defineStore('hitl', () => {
 
   function close(): void {
     active.value = null
+    streaming.value = {}
   }
 
   async function answer(id: string, questionId: string, value: string): Promise<void> {
@@ -118,6 +133,22 @@ export const useHitlStore = defineStore('hitl', () => {
     if (known) apply(task)
   }
 
+  /** Accumulate a `hitl.stream` delta for the open task, or clear its buffer on
+   *  the turn's `done` marker. Only the active task's stream is tracked — the
+   *  panel is the only place a live reply is shown. */
+  function ingestStreamChunk(payload: unknown): void {
+    const p = payload as { taskId?: string; delta?: string; done?: boolean } | null
+    if (!p || typeof p.taskId !== 'string') return
+    if (active.value?.id !== p.taskId) return
+    if (p.done) {
+      clearStream(p.taskId)
+      return
+    }
+    if (p.delta) {
+      streaming.value = { ...streaming.value, [p.taskId]: (streaming.value[p.taskId] ?? '') + p.delta }
+    }
+  }
+
   async function closeTask(id: string): Promise<void> {
     apply(await hitlApi.close(id))
   }
@@ -140,6 +171,7 @@ export const useHitlStore = defineStore('hitl', () => {
     total,
     totalPages,
     active,
+    streaming,
     hasPrev: () => page.value > 1,
     hasNext: () => page.value < totalPages.value,
     fetchPage,
@@ -155,6 +187,7 @@ export const useHitlStore = defineStore('hitl', () => {
     chat,
     startSession,
     ingestSocketTask,
+    ingestStreamChunk,
     closeTask,
     remove,
   }

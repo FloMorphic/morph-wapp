@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useHitlStore } from '@/stores/hitl'
+import { useFlowLogsStore } from '@/stores/flowLogs'
 import type { HumanTask, HumanTaskStatus } from '@/types/api'
 import PageShell from '@/components/ui/PageShell.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -9,7 +10,17 @@ import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
 
 const store = useHitlStore()
-onMounted(() => store.refresh())
+// The bot's reply streams over the shared runtime socket (`hitl.stream`); connect
+// it while this page is open so the live tokens arrive. The chat still works
+// without it — the reply also comes back on the HTTP response.
+const logs = useFlowLogsStore()
+onMounted(() => {
+  store.refresh()
+  if (store.isRemote) logs.connect()
+})
+
+// The assistant reply currently streaming for the open task, if any.
+const liveStream = computed(() => (store.active ? store.streaming[store.active.id] ?? '' : ''))
 
 const searchInput = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -296,7 +307,7 @@ function formatTime(ms: number): string {
         <section class="space-y-2">
           <h4 class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Conversation</h4>
           <div
-            v-if="task.messages.length || thinking"
+            v-if="task.messages.length || thinking || liveStream"
             class="max-h-72 space-y-2 overflow-y-auto rounded-lg border bg-surface-2 p-3"
           >
             <div v-for="m in task.messages" :key="m.id" class="flex" :class="m.role === 'human' ? 'justify-end' : 'justify-start'">
@@ -308,11 +319,15 @@ function formatTime(ms: number): string {
                 <p class="mt-0.5 text-[10px] opacity-70">{{ formatTime(m.at) }}</p>
               </div>
             </div>
-            <!-- Bot is producing a turn. -->
-            <div v-if="thinking" class="flex justify-start">
-              <div class="flex items-center gap-1.5 rounded-lg bg-surface px-3 py-2 text-[13px] text-fg-muted">
-                <Icon name="refresh" :size="14" class="animate-spin" />
-                <span>Assistant is thinking…</span>
+            <!-- Bot is producing a turn: the reply streams in token by token, or
+                 a spinner until the first token arrives. -->
+            <div v-if="thinking || liveStream" class="flex justify-start">
+              <div class="max-w-[80%] rounded-lg bg-surface px-3 py-1.5 text-[13px] text-fg">
+                <p v-if="liveStream" class="whitespace-pre-wrap">{{ liveStream }}<span class="animate-pulse">▋</span></p>
+                <div v-else class="flex items-center gap-1.5 text-fg-muted">
+                  <Icon name="refresh" :size="14" class="animate-spin" />
+                  <span>Assistant is thinking…</span>
+                </div>
               </div>
             </div>
           </div>

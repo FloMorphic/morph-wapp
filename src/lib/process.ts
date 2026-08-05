@@ -17,6 +17,33 @@ export function isStoppable(status: ProcessStatus): boolean {
   return status === 'running' || status === 'waiting' || status === 'scheduled'
 }
 
+/** The lineage of a run started by closing a Human-in-the-Loop task. */
+export interface ResumeOrigin {
+  /** The pid of the run that parked at the HITL node. */
+  sourcePid: string
+  /** The HITL node the source run parked at. */
+  sourceNodeId: string
+  /** The human task whose close released this run. */
+  humanTaskId: string
+}
+
+/**
+ * Read the HITL-resume lineage off a process, or null for an ordinary run.
+ * `inflow.ResumeHumanTask` stamps `origin: "hitl_resume"` and the source ids into
+ * the run's record meta, so a resumed run can say where it came from — it is a
+ * new pid, entered on the parked node's next edges, not a continuation of the old
+ * pid on the engine.
+ */
+export function resumeOrigin(p: Process): ResumeOrigin | null {
+  const meta = p.meta
+  if (!meta || meta.origin !== 'hitl_resume') return null
+  return {
+    sourcePid: String(meta.sourcePid ?? ''),
+    sourceNodeId: String(meta.sourceNodeId ?? ''),
+    humanTaskId: String(meta.humanTaskId ?? ''),
+  }
+}
+
 /** Short absolute timestamp, or '' for a zero (unset) time. */
 export function formatProcessTime(ms: number): string {
   if (!ms) return ''

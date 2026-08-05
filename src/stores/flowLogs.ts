@@ -245,6 +245,8 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
     // open conversation panel refreshes without polling. Resolved lazily to keep
     // this store free of a hard dependency on the hitl store.
     socket.on('hitl.message', (payload: unknown) => useHitlStore().ingestSocketTask(payload))
+    // Incremental tokens of the bot's reply, rendered live in the panel.
+    socket.on('hitl.stream', (payload: unknown) => useHitlStore().ingestStreamChunk(payload))
   }
 
   function disconnect(): void {

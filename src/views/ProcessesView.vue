@@ -14,6 +14,7 @@ import {
   formatProcessTime,
   formatDuration,
   isStoppable,
+  resumeOrigin,
 } from '@/lib/process'
 
 const store = useProcessesStore()
@@ -199,7 +200,18 @@ watch(
                 {{ p.status }}
               </span>
             </td>
-            <td class="px-4 py-2.5 font-mono text-fg-muted">{{ p.flowId || '—' }}</td>
+            <td class="px-4 py-2.5 font-mono text-fg-muted">
+              <div class="flex items-center gap-1.5">
+                <span>{{ p.flowId || '—' }}</span>
+                <span
+                  v-if="resumeOrigin(p)"
+                  class="chip inline-flex items-center gap-1 whitespace-nowrap"
+                  :title="`Resumed by closing human task ${resumeOrigin(p)!.humanTaskId}${resumeOrigin(p)!.sourcePid ? ` · from pid ${resumeOrigin(p)!.sourcePid.slice(0, 8)}` : ''}`"
+                >
+                  <Icon name="node-human" :size="11" /> resumed
+                </span>
+              </div>
+            </td>
             <td class="px-4 py-2.5 font-mono">
               <button
                 v-if="p.contextId"
@@ -267,6 +279,18 @@ watch(
           </dd>
           <dt class="text-fg-subtle">Flow</dt>
           <dd class="col-span-2 font-mono text-fg">{{ store.active.flowId || '—' }}</dd>
+          <template v-if="resumeOrigin(store.active)">
+            <dt class="text-fg-subtle">Continues</dt>
+            <dd class="col-span-2 text-fg">
+              Human task <span class="font-mono">{{ resumeOrigin(store.active)!.humanTaskId }}</span>
+              <template v-if="resumeOrigin(store.active)!.sourcePid">
+                · from pid <span class="font-mono">{{ resumeOrigin(store.active)!.sourcePid.slice(0, 8) }}</span>
+              </template>
+              <template v-if="resumeOrigin(store.active)!.sourceNodeId">
+                · node <span class="font-mono">{{ resumeOrigin(store.active)!.sourceNodeId }}</span>
+              </template>
+            </dd>
+          </template>
           <dt class="text-fg-subtle">Context</dt>
           <dd class="col-span-2 font-mono">
             <button
