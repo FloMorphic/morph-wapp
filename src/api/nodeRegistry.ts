@@ -200,10 +200,11 @@ export const nodeRegistryApi = {
   // ---- Live inflowv1 fetches (extension nodes only) -----------------------
   // These proxy the connected plugin over NATS on the backend; they only work
   // with a backend + a running plugin.
-  /** `@intro`: the plugin's identity plus the settings form it wants filled in
-   * before any action runs. Best-effort — the Go SDK through v0.1.3 never
-   * answers it (its handler marshals the `Intro` method instead of the intro
-   * field), so callers must have a fallback rather than treat silence as down. */
+  /** `@intro`: the plugin's identity (name / author / version) plus the settings
+   * form it wants filled in before any action runs. A plugin that answers is up
+   * and serving — this doubles as the liveness probe on plugin nodes (see
+   * flow/PluginLiveBadge). The old Go SDK `@intro` bug (≤ v0.1.3 marshalled the
+   * `Intro` method instead of the intro field) is fixed. */
   intro: (id: string) => http.get<PluginIntro>(`/extension/id/${id}/intro`),
 
   /** `@settings`: the plugin's settings form on its own. The fallback source for

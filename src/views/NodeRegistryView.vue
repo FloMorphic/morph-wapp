@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
 import PluginCredButton from '@/components/flow/PluginCredButton.vue'
+import PluginLiveBadge from '@/components/flow/PluginLiveBadge.vue'
 import { useNodeRegistryStore } from '@/stores/nodeRegistry'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
 import type { ExtensionKind, ExtensionRecord, ExtensionType } from '@/types/api'
@@ -219,9 +220,12 @@ function fmtDate(ts: number): string {
         </div>
         <p v-if="ext.description" class="mt-3 line-clamp-2 text-[13px] text-fg-muted">{{ ext.description }}</p>
 
-        <!-- Plugin-type nodes (a pluginId is set): mint the plugin's runtime
-             credential so it can be run to serve the node's functionality. -->
-        <div v-if="ext.pluginId" class="mt-3">
+        <!-- Plugin-type nodes (a pluginId is set): a liveness probe (a
+             FloMorphic instance takes a moment to compile and start its plugins,
+             so this confirms it came up), plus a button to mint the plugin's
+             runtime credential so it can be run to serve the node's functionality. -->
+        <div v-if="ext.pluginId" class="mt-3 space-y-1.5">
+          <PluginLiveBadge :extension-id="ext.id" :plugin-id="ext.pluginId" />
           <PluginCredButton :plugin-id="ext.pluginId" :name="ext.name" />
         </div>
 
