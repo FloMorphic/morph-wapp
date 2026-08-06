@@ -11,6 +11,7 @@ import {
   planPatch,
   type PlannedPatch,
 } from '@/lib/aiGraph'
+import { fetchPluginActions, type PluginActionEntry } from '@/lib/nodeExtRefs'
 import type { VueFlowGraph } from '@/types/api'
 
 /**
@@ -47,14 +48,22 @@ const showPrompt = ref(false)
 // to describe the same canvas for the whole session.
 const snapshot = ref<VueFlowGraph>({ nodes: [], edges: [] })
 
+// The imported-plugin actions registered in this install, listed in the prompt
+// so the model can reach for one (a Jira action, say) instead of inventing an
+// integration that isn't here. Fetched (cached) when the dialog opens, and left
+// empty when there is no backend or nothing imported — the prompt then simply
+// has no Plugins section and the model stays on the builtins.
+const plugins = ref<PluginActionEntry[]>([])
+
 function openDialog() {
   snapshot.value = props.resolveGraph()
   copied.value = false
   showPrompt.value = false
   open.value = true
+  void fetchPluginActions().then((list) => (plugins.value = list))
 }
 
-const prompt = computed(() => buildDesignerPrompt(goal.value, snapshot.value))
+const prompt = computed(() => buildDesignerPrompt(goal.value, snapshot.value, plugins.value))
 
 async function copyPrompt() {
   try {

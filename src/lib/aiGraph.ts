@@ -36,6 +36,7 @@ import {
 } from '@/data/nodeCatalog'
 import { createId } from '@/lib/id'
 import { layeredLayout } from '@/lib/graphLayout'
+import type { PluginActionEntry } from '@/lib/nodeExtRefs'
 import type { FlowNode, VueFlowGraph } from '@/types/api'
 
 /* ------------------------------------------------------------------ contract */
@@ -448,6 +449,22 @@ function inspectNode(spec: NodeSpec, data: BaseNodeData, at: string): PatchProbl
     out.push({ level: 'warn', at, message: `${spec.label} has no store selected — pick one in the node drawer.` })
   }
 
+  // An imported-plugin node is meaningless without the identity of the action it
+  // calls — that pair is what applyPatch resolves to the extension row (and the
+  // action's form). A model that emits one with either half missing has picked a
+  // plugin that is not registered here; the node lands but cannot be configured.
+  if (spec.kind === 'plugin') {
+    const pluginId = String(data.pluginId ?? '').trim()
+    const action = String(data.action ?? '').trim()
+    if (!pluginId || !action) {
+      out.push({
+        level: 'error',
+        at,
+        message: 'Plugin node is missing `pluginId` and/or `action`. Use only a plugin action listed under "Plugins available" — copy both verbatim.',
+      })
+    }
+  }
+
   return out
 }
 
@@ -732,15 +749,65 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 /* --------------------------------------------------------------- the prompt */
 
 /**
+ * The "Plugins available" section — the imported-plugin actions registered in
+ * this install, grouped by the plugin they came from, plus the one way to use
+ * one: a `plugin` node stamped with the action's `pluginId` + `action`.
+ *
+ * Empty when nothing is imported, which is the honest signal — with no section
+ * the model has no plugin to reach for and stays on the builtins. The list is
+ * deliberately identity + description only: the action's own input fields (its
+ * `body`) and its settings profile are filled in by the designer in the drawer
+ * after import (applyPatch stamps the advertised form so those fields appear),
+ * so the model is told to leave them and note it, not to guess them.
+ */
+function pluginPromptLines(plugins?: PluginActionEntry[]): string[] {
+  if (!plugins?.length) return []
+  const lines: string[] = [
+    '',
+    '## Plugins available',
+    'These imported-plugin actions are registered in this install. Use one by adding a node with `kind: "plugin"` and `data: { "pluginId": "<id>", "action": "<action>" }` (copy both verbatim from the list), a `title`, and a `note`. Do NOT invent a plugin or an action that is not listed, and do NOT fill in the action\'s own input fields or a settings profile — the designer completes those in the drawer after import. A plugin node has a single output port; wire it like any other node.',
+  ]
+
+  // Group by plugin so the model sees "Jira · create_issue / add_comment" rather
+  // than a flat list of methods from unrelated plugins.
+  const byPlugin = new Map<string, { name: string; actions: PluginActionEntry[] }>()
+  for (const p of plugins) {
+    const g = byPlugin.get(p.pluginId) ?? { name: p.pluginName || p.pluginId, actions: [] }
+    g.actions.push(p)
+    byPlugin.set(p.pluginId, g)
+  }
+
+  for (const { name, actions } of byPlugin.values()) {
+    lines.push('', `### ${name} (\`pluginId: "${actions[0].pluginId}"\`)`)
+    for (const a of actions) {
+      const desc = a.description?.trim()
+      lines.push(`- \`action: "${a.action}"\` — ${a.label}${desc ? `: ${desc}` : ''}`)
+    }
+  }
+  return lines
+}
+
+/**
  * The instructions an assistant needs to emit a patch for *this* catalog and
  * *this* canvas. Generated from NODE_SPECS (kinds, taglines, the exact `data`
  * fields each kind carries and their defaults) so it stays true as the catalog
  * grows, plus a summary of the graph on screen so the model can wire into it.
  *
+ * `plugins` are the imported-plugin actions registered in this install (fetched
+ * from the extension table — see fetchPluginActions). The builtin catalog is the
+ * same everywhere, but the plugins are not, so they are passed in rather than
+ * derived: the prompt lists them under "Plugins available" so the model can drop
+ * a `plugin` node for one when the goal calls for it, instead of inventing an
+ * integration that does not exist here.
+ *
  * Used two ways: pasted into any chat by hand today, and handed to the built-in
  * assistant as its system prompt once one is wired up.
  */
-export function buildDesignerPrompt(goal: string, existing?: VueFlowGraph | null): string {
+export function buildDesignerPrompt(
+  goal: string,
+  existing?: VueFlowGraph | null,
+  plugins?: PluginActionEntry[],
+): string {
   const nodes = existing?.nodes ?? []
   const lines: string[] = []
 
@@ -798,6 +865,12 @@ export function buildDesignerPrompt(goal: string, existing?: VueFlowGraph | null
   )
 
   for (const spec of Object.values(NODE_SPECS)) {
+    // `plugin` is not a fixed builtin — it is the shell every imported-plugin
+    // action shares, and it means nothing without a `pluginId` + `action` from
+    // *this* install. Those are listed under "Plugins available" with the exact
+    // way to reference them, so the generic block here would only invite the
+    // model to emit a plugin node with empty identity. Skip it.
+    if (spec.kind === 'plugin') continue
     const defaults = spec.defaults() as Record<string, unknown>
     const extra = Object.fromEntries(Object.entries(defaults).filter(([k]) => !['title', 'key', 'scope'].includes(k)))
     lines.push(
@@ -817,7 +890,27 @@ export function buildDesignerPrompt(goal: string, existing?: VueFlowGraph | null
       )
     }
     if (spec.kind === 'mcp') {
-      lines.push('Set `mcpMode` to "tool" (call one tool, `request: "call_tool"`) or "llm" (drive a model over the server\'s tools, `request: "run"`), and keep `request` in step. Tools are loaded from the server in the app, not written here.')
+      lines.push(
+        'An MCP node runs in one of two modes; set `mcpMode` and keep `request` in step:',
+        '- `mcpMode: "tool"` (`request: "call_tool"`) — tool-only, an integration: it calls ONE named tool on the server and returns its result, no model involved. Set `tool` to the tool name once its tools are loaded from the server in the app; `arguments` are shaped by that tool\'s input schema. Use this when the step is a single deterministic call.',
+        '- `mcpMode: "llm"` (`request: "run"`) — driven by a model: it binds ALL of the server\'s tools and lets the model call them itself over a conversation. Seed it with the `system` / `prompt` shorthand (same as an LLM node); the provider/model come from a settings profile. Tool calls stay inside the node — they never surface as workflow edges — so this node has a single output. Use this when a task needs a model to decide which of the server\'s tools to call.',
+        'Either way the tool list is loaded from the server in the app, not written here; leave `functions` empty.',
+      )
+    }
+    if (spec.kind === 'http') {
+      lines.push(
+        'Put the request in `body`: `{ "method": "GET|POST|…", "url": "https://…", "headers": [{ "key": "", "value": "" }], "query": [{ "key": "", "value": "" }], "body": "", "body_type": "json" }`.',
+        '`headers` and `query` are key/value rows; `body` is the raw request body (a JSON string when `body_type: "json"`); `body_type` (json | form | text) sets the Content-Type. Any field — url, header value, body — may embed `{{$.path}}` context vars, resolved at run time.',
+      )
+    }
+    if (spec.kind === 'docstore' || spec.kind === 'vecstore') {
+      lines.push(
+        'Leave `storeId` "" (the designer picks the store in the drawer — note it) and set `action` to "read" or "write".',
+        spec.kind === 'docstore'
+          ? 'A read (`action: "read"`) runs a basic SQL `query`. You do not know the store\'s columns, so write a simple skeleton with placeholders for the designer to fill: `select * from <STORE_NAME> where <field> = <value>`.'
+          : 'A read (`action: "read"`) runs `query` — the text to match by similarity: a literal string, or `{{$.path}}` to embed text from the Context (e.g. `{{$.ticket.body}}`).',
+        'A write (`action: "write"`) stores the payload selected by `input` (a JSONPath, default the node `scope`); no query.',
+      )
     }
     if (spec.kind === 'rule') {
       lines.push(
@@ -833,6 +926,8 @@ export function buildDesignerPrompt(goal: string, existing?: VueFlowGraph | null
       )
     }
   }
+
+  lines.push(...pluginPromptLines(plugins))
 
   lines.push('', '## Canvas', nodes.length ? 'Nodes already on the canvas — use these ids verbatim in `edges` to connect to them (do NOT re-create them):' : 'The canvas is empty. Include exactly one `startNode` as the entry point.')
   for (const n of nodes) {

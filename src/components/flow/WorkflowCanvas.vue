@@ -18,7 +18,7 @@ import {
 } from '@/data/nodeCatalog'
 import type { VueFlowGraph } from '@/types/api'
 import type { NodeExtRef } from '@/lib/nodeSettings'
-import { fetchNodeExtRefs } from '@/lib/nodeExtRefs'
+import { fetchNodeExtRefs, fetchPluginActions, type PluginActionEntry } from '@/lib/nodeExtRefs'
 import type { PlannedPatch } from '@/lib/aiGraph'
 import { layeredLayout } from '@/lib/graphLayout'
 import { createId } from '@/lib/id'
@@ -274,13 +274,22 @@ function getGraph(): VueFlowGraph {
 async function applyPatch(patch: PlannedPatch): Promise<void> {
   if (patch.nodes.length === 0 && patch.edges.length === 0) return
   const refs = await fetchNodeExtRefs()
+  // A patch may reference an imported-plugin action (the prompt lists them). It
+  // carries only the pluginId + action; the extension row id, the action's form
+  // and any outbound ports are looked up here and stamped, so a plugin node the
+  // AI added is identical to one dragged from the palette (see addNode).
+  const pluginActions = patch.nodes.some((n) => n.type === 'plugin') ? await fetchPluginActions() : []
 
   for (const n of patch.nodes) {
     const data = { ...n.data } as Record<string, unknown>
-    const ext = refs?.[n.type]
-    if (ext?.extensionId) {
-      data.extensionId = ext.extensionId
-      if (ext.pluginId) data.pluginId = ext.pluginId
+    if (n.type === 'plugin') {
+      stampPluginRef(data, pluginActions)
+    } else {
+      const ext = refs?.[n.type]
+      if (ext?.extensionId) {
+        data.extensionId = ext.extensionId
+        if (ext.pluginId) data.pluginId = ext.pluginId
+      }
     }
     nodes.value.push({ id: n.id, type: n.type, position: { ...n.position }, data })
   }
@@ -302,6 +311,30 @@ async function applyPatch(patch: PlannedPatch): Promise<void> {
   emit('dirty')
   const added = patch.nodes.map((n) => n.id)
   if (added.length) void nextTick(() => fitView({ nodes: added, padding: 0.35, duration: 300 }))
+}
+
+/**
+ * Complete an AI-added plugin node from the palette's action registry.
+ *
+ * The patch names the action by `pluginId` + `action` only (all the model can
+ * know from the prompt); the extension row id, the form that action advertised
+ * and any outbound ports are stamped from the matching registry entry — the same
+ * self-contained identity a palette drag gives it (see addNode). An action that
+ * isn't found (a stale or invented reference) is left as-is; planPatch has
+ * already flagged a plugin node missing its identity for review.
+ */
+function stampPluginRef(data: Record<string, unknown>, actions: PluginActionEntry[]): void {
+  const pluginId = String(data.pluginId ?? '').trim()
+  const action = String(data.action ?? '').trim()
+  if (!pluginId || !action) return
+  const hit = actions.find((a) => a.pluginId === pluginId && a.action === action)
+  if (!hit) return
+  data.extensionId = hit.ref.extensionId
+  data.pluginId = hit.ref.pluginId
+  data.action = hit.action
+  if (!String(data.title ?? '').trim()) data.title = hit.label
+  if (hit.ref.form) data.form = hit.ref.form
+  if (hit.ref.outbound?.length) data.outbound = hit.ref.outbound
 }
 
 /**
