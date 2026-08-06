@@ -19,6 +19,9 @@ const LOCAL_KEY = 'human_tasks'
 
 export interface HitlListParams extends PaginationParams {
   status?: HumanTaskStatus | ''
+  /** Scope to one workflow's tasks — the editor uses it to warn when a flow has
+   *  open human tasks in flight. */
+  flowId?: string
 }
 
 // ---- Local backend ----------------------------------------------------------
@@ -32,6 +35,7 @@ function localList(params?: HitlListParams): Page<HumanTask> {
   const search = params?.search?.toLowerCase()
   if (search) all = all.filter((t) => t.title.toLowerCase().includes(search))
   if (params?.status) all = all.filter((t) => t.status === params.status)
+  if (params?.flowId) all = all.filter((t) => t.flowId === params.flowId)
   const perPage = params?.per_page ?? 12
   const page = Math.max(1, params?.page ?? 1)
   const start = (page - 1) * perPage

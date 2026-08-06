@@ -308,6 +308,10 @@ watch(
           <dd class="col-span-2 font-mono text-fg">{{ store.active.startNodeId || '—' }}</dd>
           <dt class="text-fg-subtle">PID</dt>
           <dd class="col-span-2 font-mono text-fg break-all">{{ store.active.pid || '—' }}</dd>
+          <template v-if="store.active.instanceId && store.active.instanceId !== store.active.pid">
+            <dt class="text-fg-subtle" title="Correlation id shared across a park→resume chain">Instance</dt>
+            <dd class="col-span-2 font-mono text-fg break-all">{{ store.active.instanceId }}</dd>
+          </template>
           <dt class="text-fg-subtle">Started</dt>
           <dd class="col-span-2 text-fg">{{ formatProcessTime(store.active.startedAt) || '—' }}</dd>
           <dt class="text-fg-subtle">Finished</dt>

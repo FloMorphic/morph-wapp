@@ -335,6 +335,10 @@ export interface Process {
   indexId: number
   /** Engine process uuid — not unique across rows (see the type doc). */
   pid: string
+  /** Correlation id shared by every run of one logical workflow instance: a run
+   *  and every run that resumes it after a Human-in-the-Loop park carry the same
+   *  instanceId (the first run's pid), while each keeps its own pid. */
+  instanceId?: string
   flowId: string
   contextId: string
   startNodeId: string

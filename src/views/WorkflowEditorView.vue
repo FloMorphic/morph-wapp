@@ -5,6 +5,7 @@ import type { GraphNode } from '@vue-flow/core'
 import WorkflowCanvas from '@/components/flow/WorkflowCanvas.vue'
 import NodeSettingDetails from '@/components/flow/NodeSettingDetails.vue'
 import FlowProcessesButton from '@/components/flow/FlowProcessesButton.vue'
+import FlowInflightBanner from '@/components/flow/FlowInflightBanner.vue'
 import FlowLogDrawer from '@/components/flow/FlowLogDrawer.vue'
 import RunFlowButton from '@/components/flow/RunFlowButton.vue'
 import AiNodeImporter from '@/components/flow/AiNodeImporter.vue'
@@ -272,6 +273,10 @@ async function save() {
     </div>
 
     <div v-if="loadError" class="border-b bg-danger-soft px-4 py-2 text-sm text-danger">{{ loadError }}</div>
+
+    <!-- Non-blocking heads-up when the flow being edited still has runs or human
+         tasks in flight (e.g. an unfinished Human-in-the-Loop session). -->
+    <FlowInflightBanner :flow-id="currentId" />
 
     <!-- Canvas + inspector -->
     <div class="flex min-h-0 flex-1">
