@@ -136,6 +136,7 @@ async function loadActions(): Promise<PluginActionEntry[]> {
         action: row.action,
         label: row.name,
         form: { schema: row.params?.schema ?? {}, ui: row.params?.ui ?? {} },
+        outbound: row.outbound ?? [],
       },
       action: row.action as string,
       label: row.name,

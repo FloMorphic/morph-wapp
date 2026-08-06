@@ -151,8 +151,24 @@ export interface ExtensionRecord {
   action?: string
   /** The registration row a synced action row came from. */
   parentId?: string
+  /** Optional static branch declaration synced from the plugin's `@actions`
+   * (SDK Action.Outbound). Each entry renders as an output port on the canvas
+   * node, and edges drawn from it inherit the port's tags — which the plugin
+   * fires at runtime (`next_tags`) to route the flow. Absent/empty means the
+   * node keeps its single default source handle. Only user `extension` nodes
+   * carry this; builtin node UIs are hard-coded. */
+  outbound?: OutboundPort[]
   createdAt: number
   updatedAt: number
+}
+
+/** One declared branch of a plugin action (SDK OutboundPort). `title` labels the
+ * port, `description` explains the branch, and `tags` are stamped onto every
+ * edge drawn from it — the tags the plugin names in `next_tags` to fire it. */
+export interface OutboundPort {
+  title: string
+  tags: string[]
+  description?: string
 }
 
 /* ---- inflowv1 descriptors (read live from a running plugin) ----

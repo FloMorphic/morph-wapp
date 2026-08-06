@@ -1,4 +1,5 @@
 import { specForType } from '@/data/nodeCatalog'
+import type { OutboundPort } from '@/types/api'
 
 /**
  * The identity of the extension-table row backing a canvas node, stamped onto
@@ -20,6 +21,13 @@ export interface NodeExtRef {
   action?: string
   label?: string
   form?: { schema: Record<string, unknown>; ui: Record<string, unknown> }
+  /**
+   * The action's optional declared branch ports (SDK Action.Outbound). Carried
+   * onto the node so it renders one output port per entry the moment it lands,
+   * with edges inheriting each port's route tags — no round trip to the plugin.
+   * Absent means the node keeps its single default source handle.
+   */
+  outbound?: OutboundPort[]
 }
 
 /**
@@ -65,4 +73,4 @@ export const SETTINGS_DATA_KEYS = ['settingsId', 'settingsName', 'settings'] as 
  * system-managed (see {@link NodeExtRef}), not user-editable generic fields.
  * `action` and `form` join them for plugin-contributed nodes: the method to call
  * and the form that method advertised. */
-export const NODE_REF_DATA_KEYS = ['extensionId', 'pluginId', 'action', 'form'] as const
+export const NODE_REF_DATA_KEYS = ['extensionId', 'pluginId', 'action', 'form', 'outbound'] as const

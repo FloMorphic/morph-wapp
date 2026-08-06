@@ -92,6 +92,10 @@ function addNode(kind: NodeKind, position?: { x: number; y: number }, ext?: Node
       data.action = ext.action
       data.title = ext.label || String(data.title ?? '')
       if (ext.form) data.form = ext.form
+      // Declared branch ports (SDK Action.Outbound): carried so the node renders
+      // one output port per entry and its edges inherit each port's route tags.
+      // A plugin without them keeps the single default source handle.
+      if (ext.outbound?.length) data.outbound = ext.outbound
     }
   }
   nodes.value.push({ id, type: spec.type, position: pos, data })

@@ -619,9 +619,37 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       form: { schema: {}, ui: {} },
       // The values collected through that form; shipped to the plugin verbatim.
       body: {},
+      // Declared branch ports stamped from the palette row (SDK Action.Outbound):
+      // [{ title, tags, description }]. Each renders as an output port (see
+      // ports()); empty/absent means the node keeps a single default source
+      // handle. Only plugin nodes whose action advertised outbound carry any.
+      outbound: [],
       idle_min: 5,
     }),
     preview: (d) => String(d.action || 'no action'),
+    // Plugin actions may advertise outbound ports (SDK Action.Outbound). When
+    // present they stack as cards like a Contract's handlers, each sending its
+    // edges rightward at their target. A plugin fires the tag(s) it wants at
+    // runtime via `next_tags` (job.CmdNextFilter), so — exactly as with a Rule —
+    // each port has to stamp its tags onto the edges drawn from it, or the branch
+    // never runs. An action with no outbound derives no ports, so the node falls
+    // back to the single default source handle it has always had.
+    portLayout: 'stack',
+    ports: (d) =>
+      asRows(d.outbound).map((p, i) => {
+        // An outbound entry carries its full tag list (unlike a Contract
+        // handler's single `name`), so route off `tags` verbatim.
+        const tags = (Array.isArray(p.tags) ? (p.tags as unknown[]) : [])
+          .map((t) => String(t).trim())
+          .filter(Boolean)
+        const title = String(p.title ?? '').trim()
+        return {
+          id: title || tags.join(' / ') || `out${i}`,
+          label: title || tags.join(' / ') || `branch ${i + 1}`,
+          tags,
+          description: String(p.description ?? '').trim() || undefined,
+        }
+      }),
   }),
 
   // ---- Human ----
