@@ -4,6 +4,7 @@ import { flowsApi } from '@/api/flows'
 import Icon from '@/components/ui/Icon.vue'
 import Logo from '@/components/ui/Logo.vue'
 import ThemeToggle from './ThemeToggle.vue'
+import { APP_VERSION } from '@/version'
 
 const ui = useUiStore()
 const remote = flowsApi.isRemote()
@@ -38,7 +39,7 @@ const remote = flowsApi.isRemote()
         {{ remote ? 'Connected' : 'Local' }}
       </span>
       <ThemeToggle />
-      <span class="chip hidden md:inline-flex">v0.1.0</span>
+      <span class="chip hidden md:inline-flex">{{ APP_VERSION }}</span>
     </div>
   </header>
 </template>

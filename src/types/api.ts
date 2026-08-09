@@ -383,6 +383,22 @@ export interface StartProcessInput {
   startNodeId?: string
   meta?: Record<string, unknown>
   scheduledAt?: number
+  /** Engine run settings (proc timeout, node-traversal limit, fallback request
+   * timeout). Omitted or zero fields keep the engine defaults, so only what the
+   * user changed need be sent. See {@link ProcessRunSettings}. */
+  settings?: ProcessRunSettings
+}
+
+/** Caller-tunable engine run settings sent with a launch. Each is an override of
+ * the engine default (proc_timeout 1h, proc_node_limit 500, svc_req_timeout 5s);
+ * a 0/absent field leaves that default in place. */
+export interface ProcessRunSettings {
+  /** Process execute timeout, in seconds (`proc_timeout`). */
+  executeTimeoutSec?: number
+  /** Max node visits before the run is stopped (`proc_node_limit`). */
+  processNodeLimit?: number
+  /** Fallback per-request timeout, in seconds (`svc_req_timeout`). */
+  requestTimeoutSec?: number
 }
 
 /* ---- Node settings profiles (FloMorphic-specific) ----

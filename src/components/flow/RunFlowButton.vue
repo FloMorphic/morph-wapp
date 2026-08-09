@@ -6,6 +6,7 @@ import { contextsApi } from '@/api/contexts'
 import { processesApi } from '@/api/processes'
 import { processStatusClass, formatProcessTime } from '@/lib/process'
 import { useFlowLogsStore } from '@/stores/flowLogs'
+import { useRunSettingsStore } from '@/stores/runSettings'
 import Button from '@/components/ui/Button.vue'
 import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -27,9 +28,12 @@ const props = defineProps<{ flowId?: string; dirty?: boolean }>()
 
 const router = useRouter()
 const logs = useFlowLogsStore()
+const runSettings = useRunSettingsStore()
 const remote = processesApi.isRemote()
 
 const open = ref(false)
+/** Run-settings disclosure — collapsed by default so the picker stays the focus. */
+const showSettings = ref(false)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -120,7 +124,11 @@ async function run(context: ContextRecord) {
   runningId.value = context.id
   error.value = null
   try {
-    const rec = await processesApi.start({ flowId: props.flowId, contextId: context.id })
+    const rec = await processesApi.start({
+      flowId: props.flowId,
+      contextId: context.id,
+      settings: runSettings.payload(),
+    })
     launched.value = rec
     // Surface the live log stream for the run just launched — open the drawer if
     // it was closed (no-op when already open, and it (re)connects either way).
@@ -225,6 +233,96 @@ function summary(c: ContextRecord): string {
           >
             View <Icon name="chevron-right" :size="14" />
           </button>
+        </div>
+
+        <!-- Run settings — persisted per user (localStorage), prefilled every run. -->
+        <div class="rounded-lg border">
+          <button
+            type="button"
+            class="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-semibold text-fg-muted hover:text-fg"
+            @click="showSettings = !showSettings"
+          >
+            <Icon name="settings" :size="14" />
+            <span>Run settings</span>
+            <span
+              v-if="!runSettings.isDefault()"
+              class="rounded-full bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent"
+            >Modified</span>
+            <Icon
+              :name="showSettings ? 'chevron-down' : 'chevron-right'"
+              :size="14"
+              class="ml-auto text-fg-subtle"
+            />
+          </button>
+
+          <div v-if="showSettings" class="space-y-3 border-t px-3 py-3">
+            <p class="text-[11px] leading-relaxed text-fg-subtle">
+              Applied to every run from this browser. Leave the defaults unless a flow needs a longer
+              window or a larger traversal budget.
+            </p>
+
+            <div class="space-y-1">
+              <label class="flex items-center justify-between text-[12px] font-medium text-fg">
+                <span>Execute timeout</span>
+                <span class="text-[11px] font-normal text-fg-subtle">seconds · default 3600 (1h)</span>
+              </label>
+              <input
+                v-model.number="runSettings.executeTimeoutSec"
+                type="number"
+                min="1"
+                step="1"
+                class="input w-full"
+              />
+              <p class="text-[11px] text-fg-subtle">Max time a whole run may take before the engine stops it.</p>
+            </div>
+
+            <div class="space-y-1">
+              <label class="flex items-center justify-between text-[12px] font-medium text-fg">
+                <span>Process node limit</span>
+                <span class="text-[11px] font-normal text-fg-subtle">nodes · default 500</span>
+              </label>
+              <input
+                v-model.number="runSettings.processNodeLimit"
+                type="number"
+                min="1"
+                max="65535"
+                step="1"
+                class="input w-full"
+              />
+              <p class="text-[11px] text-fg-subtle">
+                Stops a run after this many node visits — the guard against runaway loops, which can
+                cross the limit fast.
+              </p>
+            </div>
+
+            <div class="space-y-1">
+              <label class="flex items-center justify-between text-[12px] font-medium text-fg">
+                <span>Request timeout</span>
+                <span class="text-[11px] font-normal text-fg-subtle">seconds · default 5</span>
+              </label>
+              <input
+                v-model.number="runSettings.requestTimeoutSec"
+                type="number"
+                min="1"
+                step="1"
+                class="input w-full"
+              />
+              <p class="text-[11px] text-fg-subtle">
+                Fallback timeout for any http or nats request that did not set its own.
+              </p>
+            </div>
+
+            <div class="flex justify-end">
+              <button
+                type="button"
+                class="text-[11px] font-medium text-fg-muted hover:text-fg hover:underline disabled:opacity-40 disabled:hover:no-underline"
+                :disabled="runSettings.isDefault()"
+                @click="runSettings.reset()"
+              >
+                Reset to defaults
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Quick create: a context from just a name, launched immediately. -->

@@ -8,10 +8,12 @@ import { useUiStore, type ThemePreference } from '@/stores/ui'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
 import type { PluginCredResponse } from '@/types/api'
+import { APP_VERSION } from '@/version'
 
 const ui = useUiStore()
 const remote = flowsApi.isRemote()
 const apiBase = import.meta.env.VITE_API_BASE_URL || ''
+const appVersion = APP_VERSION
 
 // --- MultiPlugin (open) credential ----------------------------------------
 // Mint an open, multi-access runtime credential: not scoped to a single
@@ -187,7 +189,7 @@ function clearLocal() {
         </div>
       </section>
 
-      <p class="text-center text-xs text-fg-subtle">FloMorphic v0.1.0 · part of the Inflowenger platform</p>
+      <p class="text-center text-xs text-fg-subtle">FloMorphic {{ appVersion }} · part of the Inflowenger platform</p>
     </div>
   </PageShell>
 </template>
