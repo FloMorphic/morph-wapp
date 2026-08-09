@@ -478,6 +478,7 @@ function metaEntries(m: Record<string, unknown> | undefined): [string, unknown][
       :open="showEditor"
       :title="editing ? 'Edit record' : 'Insert record'"
       :subtitle="store?.document?.table"
+      :dismissible="false"
       @close="showEditor = false"
     >
       <div class="space-y-3">
@@ -506,7 +507,7 @@ function metaEntries(m: Record<string, unknown> | undefined): [string, unknown][
     </Modal>
 
     <!-- ===== Vector insert modal ===== -->
-    <Modal :open="showVecInsert" title="Add record" subtitle="Text is embedded and stored with its metadata." @close="showVecInsert = false">
+    <Modal :open="showVecInsert" title="Add record" subtitle="Text is embedded and stored with its metadata." :dismissible="false" @close="showVecInsert = false">
       <div class="space-y-4">
         <div class="space-y-1">
           <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Text to embed</label>

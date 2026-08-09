@@ -9,13 +9,23 @@ const props = withDefaults(
     subtitle?: string
     /** Dialog width. 'md' (default) suits a form; 'lg' a two-column workspace. */
     size?: 'md' | 'lg'
+    /**
+     * Allow dismissing by clicking the backdrop or pressing Escape. Default true.
+     * Set false for dialogs holding unsaved input (e.g. a form with added fields)
+     * so a stray outside click can't discard the work — only the close/action
+     * buttons dismiss it.
+     */
+    dismissible?: boolean
   }>(),
-  { size: 'md' },
+  { size: 'md', dismissible: true },
 )
 const emit = defineEmits<{ (e: 'close'): void }>()
 
+function onBackdrop() {
+  if (props.dismissible) emit('close')
+}
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' && props.open) emit('close')
+  if (e.key === 'Escape' && props.open && props.dismissible) emit('close')
 }
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
@@ -27,7 +37,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <div
         v-if="open"
         class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-4 pt-[8vh] backdrop-blur-sm"
-        @click.self="emit('close')"
+        @click.self="onBackdrop"
       >
         <div
           class="card w-full"

@@ -5,6 +5,7 @@ import type { ContextRecord, Process } from '@/types/api'
 import { contextsApi } from '@/api/contexts'
 import { processesApi } from '@/api/processes'
 import { processStatusClass, formatProcessTime } from '@/lib/process'
+import { useFlowLogsStore } from '@/stores/flowLogs'
 import Button from '@/components/ui/Button.vue'
 import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -25,6 +26,7 @@ import Modal from '@/components/ui/Modal.vue'
 const props = defineProps<{ flowId?: string; dirty?: boolean }>()
 
 const router = useRouter()
+const logs = useFlowLogsStore()
 const remote = processesApi.isRemote()
 
 const open = ref(false)
@@ -120,6 +122,9 @@ async function run(context: ContextRecord) {
   try {
     const rec = await processesApi.start({ flowId: props.flowId, contextId: context.id })
     launched.value = rec
+    // Surface the live log stream for the run just launched — open the drawer if
+    // it was closed (no-op when already open, and it (re)connects either way).
+    if (!logs.isOpen) logs.open()
     // Reflect the just-launched run in the "recent" grouping.
     await load()
   } catch (err) {

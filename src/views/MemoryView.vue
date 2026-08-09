@@ -54,6 +54,9 @@ function resetForm() {
   form.vector = { provider: 'openai', embeddingModel: 'text-embedding-3-small', token: '', dimensions: 1536, metric: 'cosine', namespace: 'default' }
   form.document = { table: '', columns: [{ name: 'id', type: 'string', primary: true }] }
   formError.value = null
+  showJsonImport.value = false
+  jsonText.value = ''
+  jsonError.value = null
 }
 
 function openAdd() {
@@ -66,6 +69,81 @@ function addColumn() {
 }
 function removeColumn(i: number) {
   form.document.columns.splice(i, 1)
+}
+
+// ---- Generate a table from a sample JSON --------------------------------
+// Instead of adding columns one by one, paste a sample record (or an array of
+// them) and let the field values pick each column's type.
+const showJsonImport = ref(false)
+const jsonText = ref('')
+const jsonError = ref<string | null>(null)
+
+// An ISO-8601-ish date/time string → mapped to a `timestamp` column. Deliberately
+// strict so ordinary strings that merely contain digits aren't misread as dates.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/
+
+/** Infer a column type from one sample value. */
+function inferType(value: unknown): ColumnType {
+  if (value === null || value === undefined) return 'string'
+  if (typeof value === 'boolean') return 'boolean'
+  if (typeof value === 'number') return 'number'
+  if (Array.isArray(value)) return 'array'
+  if (typeof value === 'object') return 'object'
+  if (typeof value === 'string') {
+    if (ISO_DATE.test(value.trim())) return 'timestamp'
+    // Long free text reads better as `text` than a short `string` column.
+    return value.length > 120 ? 'text' : 'string'
+  }
+  return 'string'
+}
+
+function toggleJsonImport() {
+  showJsonImport.value = !showJsonImport.value
+  if (showJsonImport.value) jsonError.value = null
+}
+
+function generateFromJson() {
+  jsonError.value = null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonText.value)
+  } catch {
+    jsonError.value = 'That is not valid JSON.'
+    return
+  }
+  // Accept a single record or an array of them; merge keys across records so a
+  // field absent from the first sample still becomes a column.
+  const records = (Array.isArray(parsed) ? parsed : [parsed]).filter(
+    (r): r is Record<string, unknown> => !!r && typeof r === 'object' && !Array.isArray(r),
+  )
+  if (records.length === 0) {
+    jsonError.value = 'Provide a JSON object, or an array of objects.'
+    return
+  }
+  // First non-null value seen per key wins the type; keys keep first-seen order.
+  const seen = new Map<string, ColumnType>()
+  for (const rec of records) {
+    for (const [key, value] of Object.entries(rec)) {
+      if (value === null || value === undefined) {
+        if (!seen.has(key)) seen.set(key, 'string')
+        continue
+      }
+      seen.set(key, inferType(value))
+    }
+  }
+  const columns: TableColumn[] = [...seen].map(([name, type]) => ({
+    name,
+    type,
+    // An `id` field is the natural primary key; nothing else is assumed.
+    primary: name.toLowerCase() === 'id',
+  }))
+  if (columns.length === 0) {
+    jsonError.value = 'No fields found to build columns from.'
+    return
+  }
+  form.document.columns = columns
+  showJsonImport.value = false
+  jsonText.value = ''
 }
 
 async function submit() {
@@ -270,9 +348,30 @@ const isVector = computed(() => form.type === 'vector')
           <div class="space-y-1.5">
             <div class="flex items-center justify-between">
               <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Columns</label>
-              <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addColumn">
-                <Icon name="plus" :size="13" /> Add column
-              </button>
+              <div class="flex items-center gap-3">
+                <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="toggleJsonImport">
+                  <Icon name="sparkles" :size="13" /> From JSON
+                </button>
+                <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addColumn">
+                  <Icon name="plus" :size="13" /> Add column
+                </button>
+              </div>
+            </div>
+
+            <!-- Paste a sample record; the field values decide each column's type. -->
+            <div v-if="showJsonImport" class="space-y-1.5 rounded-lg border border-dashed bg-surface p-2.5">
+              <textarea
+                v-model="jsonText"
+                rows="6"
+                spellcheck="false"
+                class="input font-mono text-[11px] leading-relaxed"
+                placeholder='{ "id": "abc", "name": "Ada", "age": 36, "active": true, "created_at": "2026-01-15T09:30:00Z", "tags": ["x"] }'
+              />
+              <p v-if="jsonError" class="text-[12px] text-danger">{{ jsonError }}</p>
+              <div class="flex items-center justify-between">
+                <p class="text-[11px] text-fg-subtle">Replaces the columns below. Types inferred from the values.</p>
+                <Button variant="primary" icon="check" @click="generateFromJson">Generate columns</Button>
+              </div>
             </div>
             <div v-for="(col, i) in form.document.columns" :key="i" class="flex items-center gap-2">
               <input v-model="col.name" class="input flex-1 font-mono text-xs" placeholder="column_name" />

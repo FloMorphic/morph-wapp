@@ -370,6 +370,7 @@ async function submit() {
     :open="open"
     :title="form.id ? 'Edit settings profile' : 'New settings profile'"
     :subtitle="subtitle"
+    :dismissible="false"
     @close="emit('close')"
   >
     <div class="space-y-4">
