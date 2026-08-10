@@ -37,7 +37,7 @@ import {
 import { createId } from '@/lib/id'
 import { layeredLayout } from '@/lib/graphLayout'
 import type { PluginActionEntry } from '@/lib/nodeExtRefs'
-import type { FlowNode, VueFlowGraph } from '@/types/api'
+import type { FlowEdge, FlowNode, VueFlowGraph } from '@/types/api'
 
 /* ------------------------------------------------------------------ contract */
 
@@ -309,9 +309,80 @@ export function planPatch(patch: AiGraphPatch, existing?: VueFlowGraph | null): 
     })
   }
 
+  problems.push(...inspectConvergence(planned, edges, existingNodes, existing?.edges ?? []))
+
   layout(planned, edges, existingNodes)
 
   return { nodes: planned, edges, problems, notes: patch.notes ?? [] }
+}
+
+/**
+ * The wiring mistake no single node can see: two branches arriving at one node.
+ *
+ * Inbound edges do not merge. The runtime starts a task per edge it follows, so
+ * a node with two inbound edges runs twice, in parallel — two branches meeting
+ * at one "send report" node send two reports. Only `promissall` merges, by
+ * waiting for its inbound nodes and then continuing once.
+ *
+ * The same shape is also what breaks a `promissall` downstream: a join waits for
+ * its inbound nodes to reach the same round, so a doubly-run node feeding one
+ * makes it wait for a round that never arrives and the run stalls until the
+ * process times out. That is reported against the join, where the damage lands.
+ *
+ * Edges already on the canvas are counted too, since a patch wiring a second
+ * branch into a node that already has one causes this just as readily — but only
+ * nodes this patch actually wires into are reported, so planning a patch never
+ * complains about a shape the designer built earlier and left alone.
+ */
+function inspectConvergence(
+  planned: PlannedNode[],
+  edges: PlannedEdge[],
+  existing: FlowNode[],
+  existingEdges: FlowEdge[],
+): PatchProblem[] {
+  const out: PatchProblem[] = []
+  const nameById = new Map<string, { label: string; kind: string }>()
+  for (const n of planned) nameById.set(n.id, { label: n.ref, kind: n.type as string })
+  for (const n of existing) {
+    const title = String((n.data as Record<string, unknown>)?.title ?? '').trim()
+    nameById.set(n.id, { label: title || n.id, kind: String(n.type ?? '') })
+  }
+
+  const inboundCount = new Map<string, number>()
+  for (const e of [...existingEdges, ...edges]) {
+    inboundCount.set(e.target, (inboundCount.get(e.target) ?? 0) + 1)
+  }
+  // Only what this patch wires is worth reporting.
+  const touched = new Set(edges.map((e) => e.target))
+
+  const multi = new Set([...inboundCount].filter(([, n]) => n > 1).map(([id]) => id))
+
+  for (const [id, count] of inboundCount) {
+    const node = nameById.get(id)
+    if (!node || node.kind === 'promissall' || !touched.has(id)) continue
+    if (count > 1) {
+      out.push({
+        level: 'warn',
+        at: node.label,
+        message: `${count} branches arrive at "${node.label}", so it runs ${count} times — inbound edges do not merge. If you meant "when all of them are done", put a Wait for All (promissall) in front of it and wire the branches into that.`,
+      })
+    }
+  }
+
+  // A join fed by a node that itself runs several times can never be satisfied.
+  for (const e of edges) {
+    const target = nameById.get(e.target)
+    if (target?.kind !== 'promissall') continue
+    if (!multi.has(e.source)) continue
+    const source = nameById.get(e.source)
+    out.push({
+      level: 'error',
+      at: target.label,
+      message: `"${target.label}" waits on "${source?.label ?? e.source}", which itself runs more than once. A Wait for All needs every branch it waits on to run the same number of times, or it waits forever and the run stalls until it times out.`,
+    })
+  }
+
+  return out
 }
 
 /** Catalog defaults, then the patch's own fields on top. */
@@ -501,6 +572,18 @@ function inspectJsCode(code: string, at: string): PatchProblem[] {
       level: 'warn',
       at,
       message: 'Code reads `ctx`, which is not defined. The scoped slice is bound to `input`.',
+    })
+  }
+  // `{{…}}` is substituted into text fields — a url, a prompt, a plugin input —
+  // and never into code: the interpreter gets the source exactly as written. In
+  // a string literal that yields the characters `{{$.x}}` as the value, which is
+  // the worse case because the node succeeds and writes rubbish; anywhere else
+  // it is a syntax error. Either way the code has to be rewritten around `_get`.
+  if (/\{\{/.test(code)) {
+    out.push({
+      level: 'error',
+      at,
+      message: 'Code contains `{{…}}`, which is not substituted inside code — it stays literal text (or fails to parse). Read the Context with `_get("$.path")` instead.',
     })
   }
   return out
@@ -833,15 +916,29 @@ export function buildDesignerPrompt(
     '',
     '- `ref` is a short local name you invent; `edges` refer to nodes by `ref`. Real canvas ids are assigned on import.',
     '- Every node carries `title` (label), `key` (where its output is written into the Context) and `scope` (the JSONPath slice it reads/writes, usually `$`).',
+    '- `key` names the node\'s output inside its scope, and naming one is usually right — it is how a later node addresses this result (`{{$.summary}}`, `_get("$.summary")`). Leaving `key` empty is the deliberate alternative: the node commits AT its scope, so an object result is merged into the Context at that point (with `scope: "$"`, its fields land at the top level) — good for a node that contributes fields to a shared record rather than a result of its own. A non-object result from a key-less node has nowhere to go and lands under `unknow`, so give any node that emits a plain value a `key`.',
     '',
     '## Scope — and the loop it hides',
     '`scope` is a full JSONPath: dotted paths, wildcards, expressions and filter queries all work.',
     'Its cardinality decides how many times the node runs. A scope selecting ONE value runs the node once against it.',
     'A scope selecting MANY (`$.orders[*]`, `$.orders[?(@.total > 100)]`) makes the runtime run the node ONCE PER ELEMENT, each pass scoped to just that element.',
+    'Those passes are a QUEUE INSIDE THE ONE NODE: they run one after another, in order, on the same node — element 2 does not start until element 1 has finished. It is NOT a branch per element. Nothing on the canvas forks, no edge is drawn per element, and the node\'s outgoing edges are followed ONCE, after every pass is done. (Contrast the `parallel` wording under Wiring: that is about edges to several DIFFERENT nodes, which is a different thing entirely.)',
     'That is how you iterate a collection — there is no loop node. Use `$` when the node should see the whole context.',
     'Inside a text field, write `{{$this}}` for the element the CURRENT pass is scoped to, and `{{$this.field}}` to reach into it.',
     'With `scope: "$.orders[*]"`, `{{$this.total}}` is this pass\'s order — `{{$.orders[0].total}}` would read the first order on every pass, which is almost always a bug.',
     'Use `{{$.path}}` for a fixed address in the Context, `{{$this…}}` for wherever this pass happens to be standing.',
+    '',
+    '### The one limit on a many-scope: it must not decide where the flow goes',
+    'Scoping a node over a collection is the right tool whenever every element needs the SAME treatment and the flow continues the same way afterwards — enrich each order, summarise each ticket, call a service per row. An LLM node with NO bound functions belongs here too: it has one plain output, so running it per element is exactly the point.',
+    'It breaks down only when the node\'s OUTGOING EDGE depends on its result, because a node has ONE set of edges for the whole node — there is no per-element edge to carry a second answer.',
+    'Whenever that happens the runtime STOPS at the first element that picks a branch: the remaining elements are never processed, and it logs a warning saying how many were skipped. So a many-scope on such a node does not iterate — it quietly becomes "run the first one, then decide".',
+    'This is not an LLM quirk. It applies to every node whose ports are derived from its result:',
+    '- Plugin-backed nodes — `llm`, `mcp`, `cast`, `http` and an imported `plugin` action are ALL the same Plugin primitive underneath, and any of them can route at run time by firing tags. The visible signal is `functions` (LLM) or `outbound` (plugin action).',
+    '- `rule` nodes, whose `handlers` are the branches the contract chooses between.',
+    'So: give any node whose ports are derived — a plugin node with `functions`/`outbound`, a Rule node with `handlers` — a single-valued `scope` (usually `$`).',
+    'When you need both per-element work and a decision, that is TWO nodes, and it is the correct shape rather than a workaround:',
+    '1. a per-element node on `scope: "$.orders[*]"` (LLM without functions, `js`, `http`, …) writing its result under each element via `key`,',
+    '2. then a decision node on `scope: "$"` reading what accumulated and routing ONCE.',
     '',
     '## Writing code (`js` and `rule` nodes, and `opa`)',
     'The scoped slice arrives as `input`. There is no `ctx`, no arguments, no function wrapper.',
@@ -851,18 +948,38 @@ export function buildDesignerPrompt(
     'let result = { ok: scopedData.total > 0 }',
     'result',
     '```',
+    'NEVER write `{{…}}` inside code. Context variables are substituted into *text* fields only (an HTTP url or body, a prompt, a plugin input) — code is handed to the interpreter exactly as written, so `{{$.x}}` in a string literal becomes the literal characters `{{$.x}}`, and anywhere else it is a syntax error that fails the node.',
+    'To read the Context from code, call `_get("$.path")` — it returns the value at that JSONPath, and `_get("$this.field")` reaches into the current scope element. That is the only way to see outside the node\'s own `scope`; `input` is the slice, `_get` is everything else.',
+    '`_log("message")` writes a line to the run log from inside the code.',
+    '```js',
+    'let tier = _get("$.customer.tier")   // outside this node\'s scope — needs _get',
+    'let total = input.total              // the scoped slice itself',
+    '({ approved: tier === "gold" && total > 0 })',
+    '```',
     'In Rego, `input` is the scoped slice and `data` holds the Conditions key/values; the node outputs the variable named by `opa_result` (set `opa_result: "x"` and the value of `x` is what the node emits).',
     '- `data` holds the kind-specific fields listed below. Omit a field to take its default. Never invent fields.',
-    '- Reference Context values inside any text field with `{{$.path}}` (e.g. `{{$.ticket.body}}`), or `{{$this.path}}` for the node\'s current scope element — both resolved at run time.',
+    '- Reference Context values inside any *text* field with `{{$.path}}` (e.g. `{{$.ticket.body}}`), or `{{$this.path}}` for the node\'s current scope element — both resolved at run time. Text fields only: never in `logic_rule` (see above).',
     '- Add `note` per node/edge to explain a decision. Put assumptions and anything needing manual setup in `notes`.',
     '',
     '## Wiring',
-    '- A node with derived output ports (LLM with bound functions, Rule with handlers) has NO default handle: every edge leaving it MUST name a `port`.',
+    '- Branching has exactly ONE source: a node having several outgoing EDGES that stay active. That is the only way a run forks — the runtime starts one task per edge it follows. Nothing else branches: not scope cardinality (that is a queue inside a single node), not `key`, not a node running several times. If two things must happen independently, draw two edges.',
+    '- A node with derived output ports (LLM with bound functions, Rule with handlers, an imported plugin action with `outbound`) has NO default handle: every edge leaving it MUST name a `port`.',
     '- For an LLM node, `port` is the bound function\'s `name` — the model calling that function is what routes the flow down that edge.',
     "- Every LLM node with functions also has an `_exception` port: use `port: \"_exception\"` for the branch that handles a plugin error or the model picking no function.",
     "- For a Rule node, `port` is the handler's `name` — the tag its branch fires.",
+    "- For an imported `plugin` action, `port` is the outbound entry's `title` (falling back to its joined `tags`) — the plugin fires those tags at run time, exactly as a Rule does.",
     '- Other kinds have a single unnamed output: omit `port`.',
-    '- Fanning out to several nodes runs them in parallel. Put a `promissall` node in front of a step that must wait for all of them.',
+    '- A node with derived ports routes for the whole node, so its `scope` must select ONE value (usually `$`). Never give a wildcard or filter scope to any plugin-backed node carrying `functions`/`outbound` (`llm`, `mcp`, `cast`, `http`, `plugin` — all the same primitive), nor to a Rule node with `handlers`. See the many-scope limit above.',
+    '- Fanning out to several nodes runs them in parallel.',
+    '- A Rule node that fires no tag at run time prunes every one of its edges: that branch of the flow simply ends. Make sure the handlers cover every case, or add a default branch.',
+    '',
+    '## Joining branches back together',
+    'Edges INTO a node do not merge. The runtime starts one task per edge it follows, so a node with TWO inbound edges RUNS TWICE — once per branch, both in parallel. Two branches meeting at one "send report" node send two reports. This is the easiest way to get a workflow subtly wrong, and nothing about it looks unusual on the canvas.',
+    '`promissall` is the ONLY thing that merges branches: it waits until every inbound branch has finished, then continues ONCE, with the context all of them wrote. Whenever two or more edges would arrive at the same node and you mean "when both are done", put a `promissall` in front of that node and wire the branches into the `promissall` instead.',
+    'Two rules when you use one:',
+    '- It waits for exactly the nodes wired into it, so wire every branch it must wait for directly into it.',
+    '- Every branch feeding it must run the SAME number of times. It waits for its inbound nodes to reach the same round, so if one of them is itself a doubly-run node (a node with two inbound edges of its own) it waits for a round that never comes and the run stalls until the process times out. Keep each branch single-run — where branches converge earlier, converge them with a `promissall` there too rather than letting a node run twice.',
+    'A `promissall` may wait on another `promissall`.',
     '',
     '## Node kinds',
   )
@@ -920,6 +1037,12 @@ export function buildDesignerPrompt(
         'Handlers are `{ "id": "h1", "name": "approved", "title": "Approved" }`; each is a routed branch.',
         '`name` is the branch\'s route tag — the decision has to fire it and the edge leaving that port carries it — while `title` only labels the port on the canvas.',
         '`logic_rule` is JS returning a value (`lang: "js"`) or Rego (`lang: "opa"`).',
+      )
+    }
+    if (spec.kind === 'goto') {
+      lines.push(
+        'A Goto is a subroutine call: control jumps to the target node in the target flow, and when that flow reaches the Goto\'s end node it continues to whatever follows the Goto. Each Goto runs its own private copy of the flow it calls, so several branches may enter one Goto, two Gotos may call the same flow and even share an end node, and the called flow\'s own wiring is left untouched for anything else that uses it.',
+        'Two things to keep in mind: the target flow is loaded once per Goto node, so it costs a copy of that flow (do not reach for a Goto to save re-drawing one or two nodes), and nesting is bounded — a Goto that jumps back into a flow already being called re-enters the same copy rather than nesting deeper, which is what makes a loop through a Goto terminate.',
       )
     }
     if (spec.kind === 'hitl') {
