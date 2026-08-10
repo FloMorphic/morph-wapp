@@ -953,8 +953,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         <p class="text-[11px] leading-relaxed text-fg-subtle">
           These two messages seed the conversation on the <strong>first</strong> run only — either can
           be left empty. Once the node has a conversation they are not re-added. Content may embed
-          <code v-pre>{{$.path}}</code> context vars; the provider, key and model come from the Settings
-          profile above.
+          <code v-pre>{{$.path}}</code> context vars, or <code v-pre>{{$this.path}}</code> to read from
+          this node's own scope slice — with a scope like <code>$.tickets[*]</code> the node runs once
+          per ticket and <code v-pre>{{$this.body}}</code> is that run's ticket. The provider, key and
+          model come from the Settings profile above.
         </p>
       </div>
 
@@ -1142,8 +1144,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           <p class="text-[11px] leading-relaxed text-fg-subtle">
             These two messages seed the agent's conversation on the <strong>first</strong> run only —
             either can be left empty. Once the node has a conversation they are not re-added. Content
-            may embed <code v-pre>{{$.path}}</code> context vars; the provider, key and model come from
-            the Settings profile above.
+            may embed <code v-pre>{{$.path}}</code> context vars, or <code v-pre>{{$this.path}}</code>
+            to read from this node's own scope slice — with a scope like <code>$.tickets[*]</code> the
+            node runs once per ticket and <code v-pre>{{$this.body}}</code> is that run's ticket. The
+            provider, key and model come from the Settings profile above.
           </p>
         </div>
 
