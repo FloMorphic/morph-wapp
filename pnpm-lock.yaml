@@ -33,8 +33,8 @@ importers:
         specifier: ^5.0.1
         version: 5.0.1(vue@3.5.40(typescript@6.0.3))
       '@inflowenger/flow-trace':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.2.1
+        version: 0.2.1
       '@inflowenger/plugin-form-builder':
         specifier: ^0.2.0
         version: 0.2.0(@jsonforms/core@3.8.0)(@jsonforms/vue@3.8.0(@jsonforms/core@3.8.0)(vue@3.5.40(typescript@6.0.3)))(vue@3.5.40(typescript@6.0.3))
@@ -169,8 +169,8 @@ packages:
     peerDependencies:
       vue: '>=3.0.0'
 
-  '@inflowenger/flow-trace@0.2.0':
-    resolution: {integrity: sha512-hk5RuiG8WeDQsHksw7AWMmiEsbXuy+ArCMm374G48D16vTllj+k3xTemtXgbP3YhlVhdBOm1CbSaYhf3dtZcIA==}
+  '@inflowenger/flow-trace@0.2.1':
+    resolution: {integrity: sha512-NRUNMOMJZ0de/rYuDa8PhaJBxgr+jTrIozOjr8AJTVoz8IUF4PN9MJ3PMz8lslo2uig46bRAFYWrY4GvGRrL3A==}
 
   '@inflowenger/plugin-form-builder@0.2.0':
     resolution: {integrity: sha512-Mcu0X+zJvLklp4DUm9CzN/zQyxP8SJhQlHeDEPWMRX2atutT20Lg2x/3Sk4lqWtrVBYwrLYRnKZTvM0deQroDA==}
@@ -1137,7 +1137,7 @@ snapshots:
       '@iconify/types': 2.0.0
       vue: 3.5.40(typescript@6.0.3)
 
-  '@inflowenger/flow-trace@0.2.0': {}
+  '@inflowenger/flow-trace@0.2.1': {}
 
   '@inflowenger/plugin-form-builder@0.2.0(@jsonforms/core@3.8.0)(@jsonforms/vue@3.8.0(@jsonforms/core@3.8.0)(vue@3.5.40(typescript@6.0.3)))(vue@3.5.40(typescript@6.0.3))':
     dependencies:

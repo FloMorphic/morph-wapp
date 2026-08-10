@@ -153,7 +153,7 @@ const levelText: Record<LogLevel, string> = {
 
 function kindLabel(kind?: string): string {
   if (!kind) return ''
-  return kind.replace(/^(node|proc|edge|flow|dep)\./, '')
+  return kind.replace(/^(node|proc|edge|flow|dep|scope)\./, '')
 }
 
 /** Group kinds by meaning so the badge colour carries information. */
@@ -168,6 +168,10 @@ function kindClass(kind?: string): string {
   if (kind === 'dep.ready') return 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-300'
   if (kind === 'progress') return 'bg-teal-500/20 text-teal-600 dark:text-teal-300'
   if (kind === 'protocol') return 'bg-teal-500/10 text-teal-600 dark:text-teal-400'
+  // A scope that matched many locations: the node is looping internally. Indigo
+  // sets it apart from routing (emerald) — nothing branched, one node is just
+  // running several times.
+  if (kind === 'scope.fanout') return 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300'
   if (kind === 'log') return 'bg-fg-subtle/15 text-fg-muted'
   return 'bg-amber-500/15 text-amber-600 dark:text-amber-300'
 }
