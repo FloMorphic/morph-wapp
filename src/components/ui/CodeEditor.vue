@@ -32,6 +32,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
+  /** Editor lost focus — a natural boundary to normalise the code once. */
+  (e: 'blur'): void
 }>()
 
 const editorRef = ref<HTMLDivElement>()
@@ -100,6 +102,7 @@ onMounted(() => {
       EditorView.updateListener.of((update) => {
         if (update.docChanged && view) emit('update:modelValue', view.state.doc.toString())
       }),
+      EditorView.domEventHandlers({ blur: () => emit('blur') }),
     ],
     parent: editorRef.value,
   })

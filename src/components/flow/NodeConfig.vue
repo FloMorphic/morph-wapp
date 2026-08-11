@@ -10,6 +10,7 @@ import PromptImporter from '@/components/flow/PromptImporter.vue'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
 import { EXCEPTION_TAG, handlerName } from '@/data/nodeCatalog'
+import { normalizeJsReturn } from '@/lib/jsNodeCode'
 import {
   toPluginForm,
   toStoredPluginForm,
@@ -604,6 +605,14 @@ const opaResult = computed<string>({
   },
 })
 
+// A `js` node has no function to return from — its output is the last
+// expression. Someone editing by hand still reaches for `return`, so when the
+// editor loses focus we rewrite a trailing `return X` into `;(X)` (see
+// normalizeJsReturn). Left alone for OPA/Rego.
+function normalizeCode() {
+  if (lang.value !== 'opa') code.value = normalizeJsReturn(code.value)
+}
+
 // ---- Continue After (until) ------------------------------------------------
 // The schedule is either a relative delay — a unit (`mode`) times an amount
 // (`value`) — or an absolute date/time (`mode === 'at'`, held in `at`). Both
@@ -795,6 +804,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           :language="lang === 'opa' ? 'opa' : 'js'"
           inline
           wrap
+          @blur="normalizeCode"
           :placeholder="lang === 'opa' ? 'package flomorphic\n\nscope_data := input # scoped context: input.<field>\ncriteria := data # Conditions key/values: data.<key>\n\nresult := true' : 'let scopedData = input // the slice selected by `scope`\n\nlet result = { ok: true }\n\nresult // last expression is the output'"
         />
         <p class="text-[11px] leading-relaxed text-fg-subtle">
