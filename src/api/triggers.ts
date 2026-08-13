@@ -74,6 +74,15 @@ function localAll(): Trigger[] {
   return readCollection<Trigger>(LOCAL_KEY).sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
+/** Redact the write-only secret from a webhook for list responses (the single
+ *  {@link localGet} keeps it, mirroring the backend's reveal-on-get). */
+function redactTrigger(t: Trigger): Trigger {
+  if (t.kind === 'webhook' && t.auth?.secret) {
+    return { ...t, auth: { ...t.auth, secret: undefined }, hasSecret: true }
+  }
+  return t
+}
+
 function localList(params?: TriggerListParams): Page<Trigger> {
   let all = localAll()
   if (params?.flowId) all = all.filter((t) => t.flowId === params.flowId)
@@ -84,7 +93,7 @@ function localList(params?: TriggerListParams): Page<Trigger> {
   const page = Math.max(1, params?.page ?? 1)
   const start = (page - 1) * perPage
   return {
-    list: all.slice(start, start + perPage),
+    list: all.slice(start, start + perPage).map(redactTrigger),
     total: all.length,
     page,
     per_page: perPage,
@@ -113,11 +122,14 @@ function localMaterialize(input: SaveTriggerInput, existing?: Trigger): Trigger 
   if (input.kind === 'webhook') {
     const prev = existing?.kind === 'webhook' ? existing : undefined
     const auth = { ...input.auth } as WebhookTrigger['auth']
-    // The secret is write-only: keep the previously stored one when the caller
-    // leaves it undefined (an edit that did not touch it), and never store the
-    // secret value itself locally — only whether one is set.
-    const hasSecret = auth.secret != null && auth.secret !== '' ? true : (prev?.hasSecret ?? false)
-    delete auth.secret
+    // Keep the stored secret when the caller leaves it blank (an edit that did not
+    // touch the write-only field). localStorage is inherently local, so we retain
+    // the value here — reopening the settings can reveal it, mirroring the
+    // backend's single-record read.
+    if ((auth.secret == null || auth.secret === '') && prev?.auth?.secret) {
+      auth.secret = prev.auth.secret
+    }
+    const hasSecret = auth.secret != null && auth.secret !== ''
     const slug = input.slug || prev?.slug || base.id
     return {
       ...base,

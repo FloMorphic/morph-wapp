@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
 import { triggersApi, type SaveTriggerInput } from '@/api/triggers'
+import { flowsApi } from '@/api/flows'
+import { apiBaseUrl } from '@/api/client'
 import { contextsApi } from '@/api/contexts'
 import { useNotificationsStore } from '@/stores/notifications'
 import type {
@@ -28,6 +30,7 @@ import type {
 const props = defineProps<{ node: GraphNode }>()
 
 const route = useRoute()
+const router = useRouter()
 const notifications = useNotificationsStore()
 
 // The flow being edited. Triggers bind to a saved flow, so an unsaved canvas
@@ -59,6 +62,17 @@ function toggleDeliveries(id: string) {
   else openDeliveries.value.add(id)
 }
 
+/** The webhook's public URL, built from the API base the app actually talks to
+ *  mixed with the slug — reliable even when the backend has no PUBLIC_API_URL set
+ *  (its `url` would then be root-relative). Falls back to the app origin in local
+ *  mode, then to whatever the backend returned. */
+function webhookUrl(t: WebhookTrigger): string {
+  const base = apiBaseUrl()
+  if (base) return `${base}/hooks/${t.slug}`
+  if (typeof window !== 'undefined' && window.location) return `${window.location.origin}/hooks/${t.slug}`
+  return t.url ?? `/hooks/${t.slug}`
+}
+
 /** Colour a delivery by its HTTP status: 2xx accepted, 4xx rejected, 5xx error. */
 function hitStatusClass(status: number): string {
   if (status >= 200 && status < 300) return 'text-success'
@@ -80,8 +94,30 @@ async function load() {
 
 onMounted(load)
 
-const webhooks = computed(() => triggers.value.filter((t): t is WebhookTrigger => t.kind === 'webhook'))
-const schedules = computed(() => triggers.value.filter((t): t is ScheduleTrigger => t.kind === 'schedule'))
+// One trigger per workflow — a webhook OR a schedule. Typed views narrow the
+// union so the template can read kind-specific fields; wanting more than one
+// trigger is served by cloning the workflow.
+const trigger = computed<Trigger | null>(() => triggers.value[0] ?? null)
+const webhookTrigger = computed<WebhookTrigger | null>(() =>
+  trigger.value?.kind === 'webhook' ? trigger.value : null,
+)
+const scheduleTrigger = computed<ScheduleTrigger | null>(() =>
+  trigger.value?.kind === 'schedule' ? trigger.value : null,
+)
+
+/** Clone the current workflow (graph only — triggers are per-flow, so the copy
+ *  starts with none) and open the copy, ready for its own single trigger. */
+async function cloneWorkflow() {
+  if (!flowId.value) return
+  try {
+    const src = await flowsApi.get(flowId.value)
+    const copy = await flowsApi.save({ title: `${src.title || 'Untitled'} (copy)`, view_flow: src.view_flow })
+    notifications.notify({ level: 'success', message: 'Workflow cloned' })
+    router.push({ name: 'workflow-edit', params: { id: copy.id } })
+  } catch (err) {
+    notifications.notify({ level: 'error', message: `Clone workflow: ${(err as Error).message}` })
+  }
+}
 
 // ---- Draft editor ----------------------------------------------------------
 // One reactive draft edits either a new or existing trigger. `secret` is always
@@ -104,7 +140,7 @@ interface Draft {
   reqTimeoutSec: number
   // webhook
   slug: string
-  methods: string
+  methods: string[]
   authMethod: WebhookAuthMethod
   headerKey: string
   headerPattern: string
@@ -136,7 +172,7 @@ function blankDraft(kind: TriggerKind): Draft {
     nodeLimit: 0,
     reqTimeoutSec: 0,
     slug: '',
-    methods: '',
+    methods: [],
     authMethod: 'none',
     headerKey: kind === 'webhook' ? 'Authorization' : '',
     headerPattern: '',
@@ -175,23 +211,35 @@ function splitInterval(sec: number): { value: number; unit: ScheduleUnit } {
   return { value: sec || 1, unit: 'seconds' }
 }
 
-function editWebhook(t: WebhookTrigger) {
+async function editWebhook(t: WebhookTrigger) {
+  showSecret.value = false
+  // Fetch the single record so the stored secret is loaded into the field (the
+  // list redacts it). It opens masked; the eye reveals it. Fall back to the list
+  // record if the fetch fails.
+  let full: WebhookTrigger = t
+  try {
+    const fetched = await triggersApi.get(t.id)
+    if (fetched.kind === 'webhook') full = fetched
+  } catch {
+    /* keep the list record (no secret) */
+  }
   draft.value = {
     ...blankDraft('webhook'),
-    ...draftContext(t),
-    id: t.id,
-    title: t.title,
-    enabled: t.enabled,
-    slug: t.slug,
-    methods: t.methods.join(', '),
-    authMethod: t.auth.method,
-    headerKey: t.auth.headerKey ?? '',
-    headerPattern: t.auth.headerPattern ?? '',
-    hashAlgo: t.auth.hashAlgo ?? 'sha256',
-    digest: t.auth.digest ?? 'hex',
-    hasSecret: !!t.hasSecret,
-    whitelistIp: (t.whitelistIp ?? []).join('\n'),
-    url: t.url,
+    ...draftContext(full),
+    id: full.id,
+    title: full.title,
+    enabled: full.enabled,
+    slug: full.slug,
+    methods: [...(full.methods ?? [])],
+    authMethod: full.auth.method,
+    headerKey: full.auth.headerKey ?? '',
+    headerPattern: full.auth.headerPattern ?? '',
+    hashAlgo: full.auth.hashAlgo ?? 'sha256',
+    digest: full.auth.digest ?? 'hex',
+    secret: full.auth.secret ?? '',
+    hasSecret: !!full.hasSecret,
+    whitelistIp: (full.whitelistIp ?? []).join('\n'),
+    url: full.url,
   }
 }
 
@@ -212,10 +260,12 @@ function editSchedule(t: ScheduleTrigger) {
 }
 
 function addTrigger(kind: TriggerKind) {
+  showSecret.value = false
   draft.value = blankDraft(kind)
 }
 
 function cancelEdit() {
+  showSecret.value = false
   draft.value = null
 }
 
@@ -265,10 +315,7 @@ function buildInput(d: Draft): SaveTriggerInput {
       ...common,
       kind: 'webhook',
       slug: d.slug.trim(),
-      methods: d.methods
-        .split(',')
-        .map((m) => m.trim().toUpperCase())
-        .filter(Boolean),
+      methods: [...d.methods],
       whitelistIp: d.whitelistIp
         .split('\n')
         .map((s) => s.trim())
@@ -420,6 +467,19 @@ const CONTEXT_OPTS: { id: TriggerContextMode; label: string; icon: string }[] = 
   { id: 'existing', label: 'Existing doc', icon: 'context' },
   { id: 'new', label: 'New each run', icon: 'plus' },
 ]
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+
+/** Toggle an HTTP method in the webhook's allow-list. */
+function toggleMethod(m: string) {
+  const arr = draft.value?.methods
+  if (!arr) return
+  const i = arr.indexOf(m)
+  if (i >= 0) arr.splice(i, 1)
+  else arr.push(m)
+}
+
+// Reveal state for the webhook secret input (eye toggle).
+const showSecret = ref(false)
 
 /** Inline style for a segmented option chip — accent-filled when selected. */
 function seg(active: boolean) {
@@ -458,107 +518,109 @@ const secretPlaceholder = computed(() =>
       <div v-if="loading" class="text-[12px] text-fg-subtle">Loading triggers…</div>
 
       <template v-else>
-        <!-- Webhooks -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between">
-            <span class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
-              <Icon name="zap" :size="13" /> Webhooks
-            </span>
-            <button class="text-[11px] text-accent hover:opacity-80" @click="addTrigger('webhook')">
-              <Icon name="plus" :size="12" class="inline" /> Add
+        <!-- Webhook trigger (one per workflow) -->
+        <div
+          v-if="webhookTrigger"
+          class="rounded-lg border p-2.5"
+          :style="{ borderColor: 'var(--line)', opacity: webhookTrigger.enabled ? 1 : 0.6 }"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex min-w-0 items-center gap-1.5">
+              <Icon name="zap" :size="14" class="shrink-0 text-fg-subtle" />
+              <div class="min-w-0">
+                <p class="truncate text-[13px] font-medium text-fg">{{ webhookTrigger.title }}</p>
+                <p class="truncate text-[11px] text-fg-subtle">{{ AUTH_LABEL[webhookTrigger.auth.method] }}</p>
+              </div>
+            </div>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <button class="text-fg-subtle hover:text-fg" title="Enable / disable" @click="toggleEnabled(webhookTrigger)">
+                <Icon :name="webhookTrigger.enabled ? 'check' : 'lock'" :size="14" />
+              </button>
+              <button class="text-fg-subtle hover:text-fg" title="Edit" @click="editWebhook(webhookTrigger)">
+                <Icon name="settings" :size="14" />
+              </button>
+              <button class="text-fg-subtle hover:text-danger" title="Delete" @click="remove(webhookTrigger)">
+                <Icon name="trash" :size="14" />
+              </button>
+            </div>
+          </div>
+          <div v-if="webhookTrigger.slug" class="mt-1.5 flex items-center gap-1.5">
+            <code class="min-w-0 flex-1 truncate rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-fg-muted">{{ webhookUrl(webhookTrigger) }}</code>
+            <button class="text-fg-subtle hover:text-fg" title="Copy URL" @click="copyUrl(webhookUrl(webhookTrigger))">
+              <Icon name="copy" :size="13" />
             </button>
           </div>
-          <p v-if="webhooks.length === 0" class="text-[11px] text-fg-subtle">No webhooks.</p>
-          <div
-            v-for="t in webhooks"
-            :key="t.id"
-            class="rounded-lg border p-2.5"
-            :style="{ borderColor: 'var(--line)', opacity: t.enabled ? 1 : 0.6 }"
-          >
-            <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0">
-                <p class="truncate text-[13px] font-medium text-fg">{{ t.title }}</p>
-                <p class="truncate text-[11px] text-fg-subtle">{{ AUTH_LABEL[t.auth.method] }}</p>
-              </div>
-              <div class="flex shrink-0 items-center gap-1.5">
-                <button class="text-fg-subtle hover:text-fg" title="Enable / disable" @click="toggleEnabled(t)">
-                  <Icon :name="t.enabled ? 'check' : 'lock'" :size="14" />
-                </button>
-                <button class="text-fg-subtle hover:text-fg" title="Edit" @click="editWebhook(t)">
-                  <Icon name="settings" :size="14" />
-                </button>
-                <button class="text-fg-subtle hover:text-danger" title="Delete" @click="remove(t)">
-                  <Icon name="trash" :size="14" />
-                </button>
-              </div>
-            </div>
-            <div v-if="t.url" class="mt-1.5 flex items-center gap-1.5">
-              <code class="min-w-0 flex-1 truncate rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-fg-muted">{{ t.url }}</code>
-              <button class="text-fg-subtle hover:text-fg" title="Copy URL" @click="copyUrl(t.url)">
-                <Icon name="copy" :size="13" />
-              </button>
-            </div>
 
-            <!-- Recent deliveries (webhook hit log). Collapsed by default. -->
-            <div class="mt-1.5">
-              <button
-                class="flex items-center gap-1 text-[11px] text-fg-subtle hover:text-fg"
-                @click="toggleDeliveries(t.id)"
-              >
-                <Icon :name="openDeliveries.has(t.id) ? 'chevron-down' : 'chevron-right'" :size="12" />
-                Recent deliveries
-                <span v-if="t.recentHits?.length">({{ t.recentHits.length }})</span>
-              </button>
-              <div v-if="openDeliveries.has(t.id)" class="mt-1 space-y-1 border-l pl-2" style="border-color: var(--line)">
-                <p v-if="!t.recentHits?.length" class="text-[11px] text-fg-subtle">No deliveries yet.</p>
-                <div v-for="(hit, i) in t.recentHits" :key="i" class="flex items-baseline gap-1.5 text-[11px]">
-                  <span :class="hitStatusClass(hit.status)" class="font-mono font-semibold">{{ hit.status }}</span>
-                  <span class="font-mono text-fg-subtle">{{ hit.method }}</span>
-                  <span class="min-w-0 flex-1 truncate text-fg-muted" :title="hit.message">{{ hit.message }}</span>
-                  <span class="shrink-0 text-fg-subtle">{{ fmtTime(hit.at) }}</span>
-                </div>
+          <!-- Recent deliveries (webhook hit log). Collapsed by default. -->
+          <div class="mt-1.5">
+            <button
+              class="flex items-center gap-1 text-[11px] text-fg-subtle hover:text-fg"
+              @click="toggleDeliveries(webhookTrigger.id)"
+            >
+              <Icon :name="openDeliveries.has(webhookTrigger.id) ? 'chevron-down' : 'chevron-right'" :size="12" />
+              Recent deliveries
+              <span v-if="webhookTrigger.recentHits?.length">({{ webhookTrigger.recentHits.length }})</span>
+            </button>
+            <div v-if="openDeliveries.has(webhookTrigger.id)" class="mt-1 space-y-1 border-l pl-2" style="border-color: var(--line)">
+              <p v-if="!webhookTrigger.recentHits?.length" class="text-[11px] text-fg-subtle">No deliveries yet.</p>
+              <div v-for="(hit, i) in (webhookTrigger.recentHits ?? []).slice(0, 10)" :key="i" class="flex items-baseline gap-1.5 text-[11px]">
+                <span :class="hitStatusClass(hit.status)" class="font-mono font-semibold">{{ hit.status }}</span>
+                <span class="font-mono text-fg-subtle">{{ hit.method }}</span>
+                <span class="min-w-0 flex-1 truncate text-fg-muted" :title="hit.message">{{ hit.message }}</span>
+                <span class="shrink-0 text-fg-subtle">{{ fmtTime(hit.at) }}</span>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Schedules -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between">
-            <span class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
-              <Icon name="refresh" :size="13" /> Schedules
-            </span>
-            <button class="text-[11px] text-accent hover:opacity-80" @click="addTrigger('schedule')">
-              <Icon name="plus" :size="12" class="inline" /> Add
-            </button>
-          </div>
-          <p v-if="schedules.length === 0" class="text-[11px] text-fg-subtle">No schedules.</p>
-          <div
-            v-for="t in schedules"
-            :key="t.id"
-            class="rounded-lg border p-2.5"
-            :style="{ borderColor: 'var(--line)', opacity: t.enabled ? 1 : 0.6 }"
-          >
-            <div class="flex items-start justify-between gap-2">
+        <!-- Schedule trigger (one per workflow) -->
+        <div
+          v-else-if="scheduleTrigger"
+          class="rounded-lg border p-2.5"
+          :style="{ borderColor: 'var(--line)', opacity: scheduleTrigger.enabled ? 1 : 0.6 }"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex min-w-0 items-center gap-1.5">
+              <Icon name="refresh" :size="14" class="shrink-0 text-fg-subtle" />
               <div class="min-w-0">
-                <p class="truncate text-[13px] font-medium text-fg">{{ t.title }}</p>
-                <p class="truncate font-mono text-[11px] text-fg-subtle">{{ scheduleSummary(t) }}</p>
-              </div>
-              <div class="flex shrink-0 items-center gap-1.5">
-                <button class="text-fg-subtle hover:text-fg" title="Enable / disable" @click="toggleEnabled(t)">
-                  <Icon :name="t.enabled ? 'check' : 'lock'" :size="14" />
-                </button>
-                <button class="text-fg-subtle hover:text-fg" title="Edit" @click="editSchedule(t)">
-                  <Icon name="settings" :size="14" />
-                </button>
-                <button class="text-fg-subtle hover:text-danger" title="Delete" @click="remove(t)">
-                  <Icon name="trash" :size="14" />
-                </button>
+                <p class="truncate text-[13px] font-medium text-fg">{{ scheduleTrigger.title }}</p>
+                <p class="truncate font-mono text-[11px] text-fg-subtle">{{ scheduleSummary(scheduleTrigger) }}</p>
               </div>
             </div>
-            <p v-if="t.nextAt" class="mt-1 text-[11px] text-fg-subtle">Next: {{ fmtTime(t.nextAt) }}</p>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <button class="text-fg-subtle hover:text-fg" title="Enable / disable" @click="toggleEnabled(scheduleTrigger)">
+                <Icon :name="scheduleTrigger.enabled ? 'check' : 'lock'" :size="14" />
+              </button>
+              <button class="text-fg-subtle hover:text-fg" title="Edit" @click="editSchedule(scheduleTrigger)">
+                <Icon name="settings" :size="14" />
+              </button>
+              <button class="text-fg-subtle hover:text-danger" title="Delete" @click="remove(scheduleTrigger)">
+                <Icon name="trash" :size="14" />
+              </button>
+            </div>
+          </div>
+          <p v-if="scheduleTrigger.nextAt" class="mt-1 text-[11px] text-fg-subtle">Next: {{ fmtTime(scheduleTrigger.nextAt) }}</p>
+        </div>
+
+        <!-- No trigger yet, not editing: choose one to add -->
+        <div v-else-if="!draft" class="space-y-1.5">
+          <p class="text-[11px] text-fg-subtle">Add one trigger to start this workflow automatically:</p>
+          <div class="flex gap-2">
+            <button class="btn flex-1" style="border: 1px solid var(--line-strong)" @click="addTrigger('webhook')">
+              <Icon name="zap" :size="14" /> Webhook
+            </button>
+            <button class="btn flex-1" style="border: 1px solid var(--line-strong)" @click="addTrigger('schedule')">
+              <Icon name="refresh" :size="14" /> Schedule
+            </button>
           </div>
         </div>
+
+        <!-- One-per-workflow note + clone escape hatch -->
+        <p v-if="trigger" class="text-[11px] leading-relaxed text-fg-subtle">
+          One trigger per workflow.
+          <button class="text-accent hover:opacity-80" @click="cloneWorkflow">Clone this workflow</button>
+          to add another.
+        </p>
       </template>
 
       <!-- ===================== Draft editor ===================== -->
@@ -648,9 +710,21 @@ const secretPlaceholder = computed(() =>
             <p class="text-[11px] text-fg-subtle">Public URL is <code>/hooks/&lt;slug&gt;</code>. Leave blank to auto-assign.</p>
           </div>
 
-          <div class="space-y-1">
-            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Methods</label>
-            <input v-model="draft.methods" class="input font-mono text-xs" placeholder="empty = any — e.g. POST, PUT" />
+          <div class="space-y-1.5">
+            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+              Methods <span class="font-normal normal-case text-fg-subtle">(none = any)</span>
+            </label>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="m in HTTP_METHODS"
+                :key="m"
+                class="rounded-md border px-2 py-1 font-mono text-[11px] font-medium transition-colors"
+                :style="seg(draft.methods.includes(m))"
+                @click="toggleMethod(m)"
+              >
+                {{ m }}
+              </button>
+            </div>
           </div>
 
           <div class="space-y-1.5">
@@ -710,7 +784,23 @@ const secretPlaceholder = computed(() =>
             <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
               {{ draft.authMethod === 'basic' ? 'Credentials (user:pass)' : draft.authMethod === 'jwt' ? 'Verification key / secret' : 'Secret' }}
             </label>
-            <input v-model="draft.secret" type="password" autocomplete="off" class="input font-mono text-xs" :placeholder="secretPlaceholder" />
+            <div class="relative">
+              <input
+                v-model="draft.secret"
+                :type="showSecret ? 'text' : 'password'"
+                autocomplete="off"
+                class="input font-mono text-xs pr-8"
+                :placeholder="secretPlaceholder"
+              />
+              <button
+                type="button"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-subtle hover:text-fg"
+                :title="showSecret ? 'Hide secret' : 'Reveal secret'"
+                @click="showSecret = !showSecret"
+              >
+                <Icon :name="showSecret ? 'eye-off' : 'eye'" :size="14" />
+              </button>
+            </div>
           </div>
 
           <!-- IP allow-list -->

@@ -30,6 +30,16 @@ async function remove(w: FlowRecord, e: Event) {
   await store.remove(w.id)
 }
 
+// Clone a workflow (graph only — triggers are per-flow, so the copy starts with
+// none) and open the copy. Useful when a flow needs a second trigger: one
+// trigger per workflow, so another entry point means another workflow.
+async function clone(w: FlowRecord, e: Event) {
+  e.stopPropagation()
+  const copy = await store.save({ title: `${w.title || 'Untitled'} (copy)`, view_flow: w.view_flow })
+  await store.refresh()
+  router.push({ name: 'workflow-edit', params: { id: copy.id } })
+}
+
 function nodeCount(w: FlowRecord): number {
   return w.view_flow?.nodes?.length ?? 0
 }
@@ -83,13 +93,22 @@ function formatDate(ts?: number): string {
           <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-soft text-accent">
             <Icon name="workflow" :size="18" />
           </span>
-          <span
-            class="rounded-lg p-1.5 text-fg-subtle opacity-0 transition hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
-            title="Delete"
-            @click="remove(w, $event)"
-          >
-            <Icon name="trash" :size="15" />
-          </span>
+          <div class="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+            <span
+              class="rounded-lg p-1.5 text-fg-subtle transition hover:bg-accent-soft hover:text-accent"
+              title="Clone workflow"
+              @click="clone(w, $event)"
+            >
+              <Icon name="copy" :size="15" />
+            </span>
+            <span
+              class="rounded-lg p-1.5 text-fg-subtle transition hover:bg-danger-soft hover:text-danger"
+              title="Delete"
+              @click="remove(w, $event)"
+            >
+              <Icon name="trash" :size="15" />
+            </span>
+          </div>
         </div>
         <h3 class="mt-3 truncate font-semibold text-fg">{{ w.title || 'Untitled workflow' }}</h3>
         <div class="mt-1 flex items-center gap-3 text-xs text-fg-subtle">
