@@ -1037,6 +1037,18 @@ export function buildDesignerPrompt(
           : 'A read (`action: "read"`) runs `query` — the text to match by similarity: a literal string, or `{{$.path}}` to embed text from the Context (e.g. `{{$.ticket.body}}`).',
         'A write (`action: "write"`) stores the payload selected by `input` (a JSONPath, default the node `scope`); no query.',
       )
+      if (spec.kind === 'docstore') {
+        lines.push(
+          'Prefer shaping the write payload with a Cast before this node rather than writing whatever is in scope: put a `cast` node bound to THIS same store in front of the write, and point the write\'s `input` at what it produced (`$.mapped`). The Cast assembles a clean object matching the table\'s columns, so the row that lands is exactly the store\'s schema — no stray Context fields, nothing missing. See the cast kind.',
+        )
+      }
+    }
+    if (spec.kind === 'cast') {
+      lines.push(
+        'Set `storeId` to the Document store whose row you are assembling — its schema columns are the keys to map (leave `storeId` "" and note it if the designer must pick the store).',
+        'Each mapping is `{ "key": "column_name", "mode": "static" | "jsonpath", "value": "…" }`: `static` writes the literal `value`; `jsonpath` resolves `value` as a `{{$.path}}` (or `{{$this.path}}`) template against the Context at run time. The assembled object is written under `key` (default `mapped`).',
+        'The point of a Cast is to prepare a clean, table-shaped record just before a Doc Store WRITE: Cast (bound to the store) → Doc Store write with `input: "$.mapped"`. It has no output ports of its own, so unlike an LLM/Rule it MAY run on a many-scope — `scope: "$.orders[*]"` builds one mapped record per element, which pairs with a per-element write.',
+      )
     }
     if (spec.kind === 'rule') {
       lines.push(

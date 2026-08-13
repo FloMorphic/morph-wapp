@@ -594,3 +594,139 @@ export interface HumanTask {
   updatedAt: number
   closedAt: number
 }
+
+/* ---- Workflow triggers (FloMorphic-specific) ----
+ * A Trigger is what starts a workflow from the outside — an inbound webhook or a
+ * recurring schedule. It is a first-class resource, NOT part of the flow graph
+ * (`view_flow`): the graph is an editable, exportable, AI-generated document, so
+ * secrets (webhook signing keys), the public URL lifecycle, and delivery history
+ * must live off it. Each trigger is bound to one flow and to the entry node it
+ * launches (`startNodeId` — empty means the flow's own `startNode`), which is
+ * exactly the `StartNodeIDs` the backend's StartWorkflow accepts. Surfaced in the
+ * UI from the Start node's settings drawer, but stored/served under `/trigger`.
+ *
+ * Note the split from the run scheduler: the backend `Scheduler` fires a parked
+ * process ONCE at its `scheduledAt` (the "Continue After" node). A ScheduleTrigger
+ * is recurring — when due it starts a *fresh* run and re-arms for the next
+ * occurrence — so it is a distinct concept, not a scheduled Process row.
+ */
+export type TriggerKind = 'webhook' | 'schedule'
+
+/** How a fire obtains the process's context document. `existing` reuses one
+ *  selected doc (the run mutates it in place); `new` mints a fresh context each
+ *  fire (isolated runs, at the cost of extra rows). */
+export type TriggerContextMode = 'existing' | 'new'
+
+/** Fields shared by every trigger kind. */
+export interface TriggerBase {
+  id: string
+  kind: TriggerKind
+  /** The workflow this trigger launches. */
+  flowId: string
+  /** The entry node to launch at. Empty resolves the flow's `startNode` — the
+   *  same semantics as StartWorkflow's `StartNodeIDs`. */
+  startNodeId: string
+  /** Human label shown in the drawer list (e.g. "GitHub push", "Nightly sync"). */
+  title: string
+  /** A disabled trigger is kept but never fires (webhook returns 404 / schedule
+   *  does not arm). Lets a user pause a hook without losing its config + secret.
+   *  A trigger can only be enabled once its run context resolves (an `existing`
+   *  mode must name a doc). */
+  enabled: boolean
+  /** Where a fire's process context comes from. */
+  contextMode: TriggerContextMode
+  /** The selected context doc id, when `contextMode === 'existing'`. */
+  contextId?: string
+  /** Title for the context doc minted each fire, when `contextMode === 'new'`. */
+  contextTitle?: string
+  /** Optional engine run-setting overrides applied to each launched run — the
+   *  same three the manual Run dialog collects. Omitted/zero fields keep defaults. */
+  settings?: ProcessRunSettings
+  createdAt: number
+  updatedAt: number
+}
+
+/** How an inbound webhook request is authenticated. Mirrors the auth methods of
+ *  the reference gateway: no header (IP allow-list only), a static shared token,
+ *  HTTP Basic, a verified JWT, or an HMAC body signature. */
+export type WebhookAuthMethod = 'none' | 'static' | 'basic' | 'jwt' | 'hmac'
+
+export type WebhookHashAlgo = 'sha256' | 'sha384' | 'sha512'
+export type WebhookDigest = 'base64' | 'hex'
+
+export interface WebhookAuth {
+  method: WebhookAuthMethod
+  /** Request header carrying the credential (e.g. `Authorization`, `X-Signature`).
+   *  Unused for `none`. */
+  headerKey?: string
+  /** Regex whose last capture group extracts the token from the header value
+   *  (e.g. `^Bearer (.+)$`, `^sha256=([a-f0-9]+)$`). Unused for `none` / `static`. */
+  headerPattern?: string
+  /** HMAC hash for `hmac`. */
+  hashAlgo?: WebhookHashAlgo
+  /** How the signature token is encoded, for `hmac`. */
+  digest?: WebhookDigest
+  /** Write-only. The shared secret / token / HMAC key / JWT verification key. Sent
+   *  on save, never returned by a read — the backend redacts it and reports its
+   *  presence via {@link WebhookTrigger.hasSecret}. Undefined on save leaves the
+   *  stored secret unchanged. */
+  secret?: string
+}
+
+export interface WebhookTrigger extends TriggerBase {
+  kind: 'webhook'
+  /** Path segment of the public ingress URL (`/hooks/:slug`). Backend-assigned if
+   *  omitted on create; must be unique. */
+  slug: string
+  /** Allowed HTTP methods (upper-case). Empty = accept any method. */
+  methods: string[]
+  auth: WebhookAuth
+  /** CIDR allow-list. Empty = no IP restriction (except `none` auth, which
+   *  requires at least one entry — an unauthenticated open hook is refused). */
+  whitelistIp: string[]
+  /** Read-only, backend-populated: the fully-qualified public URL to POST to. */
+  url?: string
+  /** Read-only: whether a secret is stored (the secret itself is never returned). */
+  hasSecret?: boolean
+  /** Read-only: recent delivery attempts, newest first (bounded, e.g. last 10). */
+  recentHits?: TriggerHit[]
+}
+
+/** One recorded webhook delivery — the run log a user sees under the hook. */
+export interface TriggerHit {
+  at: number
+  /** HTTP status returned to the caller (200/202 accepted, 401/403 rejected). */
+  status: number
+  ip?: string
+  method?: string
+  /** Short outcome message ("OK", "signature mismatch", "ip not in whitelist"). */
+  message?: string
+}
+
+/** A recurring schedule. The UI offers two friendly ways to express it — a raw
+ *  cron string or a plain interval (every N minutes/hours/…) — but the server
+ *  normalizes an interval into a cron expression so the scheduler has a single
+ *  representation to arm on (`cronEffective`). */
+export type ScheduleMode = 'cron' | 'interval'
+
+export interface ScheduleTrigger extends TriggerBase {
+  kind: 'schedule'
+  mode: ScheduleMode
+  /** Cron expression when `mode === 'cron'` (e.g. `0 9 * * 1-5`). */
+  cron?: string
+  /** Fixed period in seconds when `mode === 'interval'`. The backend converts it
+   *  to a cron on save (see {@link cronEffective}). */
+  intervalSec?: number
+  /** IANA timezone the cron is evaluated in (e.g. `Europe/Berlin`). Empty = UTC. */
+  timezone?: string
+  /** Read-only, backend-computed: the single cron the scheduler actually runs —
+   *  the given `cron`, or the one derived from `intervalSec`. Lets the UI show
+   *  what an interval resolves to. */
+  cronEffective?: string
+  /** Read-only, backend-computed: epoch millis of the next fire. */
+  nextAt?: number
+  /** Read-only: epoch millis of the last fire, 0 if never. */
+  lastAt?: number
+}
+
+export type Trigger = WebhookTrigger | ScheduleTrigger

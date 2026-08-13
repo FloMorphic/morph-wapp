@@ -7,6 +7,7 @@ import NodeConfig from '@/components/flow/NodeConfig.vue'
 import NodeStoreField from '@/components/flow/NodeStoreField.vue'
 import NodeCastMapping from '@/components/flow/NodeCastMapping.vue'
 import NodeHitlSettings from '@/components/flow/NodeHitlSettings.vue'
+import NodeStartTriggers from '@/components/flow/NodeStartTriggers.vue'
 import { specForType, type BaseNodeData } from '@/data/nodeCatalog'
 import { HITL_DATA_KEYS } from '@/lib/hitl'
 import { SETTINGS_DATA_KEYS, NODE_REF_DATA_KEYS, usesSettingsProfile } from '@/lib/nodeSettings'
@@ -197,6 +198,10 @@ function data(): BaseNodeData {
 
 const isHitl = computed(() => props.node?.type === 'hitl')
 const isCast = computed(() => props.node?.type === 'cast')
+// The Start node hosts the workflow's triggers (webhooks / schedules). Those are
+// first-class resources served under `/trigger`, not node.data — NodeStartTriggers
+// manages them by flow + node id and writes nothing back into the graph.
+const isStart = computed(() => props.node?.type === 'startNode')
 
 function jsonText(name: string): string {
   try {
@@ -351,6 +356,12 @@ onBeforeUnmount(stopResize)
       <!-- Human-in-the-Loop: session mode, prompt + context refs, questions,
            channel — the whole compile-time payload the hitl svc records. -->
       <NodeHitlSettings v-if="isHitl" :key="node.id" :node="node" />
+
+      <!-- Start node: the workflow's inbound webhooks and recurring schedules.
+           Stored off the graph as `/trigger` resources — see NodeStartTriggers. -->
+      <div v-if="isStart" class="border-t pt-4">
+        <NodeStartTriggers :key="node.id" :node="node" />
+      </div>
 
       <div v-for="field in fields" :key="field.name" class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">{{ field.label }}</label>
