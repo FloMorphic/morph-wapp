@@ -70,6 +70,32 @@ async function init() {
 onMounted(init)
 watch(() => props.id, init)
 
+// When this same client saves, the API echoes a `flow.changed` back over the
+// socket; ignore it for a short window so a save never looks like an external edit.
+let lastSelfSaveAt = 0
+
+// React to the open flow being changed elsewhere (an MCP client, another tab).
+// With no unsaved edits it is safe to reload the canvas in place — the "watch it
+// update live" experience. With unsaved edits, only warn: reloading would throw
+// the user's work away, so leave that choice to them.
+watch(
+  () => store.lastChanged,
+  (change) => {
+    if (!change || !currentId.value || change.id !== currentId.value) return
+    if (Date.now() - lastSelfSaveAt < 2000) return
+    if (!dirty.value) {
+      void init()
+      notifications.notify({ level: 'info', title: 'Workflow updated', message: 'Reloaded with changes made elsewhere.' })
+    } else {
+      notifications.notify({
+        level: 'warning',
+        title: 'Workflow changed elsewhere',
+        message: 'This workflow was updated externally; your unsaved edits are kept. Reopen it to load the other changes and discard yours.',
+      })
+    }
+  },
+)
+
 function onSelect(node: GraphNode | null) {
   selected.value = node
 }
@@ -171,6 +197,7 @@ async function save() {
   saving.value = true
   try {
     const record = await store.save({ id: currentId.value, title: title.value.trim() || UNTITLED, view_flow: graph })
+    lastSelfSaveAt = Date.now()
     dirty.value = false
     // The log drawer names nodes/edges by resolving ids against the saved graph;
     // a rename here must not leave it showing the old titles.

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
 import Button from '@/components/ui/Button.vue'
@@ -11,6 +11,7 @@ import {
   planPatch,
   type PlannedPatch,
 } from '@/lib/aiGraph'
+import { designerApi } from '@/api/designer'
 import { fetchPluginActions, type PluginActionEntry } from '@/lib/nodeExtRefs'
 import type { VueFlowGraph } from '@/types/api'
 
@@ -59,15 +60,51 @@ function openDialog() {
   snapshot.value = props.resolveGraph()
   copied.value = false
   showPrompt.value = false
+  prompt.value = ''
+  promptError.value = null
   open.value = true
   void fetchPluginActions().then((list) => (plugins.value = list))
 }
 
-const prompt = computed(() => buildDesignerPrompt(goal.value, snapshot.value, plugins.value))
+// The prompt is built by the backend (the central designer module) when a backend
+// is configured, and by the client-side builder otherwise — so local/standalone
+// mode keeps working. Built on demand (on Copy / View) rather than reactively, so
+// a keystroke does not fire a request; the goal edit just invalidates the cached
+// text below.
+const prompt = ref('')
+const promptLoading = ref(false)
+const promptError = ref<string | null>(null)
+
+// A goal edit invalidates the built prompt so the next Copy / View regenerates it.
+watch(goal, () => {
+  prompt.value = ''
+})
+
+async function generatePrompt(): Promise<string> {
+  if (prompt.value) return prompt.value
+  promptLoading.value = true
+  promptError.value = null
+  try {
+    const text = designerApi.isRemote()
+      ? await designerApi.buildPrompt({ goal: goal.value, graph: snapshot.value })
+      : buildDesignerPrompt(goal.value, snapshot.value, plugins.value)
+    prompt.value = text
+    return text
+  } catch (err) {
+    // Fall back to the client builder if the backend call fails, so the feature
+    // still produces a prompt (see the standalone path above).
+    promptError.value = (err as Error).message
+    prompt.value = buildDesignerPrompt(goal.value, snapshot.value, plugins.value)
+    return prompt.value
+  } finally {
+    promptLoading.value = false
+  }
+}
 
 async function copyPrompt() {
+  const text = await generatePrompt()
   try {
-    await navigator.clipboard.writeText(prompt.value)
+    await navigator.clipboard.writeText(text)
     copied.value = true
     setTimeout(() => (copied.value = false), 2000)
   } catch {
@@ -75,6 +112,11 @@ async function copyPrompt() {
     // fallback, so open it and let the text be selected by hand.
     showPrompt.value = true
   }
+}
+
+async function togglePrompt() {
+  showPrompt.value = !showPrompt.value
+  if (showPrompt.value) await generatePrompt()
 }
 
 // ---- Review ----------------------------------------------------------------
@@ -129,20 +171,24 @@ function apply() {
           placeholder="e.g. Read the incoming support ticket, have an LLM classify it as billing / technical / spam, and route each one — spam ends the flow, the others ask a human to confirm before replying."
         />
         <div class="flex flex-wrap items-center gap-2">
-          <Button variant="primary" :icon="copied ? 'check' : 'copy'" @click="copyPrompt">
-            {{ copied ? 'Prompt copied' : 'Copy designer prompt' }}
+          <Button variant="primary" :icon="copied ? 'check' : 'copy'" :disabled="promptLoading" @click="copyPrompt">
+            {{ copied ? 'Prompt copied' : promptLoading ? 'Building…' : 'Copy designer prompt' }}
           </Button>
-          <Button :icon="showPrompt ? 'chevron-down' : 'chevron-right'" @click="showPrompt = !showPrompt">
+          <Button :icon="showPrompt ? 'chevron-down' : 'chevron-right'" :disabled="promptLoading" @click="togglePrompt">
             {{ showPrompt ? 'Hide prompt' : 'View prompt' }}
           </Button>
           <p class="text-[11.5px] text-fg-subtle">
             Carries the node catalog, the wiring rules and the ids on this canvas — paste it into any chat.
           </p>
         </div>
+        <p v-if="promptError" class="flex items-start gap-1.5 text-[11.5px] text-warning">
+          <Icon name="alert-triangle" :size="14" class="mt-px shrink-0" />
+          Couldn't reach the backend prompt builder ({{ promptError }}) — used the local one.
+        </p>
         <pre
           v-if="showPrompt"
           class="max-h-56 overflow-auto rounded-xl border bg-surface-2 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-fg-muted"
-          >{{ prompt }}</pre
+          >{{ promptLoading ? 'Building prompt…' : prompt }}</pre
         >
       </section>
 

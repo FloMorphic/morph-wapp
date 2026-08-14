@@ -20,6 +20,13 @@ export const useWorkflowsStore = defineStore('workflows', () => {
 
   const isRemote = flowsApi.isRemote()
 
+  /** True once the list has been fetched at least once — so a live `flow.changed`
+   * event only refreshes a list the user has actually opened. */
+  const loaded = ref(false)
+  /** The most recent external flow change seen on the socket, for any view (e.g.
+   * the editor) that wants to react to its own open flow being updated. */
+  const lastChanged = ref<{ id: string; source: string; at: number } | null>(null)
+
   async function fetchPage(target = 1): Promise<void> {
     loading.value = true
     error.value = null
@@ -29,12 +36,36 @@ export const useWorkflowsStore = defineStore('workflows', () => {
       page.value = res.page
       totalPages.value = res.total_pages
       total.value = res.total
+      loaded.value = true
     } catch (err) {
       error.value = (err as Error).message
       items.value = []
     } finally {
       loading.value = false
     }
+  }
+
+  // Coalesce bursts (e.g. an agent saving several flows) into one refresh.
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
+  function scheduleRefresh(): void {
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      void fetchPage(page.value)
+    }, 300)
+  }
+
+  /**
+   * Apply a `flow.changed` socket event (see flomorphic-api api/wslog): a flow
+   * was created or updated out-of-band — by an MCP client, another browser tab,
+   * or the scheduler. It records the change for other views to observe and, when
+   * the list is currently loaded, refreshes the current page so a flow authored
+   * elsewhere appears without a manual reload. Payload: `{ id, source }`.
+   */
+  function ingestFlowChanged(payload: unknown): void {
+    const p = (payload ?? {}) as { id?: string; source?: string }
+    lastChanged.value = { id: p.id ?? '', source: p.source ?? '', at: Date.now() }
+    if (loaded.value) scheduleRefresh()
   }
 
   async function refresh(): Promise<void> {
@@ -80,6 +111,8 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     page,
     total,
     totalPages,
+    loaded,
+    lastChanged,
     hasPrev: () => page.value > 1,
     hasNext: () => page.value < totalPages.value,
     fetchPage,
@@ -90,6 +123,7 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     remove,
     save,
     get,
+    ingestFlowChanged,
   }
 })
 

@@ -12,6 +12,7 @@ import {
 import { apiBaseUrl, apiEnabled, getAuthToken } from '@/api/client'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useHitlStore } from '@/stores/hitl'
+import { useWorkflowsStore } from '@/stores/workflows'
 
 /**
  * Live runtime log stream for the workflow editor.
@@ -247,6 +248,12 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
     socket.on('hitl.message', (payload: unknown) => useHitlStore().ingestSocketTask(payload))
     // Incremental tokens of the bot's reply, rendered live in the panel.
     socket.on('hitl.stream', (payload: unknown) => useHitlStore().ingestStreamChunk(payload))
+
+    // A workflow was created/updated out-of-band (an MCP client, another tab, the
+    // scheduler). The workflows store refreshes its list when loaded so the flow
+    // appears without a manual reload, and records the change for the editor to
+    // observe. Resolved lazily to avoid a hard dependency on the workflows store.
+    socket.on('flow.changed', (payload: unknown) => useWorkflowsStore().ingestFlowChanged(payload))
   }
 
   function disconnect(): void {
