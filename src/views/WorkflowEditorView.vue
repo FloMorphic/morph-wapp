@@ -195,6 +195,10 @@ async function save() {
   const graph = canvas.value?.getGraph()
   if (!graph) return
   saving.value = true
+  // Arm the self-save guard before the await: the server echoes `flow.changed`
+  // over the socket, which can beat this HTTP response back, and an echo seen
+  // before the guard is armed looks like an external edit.
+  lastSelfSaveAt = Date.now()
   try {
     const record = await store.save({ id: currentId.value, title: title.value.trim() || UNTITLED, view_flow: graph })
     lastSelfSaveAt = Date.now()
