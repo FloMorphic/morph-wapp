@@ -11,3 +11,4 @@ minimumReleaseAgeExclude:
   - '@inflowenger/plugin-form-builder@0.1.8'
   - '@inflowenger/plugin-form-builder@0.1.9'
   - '@inflowenger/plugin-form-builder@0.2.0'
+  - '@inflowenger/flow-trace@0.2.2'

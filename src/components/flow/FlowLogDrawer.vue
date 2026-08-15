@@ -172,6 +172,10 @@ function kindClass(kind?: string): string {
   // sets it apart from routing (emerald) — nothing branched, one node is just
   // running several times.
   if (kind === 'scope.fanout') return 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300'
+  // A run continuing an earlier one — a process-lifecycle event announced right
+  // after proc.start, so it shares the violet lifecycle family (a touch stronger
+  // to set it apart from start/finish).
+  if (kind === 'resume') return 'bg-violet-500/20 text-violet-600 dark:text-violet-300'
   if (kind === 'log') return 'bg-fg-subtle/15 text-fg-muted'
   return 'bg-amber-500/15 text-amber-600 dark:text-amber-300'
 }
