@@ -102,11 +102,19 @@ function openAdd(next: AddMode) {
   form.runtime = 'auto'
   form.envFile = '.env.inflow'
   form.dir = ''
-  form.env = []
+  form.env = seedEnv()
   dirTouched.value = false
   formError.value = null
   handoff.value = null
   showAdd.value = true
+}
+
+/** The inflowenger infrastructure (NATS) endpoint the plugin dials at runtime.
+ *  The backend can't detect the address a remote plugin host must reach, so we
+ *  seed it as an editable variable defaulting to localhost and let the operator
+ *  point it at wherever inflowenger is installed. */
+function seedEnv(): EnvVar[] {
+  return [{ key: 'INFRA_URL', value: 'localhost:4222' }]
 }
 
 function addEnvRow() {
@@ -643,8 +651,14 @@ const modalTitle = computed(() => {
             </button>
           </div>
           <p class="text-[11px] text-fg-subtle">
-            Anything the plugin needs beyond inflow itself (API keys, endpoints). <code class="font-mono">PLUGIN_ID</code>,
-            <code class="font-mono">INFRA_URL</code> and <code class="font-mono">INFRA_CRED</code> are added for you.
+            Anything the plugin needs beyond inflow itself (API keys, endpoints). <code class="font-mono">PLUGIN_ID</code> and
+            <code class="font-mono">INFRA_CRED</code> are added for you.
+          </p>
+          <p class="text-[11px] text-fg-subtle">
+            <code class="font-mono">INFRA_URL</code> is the inflowenger infrastructure (NATS) address the plugin connects to at
+            runtime — it defaults to <code class="font-mono">localhost:4222</code>. Wherever you've installed inflowenger, set
+            this to that host's <code class="font-mono">host:port</code> (NATS listens on <code class="font-mono">4222</code>) so
+            the plugin can reach it.
           </p>
         </div>
 
