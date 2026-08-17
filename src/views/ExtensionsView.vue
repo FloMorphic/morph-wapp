@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { emptyInstall, useExtensionsStore, type PluginStatus } from '@/stores/extensions'
 import { useNotificationsStore } from '@/stores/notifications'
 import { fetchPluginIntro } from '@/lib/pluginSettings'
+import { apiBaseUrl } from '@/api/client'
 import type { EnvVar, ExtensionRecord, InstallInfo, InstallRuntime, PluginIntro } from '@/types/api'
 import PluginOnboardModal from '@/components/settings/PluginOnboardModal.vue'
 import PageShell from '@/components/ui/PageShell.vue'
@@ -162,6 +163,27 @@ async function submit() {
   }
 }
 
+/** Repoint the installer at the origin the browser is *already* using to reach
+ *  the API. The backend builds `scriptUrl`/`command` from the request it sees,
+ *  but behind a reverse proxy that request has been rewritten — the public host,
+ *  port and any `/api` prefix are stripped before it arrives — so the URL the
+ *  backend hands back (127.0.0.1, no port, no prefix) reaches the proxy, not the
+ *  API. The page origin plus the configured API base *is* the reachable address,
+ *  by definition: it's how this very screen loaded the data. Keep only the path
+ *  the backend chose and splice on that known-good origin. */
+function withReachableUrl(info: InstallInfo): InstallInfo {
+  const base = apiBaseUrl()
+  if (!base) return info
+  try {
+    const apiBase = new URL(base, window.location.origin).href.replace(/\/$/, '')
+    const path = new URL(info.scriptUrl)
+    const scriptUrl = apiBase + path.pathname + path.search
+    return { ...info, scriptUrl, command: info.command.replace(info.scriptUrl, scriptUrl) }
+  } catch {
+    return info
+  }
+}
+
 /** Fetch what the user needs to run a registered plugin: the installer one-liner
  *  when the row has a source repo, otherwise just its env file. */
 async function loadHandoff(ext: ExtensionRecord, dir?: string) {
@@ -169,7 +191,7 @@ async function loadHandoff(ext: ExtensionRecord, dir?: string) {
   handoff.value = null
   try {
     if (ext.install?.repo) {
-      const info = await store.installInfo(ext.id, dir)
+      const info = withReachableUrl(await store.installInfo(ext.id, dir))
       handoff.value = { kind: 'install', name: ext.name, pluginId: info.pluginId, info }
     } else {
       const res = await store.pluginEnv(ext.id)
