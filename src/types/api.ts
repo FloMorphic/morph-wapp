@@ -730,3 +730,35 @@ export interface ScheduleTrigger extends TriggerBase {
 }
 
 export type Trigger = WebhookTrigger | ScheduleTrigger
+
+// --- Inflow engine dispatch pool ---------------------------------------------
+
+/** One engine instance in the inflow dispatch pool, as the settings dialog sees
+ *  it. Runtime-only: the pool lives in the inflow-fusion SDK, not the database,
+ *  so these rows are never persisted locally. The resource's bearer token is
+ *  never sent to the client. */
+export interface InflowResource {
+  name: string
+  url: string
+  tags: string[]
+  /** True for the single resource all dispatch is currently pinned to. */
+  pinned: boolean
+}
+
+/** GET /resource — the live dispatch pool plus the name of the pinned resource
+ *  (empty when dispatch round-robins across the whole pool). */
+export interface InflowResourcePool {
+  list: InflowResource[]
+  pinned: string
+}
+
+/** Body of POST /resource — add one engine instance by hand. */
+export interface AddInflowResourceInput {
+  name?: string
+  url: string
+  /** Bearer secret for this resource; blank falls back to the infra bearer. */
+  token?: string
+  tags?: string[]
+  /** "Use just this one" — tag the resource so all dispatch pins to it. */
+  pin?: boolean
+}
