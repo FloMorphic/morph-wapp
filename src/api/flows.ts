@@ -4,7 +4,7 @@ import { readCollection, writeCollection } from '@/lib/localStore'
 import { createId, now } from '@/lib/id'
 
 /**
- * Flow repository. Uses the inspector-api `/flow` endpoints when a backend is
+ * Flow repository. Uses the flomorphic-api `/flow` endpoints when a backend is
  * configured, otherwise persists to localStorage so the app works standalone.
  * Both paths return identical {@link FlowRecord} shapes.
  */

@@ -14,7 +14,7 @@ import type { ExtensionKind, ExtensionRecord, ExtensionType } from '@/types/api'
 /**
  * Node registry admin panel — define the nodes that make up the canvas palette.
  * Builtins ship with FloMorphic (seeded on first run) and are edited here;
- * extensions are inflowv1 plugins imported by users. Mirrors inflow-inspector's
+ * extensions are inflowv1 plugins imported by users. Mirrors flomorphic-api's
  * extension editor, in FloMorphic's UI. Backed by `/extension`.
  */
 

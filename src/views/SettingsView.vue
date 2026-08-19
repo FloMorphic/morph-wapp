@@ -157,7 +157,7 @@ function clearLocal() {
       <section class="card p-5">
         <h2 class="text-sm font-semibold text-fg">Backend</h2>
         <p class="mb-4 mt-1 text-[13px] text-fg-muted">
-          FloMorphic talks to the Inflowenger <code class="font-mono text-xs text-accent">inspector-api</code>.
+          FloMorphic talks to the Inflowenger <code class="font-mono text-xs text-accent">flomorphic-api</code>.
           Set <code class="font-mono text-xs">VITE_API_BASE_URL</code> to connect; otherwise it runs standalone with
           browser-local persistence.
         </p>

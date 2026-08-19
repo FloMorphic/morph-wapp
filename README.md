@@ -22,7 +22,7 @@ backend compiles that graph down to Inflowenger's small set of runtime primitive
 
 > **Context is the memory. Workflows are the logic. Fractals are the processors.**
 
-Where the low-level [`inflow-inspector`](../inflow-vue/inflow-inspector) edits the raw runtime
+Where the low-level [`flomorphic-api`](../inflow-vue/flomorphic-api) edits the raw runtime
 primitives, FloMorphic is the **product layer**: its nodes speak the language of *what you want
 to build*, and each one records which primitive(s) it lowers to on compile. AI is treated as a
 capability *within* the execution model — not the center of it — so FloMorphic is useful without
@@ -72,7 +72,7 @@ it reads / writes).
 - 🧩 **Catalog-driven nodes** — a single generic renderer + a typed node catalog; adding a node
   kind is a catalog entry, not a new component.
 - 💾 **Runs standalone or connected** — with no backend it persists workflows to `localStorage`;
-  point it at `inspector-api` and the same code path talks to the real runtime.
+  point it at `flomorphic-api` and the same code path talks to the real runtime.
 - 🌗 **Light / dark / system theming** — Tailwind v4 with runtime CSS design tokens.
 - 🧩 **Extensions manager** — register an extension from a Git repo + env; the backend clones and
   runs it so it joins the inflow ecosystem and contributes plugin nodes to the palette.
@@ -108,10 +108,10 @@ your workflows in the browser.
 
 ### Connecting a backend
 
-FloMorphic talks to the Inflowenger `inspector-api`. Copy `.env.example` to `.env` and set:
+FloMorphic talks to the Inflowenger `flomorphic-api`. Copy `.env.example` to `.env` and set:
 
 ```bash
-VITE_API_BASE_URL=http://localhost:9000   # your inspector-api base URL
+VITE_API_BASE_URL=http://localhost:9000   # your flomorphic-api base URL
 ```
 
 When set, the header shows **Connected** and workflow list/read/save/delete go through the API
@@ -143,7 +143,7 @@ For the whole product in one container — canvas, API and plugin nodes — see
 
 ```
 src/
-├── api/            # Typed inspector-api client + repositories (backend or local)
+├── api/            # Typed flomorphic-api client + repositories (backend or local)
 ├── assets/         # Vue Flow theme overrides
 ├── components/
 │   ├── flow/       # Canvas, palette, node inspector, generic FlowNode
@@ -161,7 +161,7 @@ src/
 
 - **Vue SPA over Nuxt** — FloMorphic is a canvas-heavy, real-time editor. SSR adds little (the
   canvas can't meaningfully server-render), while a static SPA runs equally well local or online.
-  It also shares the exact stack of `inflow-inspector`, so patterns transfer directly.
+  It also shares the exact stack of `flomorphic-api`, so patterns transfer directly.
 - **Tailwind v4 + design tokens** — utilities for speed, runtime CSS variables for theming, so
   light/dark are a token swap rather than a duplicated stylesheet.
 - **Self-contained icons** — an inline-SVG set (no icon CDN) keeps the app fully offline-capable.
@@ -171,7 +171,7 @@ src/
 FloMorphic is the workflow-builder surface of the Inflowenger ecosystem:
 
 - **Inflowenger** — the context runtime: workflow graphs, contexts, fractals.
-- **inspector-api** — the backend FloMorphic connects to (flows, contexts, extensions, processes).
+- **flomorphic-api** — the backend FloMorphic connects to (flows, contexts, extensions, processes).
 - **inflow-plugin-sdk** — build plugins against the InflowV1 protocol; each becomes a palette node.
 
 ---

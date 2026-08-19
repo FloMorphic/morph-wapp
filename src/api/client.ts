@@ -1,7 +1,7 @@
 import type { ApiEnvelope, Page, PaginationParams } from '@/types/api'
 
 /**
- * Minimal typed HTTP client for the Inflowenger `inspector-api`.
+ * Minimal typed HTTP client for the Inflowenger `flomorphic-api`.
  *
  * The backend wraps every response in `{ data, error }`. This client unwraps
  * `data` on success and throws {@link ApiError} on failure. When no base URL is
@@ -21,7 +21,7 @@ export class ApiError extends Error {
 
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 
-/** Optional bearer token (HS256 handshake used by inspector-api). */
+/** Optional bearer token (HS256 handshake used by flomorphic-api). */
 let authToken: string | null = null
 export function setAuthToken(token: string | null): void {
   authToken = token

@@ -25,7 +25,7 @@ import { useWorkflowsStore } from '@/stores/workflows'
  *   - `processes` — per-pid lifecycle, so a flow's live-run count is derived
  *                   from the stream instead of polling `/process`.
  *
- * Modelled on inflow-inspector's useSocketIO composable, adapted to a Pinia
+ * Modelled on flomorphic-api's useSocketIO composable, adapted to a Pinia
  * singleton so the drawer and the toolbar badge share one connection.
  */
 

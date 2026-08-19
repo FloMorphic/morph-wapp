@@ -20,7 +20,7 @@ defineProps<{
     <div class="mb-6 rounded-xl border border-dashed bg-surface-2 px-5 py-4 text-sm text-fg-muted">
       <span class="font-medium text-fg">Scaffolded.</span>
       This section is part of the FloMorphic base plate — the model and layout are wired, and it lights up
-      against the Inflowenger <code class="font-mono text-xs text-accent">inspector-api</code> backend.
+      against the Inflowenger <code class="font-mono text-xs text-accent">flomorphic-api</code> backend.
     </div>
 
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

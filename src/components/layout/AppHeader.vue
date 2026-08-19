@@ -33,7 +33,7 @@ const remote = flowsApi.isRemote()
       <span
         class="hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium sm:inline-flex"
         :class="remote ? 'text-success' : 'text-fg-muted'"
-        :title="remote ? 'Connected to inspector-api' : 'Running standalone with local persistence'"
+        :title="remote ? 'Connected to flomorphic-api' : 'Running standalone with local persistence'"
       >
         <span class="h-1.5 w-1.5 rounded-full" :style="{ background: remote ? 'var(--success)' : 'var(--fg-subtle)' }" />
         {{ remote ? 'Connected' : 'Local' }}
