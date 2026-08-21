@@ -114,7 +114,7 @@ async function saveForm() {
   const label = form.value.label.trim()
   const token = form.value.token.trim()
   if (!editing.value && !token) {
-    formError.value = 'A runtime token is required to create a connection.'
+    formError.value = 'An access token is required to create a connection.'
     return
   }
   saving.value = true
@@ -210,8 +210,8 @@ async function removeConnection(c: ConnectConnection) {
             </span>
           </div>
           <p class="mb-4 mt-2 text-[13px] text-fg-muted">
-            oomol hosts OpenConnector in the cloud with a free tier of 20,000 calls per month. Create an account, mint a
-            runtime token, and paste it below — FloMorphic stores it and routes every external call through it. Prefer to
+            oomol hosts OpenConnector in the cloud with a free tier of 20,000 calls per month. Create an account, mint an
+            access token, and paste it below — FloMorphic stores it and routes every external call through it. Prefer to
             keep everything on-prem? Point a connection at a self-hosted OpenConnector instead.
           </p>
 
@@ -229,8 +229,10 @@ async function removeConnection(c: ConnectConnection) {
             <li class="flex gap-3">
               <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] font-semibold text-fg-muted">2</span>
               <div class="text-[13px] text-fg">
-                In the console open the <span class="font-medium">Access</span> tab and create a
-                <span class="font-medium">Runtime Token</span> (it starts with <code class="font-mono text-xs text-accent">oct_</code>).
+                In the console open the <span class="font-medium">Access</span> tab and create an
+                <span class="font-medium">access token</span> — an
+                <code class="font-mono text-xs text-accent">api-…</code> key or an
+                <code class="font-mono text-xs text-accent">oct_…</code> runtime token.
                 <span class="text-fg-muted"> Copy it now — oomol shows it only once.</span>
               </div>
             </li>
@@ -302,11 +304,11 @@ async function removeConnection(c: ConnectConnection) {
 
             <label class="block">
               <span class="mb-1 block text-xs font-medium text-fg-muted">
-                Runtime token
+                Access token
                 <span v-if="editing" class="font-normal text-fg-subtle">— leave blank to keep the stored token</span>
               </span>
-              <input v-model="form.token" type="password" class="input" placeholder="oct_…" autocomplete="off" />
-              <span class="mt-1 block text-[11px] text-fg-subtle">Runs actions (the gateway's <code class="font-mono">/v1</code> surface).</span>
+              <input v-model="form.token" type="password" class="input" placeholder="api-… or oct_…" autocomplete="off" />
+              <span class="mt-1 block text-[11px] text-fg-subtle">The <code class="font-mono">api-…</code> key or <code class="font-mono">oct_…</code> runtime token from the console. Runs actions (the gateway's <code class="font-mono">/v1</code> surface).</span>
             </label>
 
             <label v-if="showAdminToken" class="block">
