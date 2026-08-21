@@ -77,6 +77,15 @@ const collapsed = computed(() => ui.sidebarCollapsed)
 
     <div class="border-t p-2.5">
       <RouterLink
+        to="/connect"
+        title="Connect"
+        class="mb-0.5 flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"
+        :class="{ 'is-active': activeSection === 'connect', 'justify-center': collapsed }"
+      >
+        <Icon name="connect" :size="18" />
+        <span v-if="!collapsed">Connect</span>
+      </RouterLink>
+      <RouterLink
         to="/settings"
         title="Settings"
         class="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"

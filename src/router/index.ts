@@ -93,6 +93,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Processes', section: 'processes' },
       },
       {
+        path: 'connect',
+        name: 'connect',
+        component: () => import('@/views/ConnectView.vue'),
+        meta: { title: 'Connect', section: 'connect' },
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/SettingsView.vue'),

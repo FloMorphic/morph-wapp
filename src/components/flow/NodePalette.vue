@@ -61,6 +61,21 @@ const actionGroups = computed(() => {
   return [...byPlugin.values()]
 })
 
+// Plugin groups render as accordions: collapsed by default so a plugin with many
+// actions stays compact. An active search expands everything so matches show.
+const expandedPlugins = ref<Set<string>>(new Set())
+
+function isExpanded(pluginId: string): boolean {
+  return search.value.trim().length > 0 || expandedPlugins.value.has(pluginId)
+}
+
+function togglePlugin(pluginId: string) {
+  const next = new Set(expandedPlugins.value)
+  if (next.has(pluginId)) next.delete(pluginId)
+  else next.add(pluginId)
+  expandedPlugins.value = next
+}
+
 function onActionDragStart(e: DragEvent, entry: PluginActionEntry) {
   e.dataTransfer?.setData('application/flomorphic-node', PLUGIN_SPEC.kind)
   e.dataTransfer?.setData('application/flomorphic-ext', JSON.stringify(entry.ref))
@@ -193,29 +208,42 @@ function onItemDragStart(e: DragEvent, spec: NodeSpec) {
         </p>
 
         <div v-for="group in actionGroups" :key="group.pluginId">
-          <p class="truncate px-1.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
-            {{ group.pluginName }}
-          </p>
           <button
-            v-for="entry in group.entries"
-            :key="entry.ref.extensionId"
-            draggable="true"
-            class="mb-0.5 flex w-full cursor-grab items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent-soft active:cursor-grabbing"
-            :title="entry.description || entry.action"
-            @dragstart="onActionDragStart($event, entry)"
-            @dblclick="emit('add', PLUGIN_SPEC, entry.ref)"
+            class="flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent-soft"
+            @click="togglePlugin(group.pluginId)"
           >
-            <span
-              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-              :style="{ background: `color-mix(in srgb, ${PLUGIN_SPEC.color} 16%, transparent)`, color: PLUGIN_SPEC.color }"
-            >
-              <Icon :name="entry.icon" :size="14" />
+            <Icon
+              :name="isExpanded(group.pluginId) ? 'chevron-down' : 'chevron-right'"
+              :size="12"
+              class="shrink-0 text-fg-subtle"
+            />
+            <span class="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+              {{ group.pluginName }}
             </span>
-            <span class="min-w-0">
-              <span class="block truncate text-[12.5px] font-medium text-fg">{{ entry.label }}</span>
-              <span class="block truncate font-mono text-[10.5px] text-fg-subtle">{{ entry.action }}</span>
-            </span>
+            <span class="shrink-0 text-[10px] font-medium text-fg-subtle">{{ group.entries.length }}</span>
           </button>
+          <div v-show="isExpanded(group.pluginId)">
+            <button
+              v-for="entry in group.entries"
+              :key="entry.ref.extensionId"
+              draggable="true"
+              class="mb-0.5 flex w-full cursor-grab items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent-soft active:cursor-grabbing"
+              :title="entry.description || entry.action"
+              @dragstart="onActionDragStart($event, entry)"
+              @dblclick="emit('add', PLUGIN_SPEC, entry.ref)"
+            >
+              <span
+                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                :style="{ background: `color-mix(in srgb, ${PLUGIN_SPEC.color} 16%, transparent)`, color: PLUGIN_SPEC.color }"
+              >
+                <Icon :name="entry.icon" :size="14" />
+              </span>
+              <span class="min-w-0">
+                <span class="block truncate text-[12.5px] font-medium text-fg">{{ entry.label }}</span>
+                <span class="block truncate font-mono text-[10.5px] text-fg-subtle">{{ entry.action }}</span>
+              </span>
+            </button>
+          </div>
         </div>
       </template>
     </div>

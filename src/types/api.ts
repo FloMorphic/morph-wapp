@@ -286,6 +286,46 @@ export interface PluginCredResponse {
   env: string
 }
 
+/* ---- Connect: OpenConnector (oomol) integration ---- */
+
+/** One configured OpenConnector gateway — hosted oomol or a self-hosted
+ * instance. The raw `token` is write-only: it is sent on create/update but never
+ * returned; reads carry `tokenSet` + a masked `tokenPreview` instead. */
+export interface ConnectConnection {
+  id: string
+  label: string
+  baseUrl: string
+  /** Runtime token (`oct_…`) for `/v1` execution — send on upsert; omit on
+   *  update to keep the stored one. */
+  token?: string
+  /** Admin token for `/api` management (browse/connect apps). Self-hosted only —
+   *  the operator's OOMOL_CONNECT_ADMIN_TOKEN. Empty for hosted oomol. */
+  adminToken?: string
+  /** Read-only: a runtime token is stored. */
+  tokenSet?: boolean
+  /** Read-only: masked tail of the stored runtime token (e.g. "…a1b2"). */
+  tokenPreview?: string
+  /** Read-only: an admin token is stored. */
+  adminTokenSet?: boolean
+  /** Read-only: masked tail of the stored admin token. */
+  adminTokenPreview?: string
+  /** Free-form endpoint flavour, for display: 'hosted' | 'selfhosted'. */
+  kind?: string
+  isDefault?: boolean
+  createdAt?: number
+  updatedAt?: number
+}
+
+/** POST /connect/connections/test result — a reachability/token probe. */
+export interface ConnectProbeResult {
+  ok: boolean
+  baseUrl: string
+  /** The admin token reached the management surface (`/api`). */
+  adminOk?: boolean
+  /** The runtime token reached the execution surface (`/v1`). */
+  runtimeOk?: boolean
+}
+
 /** Connection params an MCP node uses to reach its MCP server. Carried into the
  * plugin body at compile time (url / transport / auth) and also POSTed to the
  * "list tools" meta method so the plugin can connect and enumerate tools. */
