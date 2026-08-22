@@ -158,8 +158,23 @@ export interface ExtensionRecord {
    * node keeps its single default source handle. Only user `extension` nodes
    * carry this; builtin node UIs are hard-coded. */
   outbound?: OutboundPort[]
+  /** Free-form tags synced from the plugin's `@actions` (SDK Action.Tags). May
+   * be null. `tags.class` groups the actions of a multi-service plugin by the
+   * service they belong to (see {@link ExtensionTags}). */
+  tags?: ExtensionTags | null
   createdAt: number
   updatedAt: number
+}
+
+/** Free-form tags a plugin stamps on an action (SDK Action.Tags). May be null.
+ *  `class` buckets the actions of a multi-service plugin by the service they
+ *  belong to — a `google-oc` plugin exposes Sheets / Drive / Docs actions under
+ *  one plugin id, each tagged with its `class` (`sheet`, `drive`, `doc`, …) so a
+ *  palette can present the services as separate sections. Other keys are passed
+ *  through untouched. */
+export interface ExtensionTags {
+  class?: string
+  [key: string]: unknown
 }
 
 /** One declared branch of a plugin action (SDK OutboundPort). `title` labels the
@@ -202,6 +217,9 @@ export interface PluginAction {
   description?: string
   icon?: { ref?: string; icon?: string }
   form?: PluginFormBuilder
+  /** Free-form tags; `tags.class` buckets a multi-service plugin's actions by
+   * service (see {@link ExtensionTags}). May be null. */
+  tags?: ExtensionTags | null
 }
 
 /** POST /extension/id/:id/sync — what re-reading a plugin's descriptors did to

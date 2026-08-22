@@ -130,8 +130,10 @@ async function run(context: ContextRecord) {
       settings: runSettings.payload(),
     })
     launched.value = rec
-    // Surface the live log stream for the run just launched — open the drawer if
-    // it was closed (no-op when already open, and it (re)connects either way).
+    // Hand off to the log drawer: close the picker and surface the live log
+    // stream for the run just launched (open the drawer if it was closed — a
+    // no-op when already open, and it (re)connects either way).
+    open.value = false
     if (!logs.isOpen) logs.open()
     // Reflect the just-launched run in the "recent" grouping.
     await load()

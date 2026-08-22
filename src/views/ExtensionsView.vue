@@ -109,12 +109,18 @@ function openAdd(next: AddMode) {
   showAdd.value = true
 }
 
-/** The inflowenger infrastructure (NATS) endpoint the plugin dials at runtime.
- *  The backend can't detect the address a remote plugin host must reach, so we
- *  seed it as an editable variable defaulting to localhost and let the operator
- *  point it at wherever inflowenger is installed. */
+/** The env every new extension starts with:
+ *  - INFRA_URL — the inflowenger infrastructure (NATS) endpoint the plugin dials
+ *    at runtime. The backend can't detect the address a remote plugin host must
+ *    reach, so we seed it as an editable variable defaulting to localhost and let
+ *    the operator point it at wherever inflowenger is installed.
+ *  - REQ_TIMEOUT — the plugin's per-request timeout (seconds). Some plugins need
+ *    longer than the 20s default, so we seed 25 for all; the operator can raise it. */
 function seedEnv(): EnvVar[] {
-  return [{ key: 'INFRA_URL', value: 'localhost:4222' }]
+  return [
+    { key: 'INFRA_URL', value: 'localhost:4222' },
+    { key: 'REQ_TIMEOUT', value: '25' },
+  ]
 }
 
 function addEnvRow() {

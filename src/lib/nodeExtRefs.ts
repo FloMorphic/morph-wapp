@@ -57,6 +57,11 @@ export interface PluginActionEntry {
   /** The plugin this action belongs to, for grouping and search. */
   pluginId: string
   pluginName: string
+  /** `tags.class` — the service bucket within a multi-service plugin (a
+   * `google-oc` plugin tags its actions `sheet` / `drive` / `doc`, …). Empty
+   * when the plugin doesn't classify its actions, so the palette groups by
+   * plugin alone. */
+  className: string
 }
 
 /**
@@ -144,5 +149,6 @@ async function loadActions(): Promise<PluginActionEntry[]> {
       icon: row.icon?.name || 'plugin',
       pluginId: row.pluginId,
       pluginName: pluginNames.get(row.pluginId) ?? row.pluginId,
+      className: (typeof row.tags?.class === 'string' ? row.tags.class : '').trim(),
     }))
 }

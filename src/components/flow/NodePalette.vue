@@ -46,16 +46,42 @@ const filteredActions = computed(() => {
   const q = search.value.trim().toLowerCase()
   if (!q) return pluginActions.value
   return pluginActions.value.filter((e) =>
-    [e.label, e.action, e.description, e.pluginName].some((s) => s?.toLowerCase().includes(q)),
+    [e.label, e.action, e.description, e.pluginName, e.className].some((s) => s?.toLowerCase().includes(q)),
   )
 })
 
-/** Actions grouped under the plugin that contributed them. */
-const actionGroups = computed(() => {
-  const byPlugin = new Map<string, { pluginId: string; pluginName: string; entries: PluginActionEntry[] }>()
+/** One service bucket inside a plugin group — the actions sharing a `tags.class`. */
+interface ClassSection {
+  className: string
+  entries: PluginActionEntry[]
+}
+
+interface PluginGroup {
+  pluginId: string
+  pluginName: string
+  entries: PluginActionEntry[]
+  /** Class buckets, in first-seen order. A plugin that doesn't classify its
+   *  actions has a single section with an empty `className`. Only when there is
+   *  more than one class does the template draw inner dividers — a `google-oc`
+   *  plugin then splits into Sheet / Drive / Doc sections under one accordion. */
+  sections: ClassSection[]
+}
+
+/** Actions grouped under the plugin that contributed them, then bucketed by the
+ *  `tags.class` of a multi-service plugin so each service reads as its own list. */
+const actionGroups = computed<PluginGroup[]>(() => {
+  const byPlugin = new Map<string, PluginGroup>()
   for (const entry of filteredActions.value) {
-    const group = byPlugin.get(entry.pluginId) ?? { pluginId: entry.pluginId, pluginName: entry.pluginName, entries: [] }
+    const group = byPlugin.get(entry.pluginId) ?? {
+      pluginId: entry.pluginId,
+      pluginName: entry.pluginName,
+      entries: [],
+      sections: [],
+    }
     group.entries.push(entry)
+    const section = group.sections.find((s) => s.className === entry.className)
+    if (section) section.entries.push(entry)
+    else group.sections.push({ className: entry.className, entries: [entry] })
     byPlugin.set(entry.pluginId, group)
   }
   return [...byPlugin.values()]
@@ -223,26 +249,37 @@ function onItemDragStart(e: DragEvent, spec: NodeSpec) {
             <span class="shrink-0 text-[10px] font-medium text-fg-subtle">{{ group.entries.length }}</span>
           </button>
           <div v-show="isExpanded(group.pluginId)">
-            <button
-              v-for="entry in group.entries"
-              :key="entry.ref.extensionId"
-              draggable="true"
-              class="mb-0.5 flex w-full cursor-grab items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent-soft active:cursor-grabbing"
-              :title="entry.description || entry.action"
-              @dragstart="onActionDragStart($event, entry)"
-              @dblclick="emit('add', PLUGIN_SPEC, entry.ref)"
-            >
-              <span
-                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-                :style="{ background: `color-mix(in srgb, ${PLUGIN_SPEC.color} 16%, transparent)`, color: PLUGIN_SPEC.color }"
+            <!-- A multi-service plugin (more than one tags.class) splits into a
+                 labelled section per service; a single-service plugin renders
+                 its actions flat, with no extra header. -->
+            <div v-for="section in group.sections" :key="section.className">
+              <p
+                v-if="group.sections.length > 1"
+                class="px-1.5 pb-0.5 pt-1 pl-6 text-[9.5px] font-semibold uppercase tracking-wider text-fg-subtle"
               >
-                <Icon :name="entry.icon" :size="14" />
-              </span>
-              <span class="min-w-0">
-                <span class="block truncate text-[12.5px] font-medium text-fg">{{ entry.label }}</span>
-                <span class="block truncate font-mono text-[10.5px] text-fg-subtle">{{ entry.action }}</span>
-              </span>
-            </button>
+                {{ section.className || 'Other' }}
+              </p>
+              <button
+                v-for="entry in section.entries"
+                :key="entry.ref.extensionId"
+                draggable="true"
+                class="mb-0.5 flex w-full cursor-grab items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent-soft active:cursor-grabbing"
+                :title="entry.description || entry.action"
+                @dragstart="onActionDragStart($event, entry)"
+                @dblclick="emit('add', PLUGIN_SPEC, entry.ref)"
+              >
+                <span
+                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                  :style="{ background: `color-mix(in srgb, ${PLUGIN_SPEC.color} 16%, transparent)`, color: PLUGIN_SPEC.color }"
+                >
+                  <Icon :name="entry.icon" :size="14" />
+                </span>
+                <span class="min-w-0">
+                  <span class="block truncate text-[12.5px] font-medium text-fg">{{ entry.label }}</span>
+                  <span class="block truncate font-mono text-[10.5px] text-fg-subtle">{{ entry.action }}</span>
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       </template>
