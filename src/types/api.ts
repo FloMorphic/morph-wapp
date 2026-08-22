@@ -207,6 +207,11 @@ export interface PluginIntro {
   author?: string
   version?: string
   settings?: PluginFormBuilder
+  /** Optional Markdown help doc the plugin ships (SDK's `PluginIntro.Manual`).
+   * Rendered on the extension card's Manual panel; a fenced ```inflow-meta block
+   * (body = a meta method name) becomes a Run button that calls that meta live
+   * (see lib/manualMarkdown + plugin/PluginManual). */
+  manual?: string
 }
 
 /** One entry of `@actions` — a method the plugin exposes, with the label/icon a

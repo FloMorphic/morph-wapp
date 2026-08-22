@@ -6,6 +6,7 @@ import { fetchPluginIntro } from '@/lib/pluginSettings'
 import { apiBaseUrl } from '@/api/client'
 import type { EnvVar, ExtensionRecord, InstallInfo, InstallRuntime, PluginIntro } from '@/types/api'
 import PluginOnboardModal from '@/components/settings/PluginOnboardModal.vue'
+import PluginManual from '@/components/plugin/PluginManual.vue'
 import PageShell from '@/components/ui/PageShell.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Button from '@/components/ui/Button.vue'
@@ -276,6 +277,30 @@ async function openOnboard(ext: ExtensionRecord) {
   }
 }
 
+// ---- Manual (the plugin's @intro.manual help doc) ---------------------------
+
+const showManual = ref(false)
+const manualExt = ref<ExtensionRecord | null>(null)
+const manualIntro = ref<PluginIntro | null>(null)
+const manualLoading = ref(false)
+const manualError = ref<string | null>(null)
+
+/** Open the plugin's manual: read @intro live, then render its `manual` doc. */
+async function openManual(ext: ExtensionRecord) {
+  manualExt.value = ext
+  manualIntro.value = null
+  manualError.value = null
+  manualLoading.value = true
+  showManual.value = true
+  try {
+    manualIntro.value = await fetchPluginIntro(ext.id)
+  } catch (err) {
+    manualError.value = (err as Error).message
+  } finally {
+    manualLoading.value = false
+  }
+}
+
 /** Rebuild this plugin's palette nodes from its live action list. */
 async function syncPlugin(ext: ExtensionRecord) {
   busy.value = { ...busy.value, [ext.id]: 'sync' }
@@ -436,6 +461,14 @@ const modalTitle = computed(() => {
             <Button icon="refresh" title="Ask the plugin whether it is up" @click="store.probe(ext.id)">Check</Button>
 
             <div class="ml-auto flex items-center gap-0.5">
+              <!-- @intro.manual → the plugin's help doc, with live meta buttons. -->
+              <button
+                class="rounded-lg p-1.5 text-fg-subtle hover:bg-accent-soft hover:text-accent"
+                title="Read this plugin's manual"
+                @click="openManual(ext)"
+              >
+                <Icon name="info" :size="15" />
+              </button>
               <!-- @intro → the plugin's own settings form, saved as a profile. -->
               <button
                 class="rounded-lg p-1.5 text-fg-subtle hover:bg-accent-soft hover:text-accent disabled:opacity-40"
@@ -683,6 +716,32 @@ const modalTitle = computed(() => {
           </Button>
         </template>
       </template>
+    </Modal>
+
+    <!-- Plugin manual: the @intro.manual help doc, with live meta buttons. -->
+    <Modal
+      :open="showManual"
+      :title="manualExt ? `${manualExt.name} — manual` : 'Manual'"
+      subtitle="The plugin's own help doc. Run buttons call its meta functions live."
+      size="lg"
+      @close="showManual = false"
+    >
+      <div v-if="manualLoading" class="py-10 text-center text-sm text-fg-muted">Reading the plugin…</div>
+      <div v-else-if="manualError" class="rounded-lg border border-dashed px-4 py-8 text-center">
+        <p class="text-sm text-danger">{{ manualError }}</p>
+        <p class="mt-1 text-[12px] text-fg-subtle">Start the plugin first — the manual is read from the running process.</p>
+      </div>
+      <PluginManual
+        v-else-if="manualIntro?.manual"
+        :plugin-id="manualExt?.pluginId ?? ''"
+        :manual="manualIntro.manual"
+      />
+      <EmptyState
+        v-else
+        icon="info"
+        title="No manual"
+        description="This plugin doesn't ship a manual. A developer adds one via PluginIntro.Manual in the SDK."
+      />
     </Modal>
 
     <!-- Plugin onboarding: the settings form read live from @intro. -->
