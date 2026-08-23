@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { markRaw, nextTick, ref, type Component } from 'vue'
-import { VueFlow, useVueFlow, getRectOfNodes, MarkerType, type Connection, type GraphNode } from '@vue-flow/core'
+import { markRaw, nextTick, provide, ref, type Component } from 'vue'
+import { VueFlow, useVueFlow, getRectOfNodes, MarkerType, ConnectionLineType, Position, type Connection, type GraphNode } from '@vue-flow/core'
 import { toPng } from 'html-to-image'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import FlowNode from './nodes/FlowNode.vue'
+import RoutedEdge from './edges/RoutedEdge.vue'
 import NodePalette from './NodePalette.vue'
 import {
   NODE_SPECS,
@@ -21,6 +22,17 @@ import type { NodeExtRef } from '@/lib/nodeSettings'
 import { fetchNodeExtRefs, fetchPluginActions, type PluginActionEntry } from '@/lib/nodeExtRefs'
 import type { PlannedPatch } from '@/lib/aiGraph'
 import { layeredLayout } from '@/lib/graphLayout'
+import {
+  routeEdge,
+  roundedPath,
+  midpoint,
+  DEFAULT_ROUTE_OPTIONS,
+  ROUTED_PATHS,
+  type Rect,
+  type RouteRequest,
+  type RoutedPath,
+  type Side,
+} from '@/lib/edgeRouting'
 import { createId } from '@/lib/id'
 
 const emit = defineEmits<{
@@ -47,12 +59,24 @@ const nodeTypes: Record<string, Component> = Object.fromEntries(
 // join, and Goto just redirects the flow.
 const NO_BINDING_KINDS = new Set<string>(['startNode', 'until', 'promissall', 'goto'])
 
+// Every edge renders through the custom 'routed' type (RoutedEdge): its path is
+// computed by the obstacle-avoiding router (see recomputeRoutes) so it bends
+// through the empty channels *around* the nodes with a fixed clearance instead
+// of cutting straight across them, and the arrowhead still lands on the port.
+const EDGE_STYLE = {
+  type: 'routed',
+  markerEnd: MarkerType.ArrowClosed,
+} as const
+
+const edgeTypes: Record<string, Component> = { routed: markRaw(RoutedEdge) }
+
 const {
   onConnect,
   onNodeClick,
   onPaneClick,
   onEdgeUpdate,
   onNodesChange,
+  onNodesInitialized,
   screenToFlowCoordinate,
   findNode,
   fitView,
@@ -129,10 +153,10 @@ onConnect((params: Connection) => {
     target: params.target,
     sourceHandle: params.sourceHandle,
     targetHandle: params.targetHandle,
-    type: 'default',
-    markerEnd: MarkerType.ArrowClosed,
+    ...EDGE_STYLE,
     data: { tags: tagsForPort(params.source, params.sourceHandle) ?? [] },
   })
+  scheduleReroute()
   emit('dirty')
 })
 
@@ -142,12 +166,15 @@ onConnect((params: Connection) => {
 onEdgeUpdate(({ edge, connection }) => {
   updateEdge(edge, connection, false)
   void nextTick(syncPortTags)
+  scheduleReroute()
   emit('dirty')
 })
 
-// Delete-key removal targets the selected node; clear the config panel with it
-// so it never shows a node that no longer exists.
+// Node changes (drag, resize, add, remove) stream through here — reroute so the
+// edges follow. Delete-key removal targets the selected node; clear the config
+// panel with it so it never shows a node that no longer exists.
 onNodesChange((changes) => {
+  scheduleReroute()
   if (changes.some((c) => c.type === 'remove')) emit('select', null)
 })
 
@@ -203,7 +230,9 @@ function sanitizeEdge(e: any) {
     target: e.target,
     sourceHandle: e.sourceHandle || null,
     targetHandle: e.targetHandle || null,
-    type: e.type || 'default',
+    // All edges render through the routed custom type, upgrading graphs saved
+    // before it (bezier 'default' / plain 'smoothstep') on load.
+    type: EDGE_STYLE.type,
     markerEnd: MarkerType.ArrowClosed,
     data: e.data,
   }
@@ -231,6 +260,7 @@ function loadGraph(graph: VueFlowGraph, seedStart = false) {
     const p = graph?.position
     if (p && typeof p.x === 'number') setViewport({ x: p.x, y: p.y, zoom: p.zoom })
     else fitView({ padding: 0.3 })
+    scheduleReroute()
   })
 }
 
@@ -302,12 +332,12 @@ async function applyPatch(patch: PlannedPatch): Promise<void> {
       target: e.target,
       sourceHandle: e.sourceHandle,
       targetHandle: e.targetHandle,
-      type: 'default',
-      markerEnd: MarkerType.ArrowClosed,
+      ...EDGE_STYLE,
       data: { tags: tagsForPort(e.source, e.sourceHandle) ?? [] },
     })
   }
 
+  scheduleReroute()
   emit('dirty')
   const added = patch.nodes.map((n) => n.id)
   if (added.length) void nextTick(() => fitView({ nodes: added, padding: 0.35, duration: 300 }))
@@ -364,7 +394,12 @@ function autoArrange() {
     if (p) n.position = { x: p.x, y: p.y }
   }
   emit('dirty')
-  void nextTick(() => fitView({ padding: 0.2, duration: 400 }))
+  // Re-lay, then re-route the edges around the freshly placed nodes so the tidy
+  // graph comes out with clean orthogonal edges instead of the pre-arrange ones.
+  void nextTick(() => {
+    scheduleReroute()
+    fitView({ padding: 0.2, duration: 400 })
+  })
 }
 
 /**
@@ -378,6 +413,104 @@ function portRank(sourceId?: string | null, handleId?: string | null): number {
   const i = specForType(String(node?.type ?? ''))?.ports?.(node?.data as BaseNodeData)?.findIndex((p) => p.id === handleId) ?? -1
   return i < 0 ? 0 : i
 }
+
+// ---- Orthogonal edge routing ----------------------------------------------
+// Edge paths are computed here, not by Vue Flow: the obstacle-avoiding router
+// (lib/edgeRouting) needs *all* the node rectangles to route one edge around
+// them, so the whole set is routed in a single pass and shared with the
+// RoutedEdge components through this provided map. It is refreshed on every
+// trigger that moves a node or changes the wiring, coalesced to one pass per
+// animation frame so dragging a node stays smooth.
+const routedPaths = ref<Map<string, RoutedPath>>(new Map())
+provide(ROUTED_PATHS, routedPaths)
+
+// Past this many nodes the search is skipped and edges fall back to smoothstep:
+// the routing lattice grows with the node count, and a graph that large is past
+// the point where routed edges are worth the per-frame cost.
+const MAX_ROUTED_NODES = 120
+
+let rerouteHandle = 0
+function scheduleReroute() {
+  if (rerouteHandle) cancelAnimationFrame(rerouteHandle)
+  rerouteHandle = requestAnimationFrame(() => {
+    rerouteHandle = 0
+    recomputeRoutes()
+  })
+}
+
+function sideOf(position: Position): Side {
+  switch (position) {
+    case Position.Left:
+      return 'left'
+    case Position.Top:
+      return 'top'
+    case Position.Bottom:
+      return 'bottom'
+    default:
+      return 'right'
+  }
+}
+
+/** Absolute port anchor + which side of its node it sits on, from measured bounds. */
+function anchorOf(
+  node: GraphNode,
+  handleId: string | null | undefined,
+  kind: 'source' | 'target',
+): { point: { x: number; y: number }; side: Side } | null {
+  const list = kind === 'source' ? node.handleBounds.source : node.handleBounds.target
+  if (!list || list.length === 0) return null
+  const h = (handleId ? list.find((x) => x.id === handleId) : null) ?? list[0]
+  const pos = node.computedPosition
+  return {
+    point: { x: pos.x + h.x + h.width / 2, y: pos.y + h.y + h.height / 2 },
+    side: sideOf(h.position),
+  }
+}
+
+/** The two port anchors an edge connects, or null when either end isn't ready. */
+function edgeRequest(edge: {
+  source: string
+  target: string
+  sourceHandle?: string | null
+  targetHandle?: string | null
+}): RouteRequest | null {
+  const sn = findNode(edge.source)
+  const tn = findNode(edge.target)
+  if (!sn || !tn) return null
+  const s = anchorOf(sn, edge.sourceHandle, 'source')
+  const t = anchorOf(tn, edge.targetHandle, 'target')
+  if (!s || !t) return null
+  return { source: s.point, sourceSide: s.side, target: t.point, targetSide: t.side }
+}
+
+/** Route every edge around the current node rectangles, in one shared pass. */
+function recomputeRoutes() {
+  const graphNodes = getNodes.value
+  const measured = graphNodes.filter((n) => n.dimensions?.width && n.dimensions?.height)
+  const next = new Map<string, RoutedPath>()
+  if (measured.length > 0 && measured.length <= MAX_ROUTED_NODES) {
+    const obstacles: Rect[] = measured.map((n) => ({
+      x: n.computedPosition.x,
+      y: n.computedPosition.y,
+      width: n.dimensions.width,
+      height: n.dimensions.height,
+    }))
+    for (const e of edges.value) {
+      const req = edgeRequest(e)
+      if (!req) continue
+      const pts = routeEdge(req, obstacles, DEFAULT_ROUTE_OPTIONS)
+      if (!pts || pts.length < 2) continue
+      const mid = midpoint(pts)
+      next.set(e.id, { path: roundedPath(pts, 8), labelX: mid.x, labelY: mid.y })
+    }
+  }
+  // Edges with no route (unmeasured, overlapping, or over the cap) are absent
+  // from the map and the RoutedEdge component falls back to smoothstep for them.
+  routedPaths.value = next
+}
+
+// First measure of the nodes: route once the DOM has given them real sizes.
+onNodesInitialized(() => scheduleReroute())
 
 // ---- Snapshot --------------------------------------------------------------
 // Margin around the graph, and the widest/tallest the rendered graph may be
@@ -489,6 +622,7 @@ function removeSelected(node: GraphNode | null) {
   if (!node) return
   nodes.value = nodes.value.filter((n) => n.id !== node.id)
   edges.value = edges.value.filter((e) => e.source !== node.id && e.target !== node.id)
+  scheduleReroute()
   emit('select', null)
   emit('dirty')
 }
@@ -511,8 +645,9 @@ defineExpose({
   <div class="relative h-full w-full" @drop="onDrop" @dragover="onDragOver">
     <!-- elevate-*-on-select lifts what you clicked above the rest: in a dense
          graph that is how you follow one edge through a bundle of others. -->
-    <VueFlow v-model:nodes="nodes" v-model:edges="edges" :node-types="nodeTypes" :edges-updatable="true"
+    <VueFlow v-model:nodes="nodes" v-model:edges="edges" :node-types="nodeTypes" :edge-types="edgeTypes" :edges-updatable="true"
       :delete-key-code="['Delete', 'Backspace']" :default-viewport="{ zoom: 1 }" :min-zoom="0.2" :max-zoom="2.5"
+      :connection-line-type="ConnectionLineType.SmoothStep"
       :elevate-edges-on-select="true" :elevate-nodes-on-select="true"
       class="h-full w-full" @nodes-change="emit('dirty')" @edges-change="emit('dirty')">
       <Background :gap="18" :size="1.4" pattern-color="var(--canvas-dots)" />

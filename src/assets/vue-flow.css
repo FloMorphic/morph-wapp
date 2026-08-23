@@ -5,6 +5,15 @@
 }
 
 /* Edges */
+/* A canvas-coloured halo around every edge: where two edges cross, or one runs
+   over the background dots, you can still tell them apart and follow one back to
+   its source. It does NOT reveal an edge hidden *behind* a node — both edge and
+   halo sit in the pane below the nodes; routing edges clear of node bodies is
+   the ELK job. Applied to the whole edges layer so one filter covers them all. */
+.vue-flow__edges {
+  filter: drop-shadow(0 0 1.5px var(--canvas-bg));
+}
+
 .vue-flow__edge-path,
 .vue-flow__connection-path {
   stroke: var(--line-strong);
