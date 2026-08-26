@@ -7,6 +7,7 @@ import CodeEditor from '@/components/ui/CodeEditor.vue'
 import JsonSchemaForm from '@/components/flow/JsonSchemaForm.vue'
 import PluginForm from '@/components/plugin/PluginForm.vue'
 import PromptImporter from '@/components/flow/PromptImporter.vue'
+import PromptExpander from '@/components/flow/PromptExpander.vue'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
 import { EXCEPTION_TAG, handlerName } from '@/data/nodeCatalog'
@@ -959,7 +960,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         <div class="space-y-1 rounded-lg border p-2">
           <div class="flex items-center justify-between">
             <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System</span>
-            <PromptImporter v-model="systemMsg" label="System" />
+            <div class="flex items-center gap-3">
+              <PromptExpander v-model="systemMsg" label="System" />
+              <PromptImporter v-model="systemMsg" label="System" />
+            </div>
           </div>
           <textarea
             v-model="systemMsg"
@@ -973,7 +977,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         <div class="space-y-1 rounded-lg border p-2">
           <div class="flex items-center justify-between">
             <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">User</span>
-            <PromptImporter v-model="userMsg" label="User" />
+            <div class="flex items-center gap-3">
+              <PromptExpander v-model="userMsg" label="User" />
+              <PromptImporter v-model="userMsg" label="User" />
+            </div>
           </div>
           <textarea
             v-model="userMsg"
@@ -1161,7 +1168,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           <div class="space-y-1 rounded-lg border p-2">
             <div class="flex items-center justify-between">
               <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System</span>
+              <div class="flex items-center gap-3">
+              <PromptExpander v-model="systemMsg" label="System" />
               <PromptImporter v-model="systemMsg" label="System" />
+            </div>
             </div>
             <textarea
               v-model="systemMsg"
@@ -1175,7 +1185,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           <div class="space-y-1 rounded-lg border p-2">
             <div class="flex items-center justify-between">
               <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">User</span>
+              <div class="flex items-center gap-3">
+              <PromptExpander v-model="userMsg" label="User" />
               <PromptImporter v-model="userMsg" label="User" />
+            </div>
             </div>
             <textarea
               v-model="userMsg"

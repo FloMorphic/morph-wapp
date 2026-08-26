@@ -3,6 +3,7 @@ import { computed, onMounted } from 'vue'
 import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
 import PromptImporter from '@/components/flow/PromptImporter.vue'
+import PromptExpander from '@/components/flow/PromptExpander.vue'
 import type { BaseNodeData } from '@/data/nodeCatalog'
 import {
   DEFAULT_HITL_PROMPT,
@@ -117,7 +118,10 @@ const channel = computed<HitlChannel>({
     <div class="space-y-1.5">
       <div class="flex items-center justify-between">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Conversation prompt</label>
-        <PromptImporter v-model="prompt" label="Human prompt" />
+        <div class="flex items-center gap-3">
+          <PromptExpander v-model="prompt" label="Human prompt" />
+          <PromptImporter v-model="prompt" label="Human prompt" />
+        </div>
       </div>
       <textarea
         v-model="prompt"

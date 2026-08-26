@@ -181,6 +181,14 @@ function closePop() {
   openPop.value = null
 }
 
+// ---- Hover tile ------------------------------------------------------------
+// A floating "name tag" that lifts above the node on hover, so the full title
+// reads at a glance even when the on-node title is truncated. Suppressed while
+// inline-editing the title or with a key/scope popover open, where it would only
+// clutter the interaction.
+const hovering = ref(false)
+const showTile = computed(() => hovering.value && !editingTitle.value && !openPop.value)
+
 // Close an open popover when clicking anywhere outside this node.
 const rootEl = ref<HTMLElement | null>(null)
 function onDocPointer(e: MouseEvent) {
@@ -200,7 +208,43 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
       borderColor: selected ? accent : 'var(--line)',
       boxShadow: selected ? `0 0 0 1px ${accent}, var(--shadow-md)` : 'var(--shadow-sm)',
     }"
+    @mouseenter="hovering = true"
+    @mouseleave="hovering = false"
   >
+    <!-- Fancy name tile: floats above the node on hover so the full title reads
+         at a glance even when the on-node title is truncated. -->
+    <Transition name="node-tile">
+      <div
+        v-if="showTile"
+        class="node-tile pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 flex w-max -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1.5 shadow-lg"
+        :style="{
+          background: 'var(--elevated)',
+          borderColor: `color-mix(in srgb, ${accent} 45%, var(--line))`,
+        }"
+      >
+        <span
+          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
+          :style="{ background: `color-mix(in srgb, ${accent} 18%, transparent)`, color: accent }"
+        >
+          <Icon :name="spec?.icon ?? 'info'" :size="12" />
+        </span>
+        <span class="node-tile-text text-[12px] font-semibold text-fg">{{ title }}</span>
+        <span
+          v-if="spec"
+          class="shrink-0 rounded px-1 py-0.5 text-[8.5px] font-semibold uppercase tracking-wide"
+          :style="{ background: `color-mix(in srgb, ${accent} 12%, transparent)`, color: accent }"
+        >
+          {{ spec.primitives }}
+        </span>
+        <span
+          class="node-tile-arrow absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r"
+          :style="{
+            background: 'var(--elevated)',
+            borderColor: `color-mix(in srgb, ${accent} 45%, var(--line))`,
+          }"
+        />
+      </div>
+    </Transition>
     <!-- When ports stack as cards the node grows tall, so keep the incoming
          handle anchored beside the header instead of the vertical center. -->
     <Handle
@@ -427,6 +471,28 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
 <style scoped>
 .flow-node {
   width: 194px;
+}
+/* The hover name tile lifts up and fades in — quick enough to feel responsive
+   to the pointer, soft enough to read as a floating label rather than a jump. */
+.node-tile-enter-active,
+.node-tile-leave-active {
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
+}
+.node-tile-enter-from,
+.node-tile-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 4px);
+}
+/* Keep the diamond arrow behind the tile body so only its lower corner shows. */
+.node-tile-arrow {
+  z-index: -1;
+}
+/* Show the whole title on a single line — the tile is `w-max`, so it grows as
+   wide as the name needs instead of wrapping or truncating. */
+.node-tile-text {
+  white-space: nowrap;
 }
 /* Stacked port cards read as attachments under the node body. */
 .port-card {
