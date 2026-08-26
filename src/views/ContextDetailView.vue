@@ -8,6 +8,7 @@ import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
 import CodeEditor from '@/components/ui/CodeEditor.vue'
 import JsonTreeNode from '@/components/ui/JsonTreeNode.vue'
+import JsonPathQuery from '@/components/ui/JsonPathQuery.vue'
 
 /**
  * Full-page context inspector/editor (replaces the old cramped modal). Two
@@ -285,6 +286,9 @@ function formatTime(ms: number | undefined): string {
       </div>
 
       <p v-if="error" class="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{{ error }}</p>
+
+      <!-- JSONPath probe: test which values a node's {{$.path}} template covers -->
+      <JsonPathQuery v-if="parsedContext" :root="parsedContext" />
 
       <!-- Panels: context, plus the header document when opened -->
       <div class="flex min-h-0 flex-1 gap-4" :class="showHeader ? 'flex-row' : 'flex-col'">
