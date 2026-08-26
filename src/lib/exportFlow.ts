@@ -16,7 +16,10 @@
  * run, a context or a credential. Canvas ids and the local extension identity
  * are dropped on the way out (see {@link graphToPatch}) — a file is meant to
  * land on another install — so a re-import mints fresh ids and re-stamps the
- * plugin rows from that install's own table.
+ * plugin rows from that install's own table. A node's settings profile leaves by
+ * reference only (its `settingsId`); the profile's resolved values — which hold
+ * the provider token — are never written to the file, and the importing install
+ * re-resolves the id against its own profiles.
  *
  * Reading one back ({@link parseWorkflowFile}) is deliberately forgiving: any
  * document with a `nodes` array is accepted, header or not, so a bare patch a

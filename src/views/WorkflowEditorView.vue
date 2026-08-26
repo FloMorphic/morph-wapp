@@ -18,6 +18,9 @@ import { useFlowGraphsStore } from '@/stores/flowGraphs'
 import { useNotificationsStore } from '@/stores/notifications'
 import { offsetPatch, planPatch, summarize, type AiGraphPatch, type PlannedPatch } from '@/lib/aiGraph'
 import { downloadFile, fileBase, workflowExportJson } from '@/lib/exportFlow'
+import { nodeUniqId, usesSettingsProfile } from '@/lib/nodeSettings'
+import { nodeSettingsApi } from '@/api/nodeSettings'
+import type { NodeSetting } from '@/types/api'
 
 const props = defineProps<{ id?: string }>()
 const router = useRouter()
@@ -140,7 +143,40 @@ async function onImport({ patch, mode, title: fileTitle }: { patch: AiGraphPatch
   return applyImport(planPatch(offsetPatch(patch, existing), existing), mode, fileTitle)
 }
 
+/**
+ * Re-attach settings profiles a file carried by *reference*.
+ *
+ * An export writes only a node's `settingsId`, never the profile's resolved
+ * values (see lib/exportFlow) — the token stays out of the file. So on the way
+ * in we resolve each id against *this* install's own profiles: a match has its
+ * values denormalized back onto the node (`data.settings` / `data.settingsName`,
+ * the shape the compiler and canvas tag read), and an id this install doesn't
+ * have is left dangling — the import review already flags such a node as needing
+ * a profile picked in the drawer. Mirrors NodeSettingsSelector's applyProfile,
+ * done up front so a matching profile works without opening every node.
+ */
+async function resolveImportedProfiles(planned: PlannedPatch): Promise<void> {
+  const byUniq = new Map<string, Promise<NodeSetting[]>>()
+  await Promise.all(
+    planned.nodes.map(async (node) => {
+      const data = node.data as Record<string, unknown>
+      const id = String(data.settingsId ?? '').trim()
+      if (!id || !usesSettingsProfile(node.type, data)) return
+      const uniq = nodeUniqId(node.type, data)
+      let profiles = byUniq.get(uniq)
+      if (!profiles) {
+        profiles = nodeSettingsApi.listForNode(uniq).catch(() => [])
+        byUniq.set(uniq, profiles)
+      }
+      const match = (await profiles).find((p) => p.id === id) ?? null
+      data.settingsName = match?.title ?? ''
+      data.settings = match ? { ...match.settings } : {}
+    }),
+  )
+}
+
 async function applyImport(planned: PlannedPatch, mode: 'add' | 'replace', fileTitle?: string) {
+  await resolveImportedProfiles(planned)
   await canvas.value?.applyPatch(planned)
   if (mode === 'replace' && fileTitle && isUnnamed(title.value)) title.value = fileTitle
   dirty.value = true

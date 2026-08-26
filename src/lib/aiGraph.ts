@@ -813,12 +813,25 @@ export function graphToPatch(graph: VueFlowGraph): AiGraphPatch {
   return { nodes, edges }
 }
 
-/** Node data minus the hoisted fields, the install-local identity and anything left at its default. */
+/**
+ * Node data minus the hoisted fields, the install-local identity and anything
+ * left at its default.
+ *
+ * A settings profile leaves by *reference*, never by value: only `settingsId`
+ * survives. The resolved `settings` are dropped because they are the profile's
+ * secrets — an API token would otherwise ride along in a file meant to be shared
+ * — and `settingsName` because it is a denormalized, install-local label. On
+ * import the drawer re-resolves the id against the target install's own profiles
+ * (see NodeSettingsSelector.load): if a profile with that id exists there it is
+ * loaded, otherwise the reference dangles until the designer picks one.
+ */
 function changedData(data: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> {
-  const skip = new Set(['title', 'key', 'scope', 'extensionId', 'pluginId'])
+  const skip = new Set(['title', 'key', 'scope', 'extensionId', 'pluginId', 'settings', 'settingsName'])
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(data)) {
     if (skip.has(k) || v === undefined) continue
+    // A carried-but-empty profile id (a cleared selection) is not worth exporting.
+    if (k === 'settingsId' && !String(v).trim()) continue
     if (JSON.stringify(v) === JSON.stringify(defaults[k])) continue
     out[k] = v
   }
