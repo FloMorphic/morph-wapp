@@ -368,6 +368,19 @@ const userMsg = computed<string>({
   set: (v) => setMsgContent('user', v),
 })
 
+// Clear history (stored on data.body.clear_history). Off by default: the node
+// resumes its conversation across runs, seeding the init messages once. When on,
+// the plugin discards the node-scope conversation and re-seeds the two init
+// messages on EVERY run — so a looping/resumed flow starts each pass fresh.
+const clearHistory = computed<boolean>({
+  get: () => llmBody().clear_history === true,
+  set: (v) => {
+    const body = llmBody()
+    if (v) body.clear_history = true
+    else delete body.clear_history
+  },
+})
+
 // ---- MCP node -------------------------------------------------------------
 // The MCP node has two modes, chosen with an option toggle:
 //   'tool' → expose the MCP server's tools to the flow (client only).
@@ -932,6 +945,17 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           <span class="ml-1 font-normal normal-case text-fg-subtle">— seed the conversation</span>
         </label>
 
+        <label class="flex items-start gap-2 rounded-lg border p-2 text-xs">
+          <input v-model="clearHistory" type="checkbox" class="mt-0.5 shrink-0" />
+          <span>
+            <span class="font-semibold">Clear history</span>
+            <span class="mt-0.5 block text-[11px] leading-relaxed text-fg-subtle">
+              Re-seed these init messages on <strong>every</strong> run, discarding any conversation the
+              node built up. Leave off to resume the conversation across runs (seed once).
+            </span>
+          </span>
+        </label>
+
         <div class="space-y-1 rounded-lg border p-2">
           <div class="flex items-center justify-between">
             <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">System</span>
@@ -1121,6 +1145,17 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
             Init messages
             <span class="ml-1 font-normal normal-case text-fg-subtle">— seed the conversation</span>
+          </label>
+
+          <label class="flex items-start gap-2 rounded-lg border p-2 text-xs">
+            <input v-model="clearHistory" type="checkbox" class="mt-0.5 shrink-0" />
+            <span>
+              <span class="font-semibold">Clear history</span>
+              <span class="mt-0.5 block text-[11px] leading-relaxed text-fg-subtle">
+                Re-seed these init messages on <strong>every</strong> run, discarding any conversation the
+                node built up. Leave off to resume the conversation across runs (seed once).
+              </span>
+            </span>
           </label>
 
           <div class="space-y-1 rounded-lg border p-2">
