@@ -134,21 +134,26 @@ async function loadActions(): Promise<PluginActionEntry[]> {
   }
   return page.list
     .filter((row) => row.action && row.pluginId)
-    .map((row) => ({
-      ref: {
-        extensionId: row.id,
-        pluginId: row.pluginId,
-        action: row.action,
+    .map((row) => {
+      const className = (typeof row.tags?.class === 'string' ? row.tags.class : '').trim()
+      return {
+        ref: {
+          extensionId: row.id,
+          pluginId: row.pluginId,
+          action: row.action,
+          label: row.name,
+          icon: row.icon?.name || undefined,
+          className: className || undefined,
+          form: { schema: row.params?.schema ?? {}, ui: row.params?.ui ?? {} },
+          outbound: row.outbound ?? [],
+        },
+        action: row.action as string,
         label: row.name,
-        form: { schema: row.params?.schema ?? {}, ui: row.params?.ui ?? {} },
-        outbound: row.outbound ?? [],
-      },
-      action: row.action as string,
-      label: row.name,
-      description: row.description,
-      icon: row.icon?.name || 'plugin',
-      pluginId: row.pluginId,
-      pluginName: pluginNames.get(row.pluginId) ?? row.pluginId,
-      className: (typeof row.tags?.class === 'string' ? row.tags.class : '').trim(),
-    }))
+        description: row.description,
+        icon: row.icon?.name || 'plugin',
+        pluginId: row.pluginId,
+        pluginName: pluginNames.get(row.pluginId) ?? row.pluginId,
+        className,
+      }
+    })
 }

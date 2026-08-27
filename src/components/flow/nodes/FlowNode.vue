@@ -4,6 +4,7 @@ import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
 import { specForType, type BaseNodeData, type NodePort } from '@/data/nodeCatalog'
 import { createId } from '@/lib/id'
+import { pluginColor } from '@/lib/pluginColor'
 
 /**
  * A single generic node renderer, driven entirely by the node catalog. Vue Flow
@@ -25,7 +26,31 @@ const props = defineProps<{
 const { updateNodeInternals, addNodes, getNodes, findNode } = useVueFlow()
 
 const spec = computed(() => specForType(props.type))
-const accent = computed(() => spec.value?.color ?? 'var(--fg-subtle)')
+// A plugin node takes a color derived from its plugin id, so each imported
+// plugin is visually distinct instead of every action sharing the one plugin
+// spec purple; builtins keep their fixed catalog color.
+const isPlugin = computed(() => !!spec.value?.plugin)
+const accent = computed(() => {
+  const data = props.data as Record<string, unknown>
+  const pluginId = data?.pluginId
+  if (isPlugin.value && typeof pluginId === 'string' && pluginId) {
+    const className = typeof data?.className === 'string' ? data.className : undefined
+    return pluginColor(pluginId, className)
+  }
+  return spec.value?.color ?? 'var(--fg-subtle)'
+})
+// Plugin icons are filled (MDI) and blend into a same-hue tint, so their tile is
+// a neutral surface with an accent ring; the builtin stroke icons read fine on
+// the original soft tint, so they keep it.
+const iconTileStyle = computed(() =>
+  isPlugin.value
+    ? { background: 'var(--surface-2)', color: accent.value, borderColor: `color-mix(in srgb, ${accent.value} 35%, var(--line))` }
+    : { background: `color-mix(in srgb, ${accent.value} 16%, transparent)`, color: accent.value },
+)
+// A plugin node stamps the action's own icon (an MDI name) onto its data; every
+// builtin has none and falls back to its fixed spec icon. Without this, every
+// plugin action shares the one generic plug glyph of the shared plugin spec.
+const iconName = computed(() => (props.data?.icon as string) || spec.value?.icon || 'info')
 const title = computed(() => props.data?.title || spec.value?.label || 'Node')
 const preview = computed(() => spec.value?.preview?.(props.data) ?? spec.value?.tagline ?? '')
 // The selected settings profile, denormalized onto node data by the drawer.
@@ -224,9 +249,10 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
       >
         <span
           class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
-          :style="{ background: `color-mix(in srgb, ${accent} 18%, transparent)`, color: accent }"
+          :class="{ border: isPlugin }"
+          :style="iconTileStyle"
         >
-          <Icon :name="spec?.icon ?? 'info'" :size="12" />
+          <Icon :name="iconName" :size="12" />
         </span>
         <span class="node-tile-text text-[12px] font-semibold text-fg">{{ title }}</span>
         <span
@@ -257,9 +283,10 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
     <div class="flex items-center gap-2.5 px-3 py-2">
       <span
         class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-        :style="{ background: `color-mix(in srgb, ${accent} 16%, transparent)`, color: accent }"
+        :class="{ border: isPlugin }"
+        :style="iconTileStyle"
       >
-        <Icon :name="spec?.icon ?? 'info'" :size="16" />
+        <Icon :name="iconName" :size="16" />
       </span>
       <div class="min-w-0 flex-1">
         <!-- Inline-editable title (click to rename, on-node). -->

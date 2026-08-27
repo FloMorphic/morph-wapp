@@ -115,6 +115,12 @@ function addNode(kind: NodeKind, position?: { x: number; y: number }, ext?: Node
     if (ext.action) {
       data.action = ext.action
       data.title = ext.label || String(data.title ?? '')
+      // The action's own icon (an MDI name), so the node reads as itself on the
+      // canvas rather than sharing the plugin spec's generic plug glyph.
+      if (ext.icon) data.icon = ext.icon
+      // The action's service sub-group, so the node is shaded within the plugin's
+      // color spectrum to match its palette group.
+      if (ext.className) data.className = ext.className
       if (ext.form) data.form = ext.form
       // Declared branch ports (SDK Action.Outbound): carried so the node renders
       // one output port per entry and its edges inherit each port's route tags.

@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { emptyInstall, useExtensionsStore, type PluginStatus } from '@/stores/extensions'
 import { useNotificationsStore } from '@/stores/notifications'
 import { fetchPluginIntro } from '@/lib/pluginSettings'
+import { pluginColor } from '@/lib/pluginColor'
 import { apiBaseUrl } from '@/api/client'
 import type { EnvVar, ExtensionRecord, InstallInfo, InstallRuntime, PluginIntro } from '@/types/api'
 import PluginOnboardModal from '@/components/settings/PluginOnboardModal.vue'
@@ -405,7 +406,10 @@ const modalTitle = computed(() => {
         <div v-for="ext in store.items" :key="ext.id" class="card flex flex-col p-4">
           <div class="flex items-start justify-between gap-2">
             <div class="flex min-w-0 items-center gap-2.5">
-              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+              <span
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border"
+                :style="{ background: 'var(--surface-2)', color: pluginColor(ext.pluginId), borderColor: `color-mix(in srgb, ${pluginColor(ext.pluginId)} 35%, var(--line))` }"
+              >
                 <Icon :name="ext.icon?.name || 'plugin'" :size="18" />
               </span>
               <div class="min-w-0">

@@ -4,6 +4,7 @@ import Icon from '@/components/ui/Icon.vue'
 import { PALETTE_GROUPS, NODE_SPECS, NODE_LIST, type NodeSpec } from '@/data/nodeCatalog'
 import { fetchNodeExtRefs, fetchPluginActions, type NodeExtRefMap, type PluginActionEntry } from '@/lib/nodeExtRefs'
 import type { NodeExtRef } from '@/lib/nodeSettings'
+import { pluginColor } from '@/lib/pluginColor'
 
 /**
  * Floating, draggable node palette. Items are dragged onto the canvas; the
@@ -255,8 +256,10 @@ function onItemDragStart(e: DragEvent, spec: NodeSpec) {
             <div v-for="section in group.sections" :key="section.className">
               <p
                 v-if="group.sections.length > 1"
-                class="px-1.5 pb-0.5 pt-1 pl-6 text-[9.5px] font-semibold uppercase tracking-wider text-fg-subtle"
+                class="flex items-center gap-1.5 px-1.5 pb-0.5 pt-1 pl-6 text-[9.5px] font-semibold uppercase tracking-wider"
+                :style="{ color: pluginColor(group.pluginId, section.className) }"
               >
+                <span class="h-1.5 w-1.5 shrink-0 rounded-full" :style="{ background: pluginColor(group.pluginId, section.className) }" />
                 {{ section.className || 'Other' }}
               </p>
               <button
@@ -269,8 +272,8 @@ function onItemDragStart(e: DragEvent, spec: NodeSpec) {
                 @dblclick="emit('add', PLUGIN_SPEC, entry.ref)"
               >
                 <span
-                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-                  :style="{ background: `color-mix(in srgb, ${PLUGIN_SPEC.color} 16%, transparent)`, color: PLUGIN_SPEC.color }"
+                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border"
+                  :style="{ background: 'var(--surface-2)', color: pluginColor(group.pluginId, entry.className), borderColor: `color-mix(in srgb, ${pluginColor(group.pluginId, entry.className)} 35%, var(--line))` }"
                 >
                   <Icon :name="entry.icon" :size="14" />
                 </span>

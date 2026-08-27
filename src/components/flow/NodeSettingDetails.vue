@@ -9,6 +9,7 @@ import NodeCastMapping from '@/components/flow/NodeCastMapping.vue'
 import NodeHitlSettings from '@/components/flow/NodeHitlSettings.vue'
 import NodeStartTriggers from '@/components/flow/NodeStartTriggers.vue'
 import { specForType, type BaseNodeData } from '@/data/nodeCatalog'
+import { pluginColor } from '@/lib/pluginColor'
 import { HITL_DATA_KEYS } from '@/lib/hitl'
 import { SETTINGS_DATA_KEYS, NODE_REF_DATA_KEYS, usesSettingsProfile } from '@/lib/nodeSettings'
 import type { MemoryType } from '@/types/api'
@@ -31,6 +32,28 @@ const props = defineProps<{ node: GraphNode | null }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'delete', node: GraphNode): void }>()
 
 const spec = computed(() => (props.node ? specForType(props.node.type) : undefined))
+// Plugin nodes carry the action's own icon on their data; builtins fall back to
+// their fixed spec icon (see FlowNode / WorkflowCanvas.addNode).
+const headIcon = computed(
+  () => ((props.node?.data as Record<string, unknown>)?.icon as string) || spec.value?.icon || 'info',
+)
+// Match the canvas: a plugin node is colored by its plugin id on a neutral tile,
+// builtins keep their fixed spec color on the original soft tint.
+const isPlugin = computed(() => !!spec.value?.plugin)
+const headColor = computed(() => {
+  const data = props.node?.data as Record<string, unknown>
+  const pluginId = data?.pluginId
+  if (isPlugin.value && typeof pluginId === 'string' && pluginId) {
+    const className = typeof data?.className === 'string' ? data.className : undefined
+    return pluginColor(pluginId, className)
+  }
+  return spec.value?.color ?? 'var(--fg-subtle)'
+})
+const headIconTileStyle = computed(() =>
+  isPlugin.value
+    ? { background: 'var(--surface-2)', color: headColor.value, borderColor: `color-mix(in srgb, ${headColor.value} 35%, var(--line))` }
+    : { background: `color-mix(in srgb, ${headColor.value} 16%, transparent)`, color: headColor.value },
+)
 
 const UNIVERSAL = ['title', 'key', 'scope']
 /**
@@ -287,9 +310,10 @@ onBeforeUnmount(stopResize)
       <div class="flex min-w-0 items-center gap-2.5">
         <span
           class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-          :style="{ background: `color-mix(in srgb, ${spec.color} 16%, transparent)`, color: spec.color }"
+          :class="{ border: isPlugin }"
+          :style="headIconTileStyle"
         >
-          <Icon :name="spec.icon" :size="16" />
+          <Icon :name="headIcon" :size="16" />
         </span>
         <div class="min-w-0">
           <p class="truncate text-sm font-semibold text-fg" :title="headTitle">{{ headTitle }}</p>

@@ -20,6 +20,20 @@ export interface NodeExtRef {
    */
   action?: string
   label?: string
+  /**
+   * The icon the plugin declared for this action (an MDI name, `mdi:<icon>`).
+   * Carried onto the node so the action reads as itself on the canvas instead of
+   * every plugin node sharing the generic plug glyph. Empty ⇒ the node keeps the
+   * plugin spec's default icon.
+   */
+  icon?: string
+  /**
+   * The plugin's `tags.class` for this action — the service sub-group inside a
+   * multi-service plugin (`sheet` / `drive` / `doc`, …). Carried onto the node so
+   * the canvas can shade it within the plugin's color spectrum, matching how the
+   * palette groups it. Empty ⇒ the node uses the plugin's base color.
+   */
+  className?: string
   form?: { schema: Record<string, unknown>; ui: Record<string, unknown> }
   /**
    * The action's optional declared branch ports (SDK Action.Outbound). Carried
