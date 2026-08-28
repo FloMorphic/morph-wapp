@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { addCollection } from '@iconify/vue'
+import { addCollection, type IconifyJSON } from '@iconify/vue'
 
 /**
  * Offline Material Design Icons for plugin-supplied action icons.
@@ -25,7 +25,8 @@ export function ensureMdi(): void {
   started = true
   import('@iconify-json/mdi/icons.json')
     .then((mod) => {
-      addCollection((mod as { default?: unknown }).default ?? mod)
+      const data = (mod as { default?: IconifyJSON }).default ?? (mod as unknown as IconifyJSON)
+      addCollection(data)
       mdiReady.value = true
     })
     .catch(() => {
