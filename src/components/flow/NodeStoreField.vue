@@ -41,6 +41,30 @@ function setAction(value: 'read' | 'write') {
   if (props.data) props.data.action = value
 }
 
+// Top K — how many nearest matches a vector search returns. Held on the node
+// data as a number; the backend node builder carries it through to the search.
+const topK = computed<number>(() => {
+  const raw = props.data?.topK
+  return typeof raw === 'number' && raw > 0 ? raw : 5
+})
+function setTopK(value: string) {
+  if (!props.data) return
+  const n = Math.round(Number(value))
+  props.data.topK = Number.isFinite(n) && n > 0 ? Math.min(n, 50) : 5
+}
+
+// Min score — drop matches whose similarity score (higher is nearer, 0..1) is
+// below this. 0 keeps every match; the backend does the filtering.
+const minScore = computed<number>(() => {
+  const raw = props.data?.minScore
+  return typeof raw === 'number' && raw > 0 ? raw : 0
+})
+function setMinScore(value: string) {
+  if (!props.data) return
+  const n = Number(value)
+  props.data.minScore = Number.isFinite(n) && n > 0 ? Math.min(n, 1) : 0
+}
+
 const store = useMemoryStore()
 onMounted(() => {
   if (store.items.length === 0) store.refresh()
@@ -202,16 +226,47 @@ function onSelect(e: Event) {
         </div>
 
         <!-- Read: a query run against the selected store. -->
-        <div v-if="action === 'read'" class="space-y-1">
-          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Query</label>
-          <textarea
-            :value="(props.data!.query as string) ?? ''"
-            rows="3"
-            spellcheck="false"
-            class="input resize-none font-mono text-xs leading-relaxed"
-            :placeholder="memoryType === 'vector' ? 'Vector query — text or JSONPath to embed' : 'Query to run on the store'"
-            @input="props.data!.query = ($event.target as HTMLTextAreaElement).value"
-          />
+        <div v-if="action === 'read'" class="space-y-2">
+          <div class="space-y-1">
+            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Query</label>
+            <textarea
+              :value="(props.data!.query as string) ?? ''"
+              rows="3"
+              spellcheck="false"
+              class="input resize-none font-mono text-xs leading-relaxed"
+              :placeholder="memoryType === 'vector' ? 'Vector query — text or JSONPath to embed' : 'Query to run on the store'"
+              @input="props.data!.query = ($event.target as HTMLTextAreaElement).value"
+            />
+          </div>
+
+          <!-- Top K + min score: vector search tuning. -->
+          <div v-if="memoryType === 'vector'" class="grid grid-cols-2 gap-2">
+            <div class="space-y-1">
+              <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Top K</label>
+              <input
+                :value="topK"
+                type="number"
+                min="1"
+                max="50"
+                class="input"
+                @input="setTopK(($event.target as HTMLInputElement).value)"
+              />
+              <p class="text-[11px] text-fg-subtle">Nearest matches to return.</p>
+            </div>
+            <div class="space-y-1">
+              <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Min score</label>
+              <input
+                :value="minScore"
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                class="input"
+                @input="setMinScore(($event.target as HTMLInputElement).value)"
+              />
+              <p class="text-[11px] text-fg-subtle">Similarity 0–1; 0 = no filter.</p>
+            </div>
+          </div>
         </div>
 
         <!-- Write: the payload is the node scope slice of Context, resolved at runtime. -->

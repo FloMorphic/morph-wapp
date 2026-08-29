@@ -520,7 +520,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     description:
       'Read (run a query) or write into a referenced Vector memory store. A read runs `query` against the store; a write takes its payload from `input` (the node `scope` or an input JSONPath). Compiles to an Extrinsic on `svc.store.vec.{ACTION}` (inflo-fusion listens on `svc.store.vec.*`).',
     primitives: 'Extrinsic · svc.store.vec.*',
-    defaults: () => ({ title: 'Vector Store', key: 'vecResult', scope: '$', storeId: '', action: 'read', query: '', input: '$' }),
+    defaults: () => ({ title: 'Vector Store', key: 'vecResult', scope: '$', storeId: '', action: 'read', query: '', input: '$', topK: 5, minScore: 0 }),
     preview: (d) => `${String(d.action ?? 'read')}${d.storeId ? ' · ' + String(d.storeId) : ' · no store'}`,
   }),
   cast: spec({

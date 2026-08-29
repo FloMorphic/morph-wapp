@@ -72,9 +72,10 @@ const NO_BINDING_KINDS = new Set(['startNode', 'until', 'promissall', 'goto'])
 const MULTILINE = new Set(['source', 'instructions', 'prompt', 'template', 'payload'])
 // `storeId` is rendered with a bespoke store picker (NodeStoreField), so it is
 // kept out of the generic field list — along with the read/write action fields
-// (`action` + its `query` / `input`) that NodeStoreField also edits.
+// (`action` + its `query` / `input`, and a vector read's `topK` / `minScore`)
+// that NodeStoreField also edits.
 const STORE_FIELD = 'storeId'
-const STORE_ACTION_KEYS = ['action', 'query', 'input'] as const
+const STORE_ACTION_KEYS = ['action', 'query', 'input', 'topK', 'minScore'] as const
 // Plugin runtime wiring for builtin plugin nodes (llm / mcp / cast). These are
 // configured on the backend, not by hand — so they stay out of the drawer.
 const BACKEND_PLUGIN_KEYS = ['subject_prefix', 'idle_min', 'request'] as const

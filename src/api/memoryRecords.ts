@@ -62,10 +62,13 @@ export const memoryRecordsApi = {
     return http.delete<void>(`/memory/${storeId}/records/${recordId}`)
   },
 
-  /** Embed `text` and return the nearest records in a vector store. */
-  search(storeId: string, text: string, topK: number): Promise<SearchResult> {
+  /**
+   * Embed `text` and return the nearest records in a vector store. `minScore`
+   * (0..1, 0 = no filter) drops matches whose similarity score is below it.
+   */
+  search(storeId: string, text: string, topK: number, minScore = 0): Promise<SearchResult> {
     requireRemote()
-    return http.post<SearchResult>(`/memory/${storeId}/search`, { text, topK })
+    return http.post<SearchResult>(`/memory/${storeId}/search`, { text, topK, minScore })
   },
 
   /** Embed `text` and index it in a vector store with optional metadata. */

@@ -550,12 +550,14 @@ export interface DocumentRecord {
 }
 
 /** One hit from a vector similarity search: the stored doc, its source text and
- *  metadata, and the distance to the query vector (smaller is closer). */
+ *  metadata, the raw distance to the query vector (smaller is closer), and a
+ *  normalized similarity score (higher is nearer) derived from that distance. */
 export interface VectorMatch {
   docId: string
   content: string
   metadata?: Record<string, unknown>
   distance: number
+  score: number
 }
 
 /* ---- Prompt templates (FloMorphic-specific) ----

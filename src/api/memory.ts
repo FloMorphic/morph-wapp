@@ -53,6 +53,19 @@ export const memoryApi = {
     return Promise.resolve(record)
   },
 
+  /**
+   * List the embedding models a provider exposes to the given key. Proxied
+   * through the backend (`POST /memory/embedding-models`) so the browser never
+   * calls the provider directly and the key stays server-side. Only meaningful
+   * with a backend configured; returns [] in local-only mode.
+   */
+  listEmbeddingModels(provider: string, token: string): Promise<string[]> {
+    if (!apiEnabled()) return Promise.resolve([])
+    return http
+      .post<{ models: string[] }>('/memory/embedding-models', { provider, token })
+      .then((r) => r.models ?? [])
+  },
+
   remove(id: string): Promise<void> {
     if (apiEnabled()) return http.delete<void>(`/memory/${id}`)
     writeCollection(

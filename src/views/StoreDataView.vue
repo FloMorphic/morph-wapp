@@ -174,6 +174,7 @@ async function removeRecord(rec: DocumentRecord, e?: Event) {
  * ============================================================ */
 const query = ref('')
 const topK = ref(5)
+const minScore = ref(0)
 const matches = ref<VectorMatch[]>([])
 const searching = ref(false)
 const searchError = ref<string | null>(null)
@@ -185,7 +186,7 @@ async function runSearch() {
   searching.value = true
   searchError.value = null
   try {
-    const res = await memoryRecordsApi.search(store.value.id, query.value.trim(), topK.value)
+    const res = await memoryRecordsApi.search(store.value.id, query.value.trim(), topK.value, minScore.value)
     matches.value = res.items
     searched.value = true
   } catch (err) {
@@ -417,6 +418,10 @@ function metaEntries(m: Record<string, unknown> | undefined): [string, unknown][
           <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Top K</label>
           <input v-model.number="topK" type="number" min="1" max="50" class="input" />
         </div>
+        <div class="w-28 space-y-1">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Min score</label>
+          <input v-model.number="minScore" type="number" min="0" max="1" step="0.05" class="input" />
+        </div>
         <Button type="submit" variant="primary" icon="search" :disabled="searching || !query.trim()">
           {{ searching ? 'Searching…' : 'Search' }}
         </Button>
@@ -449,6 +454,7 @@ function metaEntries(m: Record<string, unknown> | undefined): [string, unknown][
             <tr class="border-b bg-surface-2 text-left text-[11px] uppercase tracking-wide text-fg-subtle">
               <th class="px-3 py-2 font-semibold">content</th>
               <th class="px-3 py-2 font-semibold">metadata</th>
+              <th class="w-20 px-3 py-2 font-semibold">score</th>
               <th class="w-24 px-3 py-2 font-semibold">distance</th>
             </tr>
           </thead>
@@ -466,6 +472,7 @@ function metaEntries(m: Record<string, unknown> | undefined): [string, unknown][
                   <span v-if="!metaEntries(m.metadata).length" class="text-[12px] text-fg-subtle">—</span>
                 </div>
               </td>
+              <td class="whitespace-nowrap px-3 py-2 font-mono text-[12px] font-semibold text-fg">{{ m.score.toFixed(3) }}</td>
               <td class="whitespace-nowrap px-3 py-2 font-mono text-[12px] text-fg-subtle">{{ m.distance.toFixed(4) }}</td>
             </tr>
           </tbody>
@@ -541,7 +548,7 @@ function metaEntries(m: Record<string, unknown> | undefined): [string, unknown][
     </Modal>
 
     <!-- ===== Vector match detail modal ===== -->
-    <Modal :open="!!openMatch" title="Record" :subtitle="openMatch ? `distance ${openMatch.distance.toFixed(4)}` : ''" @close="openMatch = null">
+    <Modal :open="!!openMatch" title="Record" :subtitle="openMatch ? `score ${openMatch.score.toFixed(3)} · distance ${openMatch.distance.toFixed(4)}` : ''" @close="openMatch = null">
       <div v-if="openMatch" class="space-y-3">
         <div class="space-y-1">
           <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Content</label>

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMemoryStore } from '@/stores/memory'
+import { memoryApi } from '@/api/memory'
+import { embeddingProviders, providerSpec, defaultDimensions } from '@/lib/embeddingProviders'
 import type { ColumnType, MemoryStore, MemoryType, TableColumn, VectorMetric } from '@/types/api'
 import PageShell from '@/components/ui/PageShell.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -47,12 +49,88 @@ const form = reactive({
   },
 })
 
+// ---- Embedding provider / model selection --------------------------------
+// The provider is a fixed choice (each is a provider the backend can reach), the
+// model is picked from the provider's known models or the live list loaded from
+// the provider's API, and the dimension is auto-filled from the model's default
+// but stays editable (several models support more than one output size).
+const providerChoice = ref('openai')
+const fetchedModels = ref<string[]>([])
+const loadingModels = ref(false)
+const modelsError = ref<string | null>(null)
+const canLoadModels = memoryApi.isRemote()
+
+const isCustomProvider = computed(() => providerSpec(providerChoice.value)?.custom === true)
+
+// The model dropdown options: the live list once loaded, else the catalog's
+// known models for the selected provider.
+const modelOptions = computed<string[]>(() => {
+  if (fetchedModels.value.length) return fetchedModels.value
+  return providerSpec(providerChoice.value)?.models.map((m) => m.id) ?? []
+})
+
+// Provider for the list-models call: a custom provider is itself a base URL.
+function providerForList(): string {
+  return isCustomProvider.value ? form.vector.provider.trim() : providerChoice.value
+}
+
+function onProviderChange() {
+  fetchedModels.value = []
+  modelsError.value = null
+  const spec = providerSpec(providerChoice.value)
+  if (spec?.custom) {
+    // The user supplies the base URL (stored as the provider) and a model id.
+    form.vector.provider = ''
+    form.vector.embeddingModel = ''
+    return
+  }
+  form.vector.provider = providerChoice.value
+  const first = spec?.models[0]
+  if (first) {
+    form.vector.embeddingModel = first.id
+    form.vector.dimensions = first.dimensions
+  }
+}
+
+// When the model matches a known one, snap the dimension to its default. Custom
+// models (no catalog entry) leave the number the user set.
+watch(
+  () => form.vector.embeddingModel,
+  (model) => {
+    const dims = defaultDimensions(providerChoice.value, model)
+    if (dims) form.vector.dimensions = dims
+  },
+)
+
+async function loadModels() {
+  const provider = providerForList()
+  if (!provider) {
+    modelsError.value = 'Enter the base URL first.'
+    return
+  }
+  loadingModels.value = true
+  modelsError.value = null
+  try {
+    const list = await memoryApi.listEmbeddingModels(provider, form.vector.token)
+    fetchedModels.value = list
+    if (list.length === 0) modelsError.value = 'No embedding models returned for this key.'
+  } catch (err) {
+    modelsError.value = (err as Error).message
+  } finally {
+    loadingModels.value = false
+  }
+}
+
 function resetForm() {
   form.type = 'vector'
   form.name = ''
   form.description = ''
   form.vector = { provider: 'openai', embeddingModel: 'text-embedding-3-small', token: '', dimensions: 1536, metric: 'cosine', namespace: 'default' }
   form.document = { table: '', columns: [{ name: 'id', type: 'string', primary: true }] }
+  providerChoice.value = 'openai'
+  fetchedModels.value = []
+  loadingModels.value = false
+  modelsError.value = null
   formError.value = null
   showJsonImport.value = false
   jsonText.value = ''
@@ -152,9 +230,19 @@ async function submit() {
     formError.value = 'Give the memory store a name.'
     return
   }
-  if (form.type === 'vector' && !form.vector.embeddingModel.trim()) {
-    formError.value = 'A vector store needs an embedding model.'
-    return
+  if (form.type === 'vector') {
+    if (!form.vector.provider.trim()) {
+      formError.value = isCustomProvider.value ? 'Enter the OpenAI-compatible base URL.' : 'Pick an embedding provider.'
+      return
+    }
+    if (!form.vector.embeddingModel.trim()) {
+      formError.value = 'A vector store needs an embedding model.'
+      return
+    }
+    if (!(form.vector.dimensions > 0)) {
+      formError.value = 'Set the embedding dimensions (a positive number).'
+      return
+    }
   }
   if (form.type === 'document') {
     if (!form.document.table.trim()) {
@@ -307,19 +395,47 @@ const isVector = computed(() => form.type === 'vector')
 
         <!-- Vector config -->
         <div v-if="isVector" class="space-y-3 rounded-lg border bg-surface-2 p-3">
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1">
-              <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Provider</label>
-              <input v-model="form.vector.provider" class="input" placeholder="openai" />
-            </div>
-            <div class="space-y-1">
-              <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Embedding model</label>
-              <input v-model="form.vector.embeddingModel" class="input font-mono text-xs" placeholder="text-embedding-3-small" />
-            </div>
+          <div class="space-y-1">
+            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Provider</label>
+            <select v-model="providerChoice" class="input" @change="onProviderChange">
+              <option v-for="p in embeddingProviders" :key="p.value" :value="p.value">{{ p.label }}</option>
+            </select>
+          </div>
+          <div v-if="isCustomProvider" class="space-y-1">
+            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Base URL</label>
+            <input v-model="form.vector.provider" class="input font-mono text-xs" placeholder="https://host/v1" />
+            <p class="text-[11px] text-fg-subtle">An OpenAI-compatible embeddings endpoint (…/v1). langchaingo posts to <code>&lt;base&gt;/embeddings</code>.</p>
           </div>
           <div class="space-y-1">
             <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Token</label>
             <input v-model="form.vector.token" type="password" class="input font-mono text-xs" placeholder="embedding model API key" />
+          </div>
+          <div class="space-y-1">
+            <div class="flex items-center justify-between">
+              <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Embedding model</label>
+              <button
+                v-if="canLoadModels"
+                type="button"
+                class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline disabled:opacity-50"
+                :disabled="loadingModels"
+                @click="loadModels"
+              >
+                <Icon name="sparkles" :size="12" /> {{ loadingModels ? 'Loading…' : 'Load models' }}
+              </button>
+            </div>
+            <input
+              v-model="form.vector.embeddingModel"
+              list="embed-model-options"
+              class="input font-mono text-xs"
+              placeholder="text-embedding-3-small"
+            />
+            <datalist id="embed-model-options">
+              <option v-for="m in modelOptions" :key="m" :value="m" />
+            </datalist>
+            <p v-if="modelsError" class="text-[11px] text-danger">{{ modelsError }}</p>
+            <p v-else class="text-[11px] text-fg-subtle">
+              Pick a listed model or type one. <span v-if="canLoadModels">“Load models” fetches what your key can access.</span>
+            </p>
           </div>
           <div class="grid grid-cols-3 gap-3">
             <div class="space-y-1">
