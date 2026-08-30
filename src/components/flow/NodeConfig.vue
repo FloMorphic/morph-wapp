@@ -382,6 +382,24 @@ const clearHistory = computed<boolean>({
   },
 })
 
+// Max tool turns (MCP-llm only, stored on data.body.max_tool_turns). Caps the
+// agentic loop: one turn is one model call plus the tools it requests. The backend
+// floors this at MCP_MIN_TOOL_TURNS, so a value at the minimum is left off the body
+// (backend uses its default), and only a higher value is persisted.
+const MCP_MIN_TOOL_TURNS = 8
+const maxToolTurns = computed<number>({
+  get: () => {
+    const v = llmBody().max_tool_turns
+    return typeof v === 'number' && v > MCP_MIN_TOOL_TURNS ? v : MCP_MIN_TOOL_TURNS
+  },
+  set: (v) => {
+    const body = llmBody()
+    const n = Math.floor(Number(v))
+    if (Number.isFinite(n) && n > MCP_MIN_TOOL_TURNS) body.max_tool_turns = n
+    else delete body.max_tool_turns
+  },
+})
+
 // ---- MCP node -------------------------------------------------------------
 // The MCP node has two modes, chosen with an option toggle:
 //   'tool' → expose the MCP server's tools to the flow (client only).
@@ -1161,6 +1179,23 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
               <span class="mt-0.5 block text-[11px] leading-relaxed text-fg-subtle">
                 Re-seed these init messages on <strong>every</strong> run, discarding any conversation the
                 node built up. Leave off to resume the conversation across runs (seed once).
+              </span>
+            </span>
+          </label>
+
+          <label class="flex items-start gap-2 rounded-lg border p-2 text-xs">
+            <input
+              v-model.number="maxToolTurns"
+              type="number"
+              :min="MCP_MIN_TOOL_TURNS"
+              step="1"
+              class="input w-20 shrink-0 text-xs"
+            />
+            <span>
+              <span class="font-semibold">Max tool turns</span>
+              <span class="mt-0.5 block text-[11px] leading-relaxed text-fg-subtle">
+                Cap on agentic loop turns — one turn is one model call plus the tools it requests. Raise it
+                for multi-step tasks that need more back-and-forth. Minimum {{ MCP_MIN_TOOL_TURNS }}.
               </span>
             </span>
           </label>
