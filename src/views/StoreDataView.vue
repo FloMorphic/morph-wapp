@@ -180,6 +180,24 @@ const searching = ref(false)
 const searchError = ref<string | null>(null)
 const searched = ref(false)
 const openMatch = ref<VectorMatch | null>(null)
+const deletingDocId = ref<string | null>(null)
+
+async function removeMatch(m: VectorMatch, e?: Event) {
+  e?.stopPropagation()
+  if (!store.value) return
+  if (!window.confirm('Delete this vector record? This cannot be undone.')) return
+  deletingDocId.value = m.docId
+  searchError.value = null
+  try {
+    await memoryRecordsApi.deleteVector(store.value.id, m.docId)
+    matches.value = matches.value.filter((x) => x.docId !== m.docId)
+    if (openMatch.value?.docId === m.docId) openMatch.value = null
+  } catch (err) {
+    searchError.value = (err as Error).message
+  } finally {
+    deletingDocId.value = null
+  }
+}
 
 async function runSearch() {
   if (!store.value || !query.value.trim()) return
@@ -456,6 +474,7 @@ function metaEntries(m: Record<string, unknown> | undefined): [string, unknown][
               <th class="px-3 py-2 font-semibold">metadata</th>
               <th class="w-20 px-3 py-2 font-semibold">score</th>
               <th class="w-24 px-3 py-2 font-semibold">distance</th>
+              <th class="w-10 px-3 py-2"></th>
             </tr>
           </thead>
           <tbody>
@@ -474,6 +493,16 @@ function metaEntries(m: Record<string, unknown> | undefined): [string, unknown][
               </td>
               <td class="whitespace-nowrap px-3 py-2 font-mono text-[12px] font-semibold text-fg">{{ m.score.toFixed(3) }}</td>
               <td class="whitespace-nowrap px-3 py-2 font-mono text-[12px] text-fg-subtle">{{ m.distance.toFixed(4) }}</td>
+              <td class="px-3 py-2 text-right">
+                <button
+                  class="rounded-lg p-1.5 text-fg-subtle hover:bg-danger-soft hover:text-danger disabled:opacity-50"
+                  title="Delete vector"
+                  :disabled="deletingDocId === m.docId"
+                  @click="removeMatch(m, $event)"
+                >
+                  <Icon name="trash" :size="15" />
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -560,6 +589,16 @@ function metaEntries(m: Record<string, unknown> | undefined): [string, unknown][
         </div>
       </div>
       <template #footer>
+        <Button
+          v-if="openMatch"
+          variant="outline"
+          icon="trash"
+          class="text-danger hover:bg-danger-soft"
+          :disabled="deletingDocId === openMatch.docId"
+          @click="removeMatch(openMatch)"
+        >
+          Delete
+        </Button>
         <Button @click="openMatch = null">Close</Button>
       </template>
     </Modal>

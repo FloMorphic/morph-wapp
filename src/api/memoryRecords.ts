@@ -71,6 +71,12 @@ export const memoryRecordsApi = {
     return http.post<SearchResult>(`/memory/${storeId}/search`, { text, topK, minScore })
   },
 
+  /** Remove one indexed record from a vector store by its `docId`. */
+  deleteVector(storeId: string, docId: string): Promise<void> {
+    requireRemote()
+    return http.delete<void>(`/memory/${storeId}/vectors/${docId}`)
+  },
+
   /** Embed `text` and index it in a vector store with optional metadata. */
   indexVector(storeId: string, text: string, metadata: Record<string, unknown>): Promise<{ id: string }> {
     requireRemote()

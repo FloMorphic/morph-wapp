@@ -41,6 +41,14 @@ function setAction(value: 'read' | 'write') {
   if (props.data) props.data.action = value
 }
 
+// Metadata hint. Kept in the script so the write-mode copy can mention the
+// `{{$.path}}` template syntax without the mustache tripping Vue's compiler.
+const metaHint = computed(() =>
+  action.value === 'read'
+    ? 'Keep only matches whose metadata contains every key/value pair. Applied after the nearest-neighbour search, so a very selective filter can return fewer than Top K.'
+    : 'Stored on the record. Values resolve {{$.path}} against the run-time context.',
+)
+
 // Top K — how many nearest matches a vector search returns. Held on the node
 // data as a number; the backend node builder carries it through to the search.
 const topK = computed<number>(() => {
@@ -63,6 +71,35 @@ function setMinScore(value: string) {
   if (!props.data) return
   const n = Number(value)
   props.data.minScore = Number.isFinite(n) && n > 0 ? Math.min(n, 1) : 0
+}
+
+// Metadata key/value rows for a vector node. On a write they are attached to the
+// indexed record; on a read they filter matches to records carrying every pair.
+// Each value may embed a {{$.path}} placeholder — the backend flattens the rows
+// onto the extrinsic `op` payload so the runtime resolves them before the call.
+type MetaRow = { key: string; value: string }
+const metaRows = computed<MetaRow[]>(() => {
+  const raw = props.data?.metadata
+  return Array.isArray(raw) ? (raw as MetaRow[]) : []
+})
+function ensureMetaRows(): MetaRow[] {
+  if (!props.data) return []
+  if (!Array.isArray(props.data.metadata)) props.data.metadata = []
+  return props.data.metadata as MetaRow[]
+}
+function addMetaRow() {
+  ensureMetaRows().push({ key: '', value: '' })
+}
+function removeMetaRow(i: number) {
+  ensureMetaRows().splice(i, 1)
+}
+function setMetaKey(i: number, value: string) {
+  const rows = ensureMetaRows()
+  if (rows[i]) rows[i].key = value
+}
+function setMetaValue(i: number, value: string) {
+  const rows = ensureMetaRows()
+  if (rows[i]) rows[i].value = value
 }
 
 const store = useMemoryStore()
@@ -269,10 +306,65 @@ function onSelect(e: Event) {
           </div>
         </div>
 
-        <!-- Write: the payload is the node scope slice of Context, resolved at runtime. -->
+        <!-- Write. A vector store embeds an explicit `text` field (a {{$.path}}
+             placeholder resolved at runtime, or literal text); a doc store
+             writes the whole scope slice. -->
+        <div v-else-if="memoryType === 'vector'" class="space-y-1">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Text to embed</label>
+          <textarea
+            :value="(props.data!.text as string) ?? ''"
+            rows="3"
+            spellcheck="false"
+            class="input resize-none font-mono text-xs leading-relaxed"
+            placeholder="Text to embed — e.g. {{$.content.text}} or literal text"
+            @input="props.data!.text = ($event.target as HTMLTextAreaElement).value"
+          />
+          <p class="text-[11px] text-fg-subtle">
+            Resolved at runtime and embedded into the vector.
+          </p>
+        </div>
         <p v-else class="text-[11px] text-fg-subtle">
           The node scope slice of Context is written to the store at runtime.
         </p>
+
+        <!-- Metadata key/value rows (vector only). On a write they are attached
+             to the record; on a read they filter matches to records carrying
+             every pair. Values may embed {{$.path}} placeholders resolved at
+             run time. -->
+        <div v-if="memoryType === 'vector'" class="space-y-1.5 border-t pt-2">
+          <div class="flex items-center justify-between">
+            <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+              {{ action === 'read' ? 'Filter by metadata' : 'Metadata' }}
+            </label>
+            <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addMetaRow">
+              <Icon name="plus" :size="13" /> Add
+            </button>
+          </div>
+          <div v-for="(row, i) in metaRows" :key="i" class="flex items-center gap-1.5">
+            <input
+              :value="row.key"
+              class="input w-1/3 font-mono text-xs"
+              placeholder="key"
+              @input="setMetaKey(i, ($event.target as HTMLInputElement).value)"
+            />
+            <input
+              :value="row.value"
+              class="input flex-1 font-mono text-xs"
+              placeholder="value or {{$.path}}"
+              @input="setMetaValue(i, ($event.target as HTMLInputElement).value)"
+            />
+            <button
+              class="shrink-0 rounded-lg p-1 text-fg-subtle hover:bg-danger-soft hover:text-danger"
+              title="Remove"
+              @click="removeMetaRow(i)"
+            >
+              <Icon name="x" :size="14" />
+            </button>
+          </div>
+          <p class="text-[11px] text-fg-subtle">
+            {{ metaHint }}
+          </p>
+        </div>
       </div>
     </div>
 

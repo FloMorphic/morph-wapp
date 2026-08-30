@@ -518,9 +518,9 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'stores',
     tagline: 'Read / write vectors',
     description:
-      'Read (run a query) or write into a referenced Vector memory store. A read runs `query` against the store; a write takes its payload from `input` (the node `scope` or an input JSONPath). Compiles to an Extrinsic on `svc.store.vec.{ACTION}` (inflo-fusion listens on `svc.store.vec.*`).',
+      'Read (run a query) or write into a referenced Vector memory store. A read embeds `query` and returns the nearest matches, optionally filtered to records whose metadata matches the given key/value pairs; a write embeds the `text` field (a `{{$.path}}` placeholder resolved at run time, or literal text) and indexes it with the metadata key/value pairs (values also resolve `{{$.path}}`). The metadata filter is applied AFTER the nearest-neighbour search (post-KNN) over the top candidates, so a very selective filter can return fewer than Top K even when more matches exist deeper in the index. Compiles to an Extrinsic on `svc.store.vec.{ACTION}` (inflo-fusion listens on `svc.store.vec.*`).',
     primitives: 'Extrinsic · svc.store.vec.*',
-    defaults: () => ({ title: 'Vector Store', key: 'vecResult', scope: '$', storeId: '', action: 'read', query: '', input: '$', topK: 5, minScore: 0 }),
+    defaults: () => ({ title: 'Vector Store', key: 'vecResult', scope: '$', storeId: '', action: 'read', query: '', text: '', input: '$', topK: 5, minScore: 0, metadata: [] }),
     preview: (d) => `${String(d.action ?? 'read')}${d.storeId ? ' · ' + String(d.storeId) : ' · no store'}`,
   }),
   cast: spec({
