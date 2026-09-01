@@ -480,7 +480,7 @@ type McpMode = 'tool' | 'llm'
 const MCP_TRANSPORTS: { value: string; label: string }[] = [
   { value: 'streamable-http', label: 'Streamable HTTP' },
   { value: 'sse', label: 'SSE' },
-  { value: 'stdio', label: 'stdio' },
+  // { value: 'stdio', label: 'stdio' },
   { value: 'websocket', label: 'WebSocket' },
 ]
 
