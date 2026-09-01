@@ -8,6 +8,8 @@ import { nodeSettingsApi } from '@/api/nodeSettings'
 import type { ExtensionRecord, PluginIntro } from '@/types/api'
 import { nodeUniqId } from '@/lib/nodeSettings'
 import { toPluginForm, withSchemaDefaults } from '@/lib/pluginForm'
+import { copyProfileJson, readProfileJson } from '@/lib/profileClipboard'
+import { useNotificationsStore } from '@/stores/notifications'
 
 /**
  * A plugin's onboarding: turn the settings form it advertises on `@intro` into
@@ -62,11 +64,52 @@ const error = ref<string | null>(null)
  */
 const manual = ref<{ key: string; value: string }[]>([{ key: '', value: '' }])
 
+const notifications = useNotificationsStore()
+
 function addRow() {
   manual.value.push({ key: '', value: '' })
 }
 function removeRow(i: number) {
   manual.value.splice(i, 1)
+}
+
+/** The manual rows as key/value pairs; a value stored as JSON is shown as JSON. */
+function rowsFromSettings(settings: Record<string, unknown>): { key: string; value: string }[] {
+  const rows = Object.entries(settings).map(([key, value]) => ({
+    key,
+    value: typeof value === 'string' ? value : JSON.stringify(value),
+  }))
+  return rows.length ? rows : [{ key: '', value: '' }]
+}
+
+async function exportProfile() {
+  try {
+    await copyProfileJson(collect())
+    notifications.notify({ level: 'success', message: 'Profile settings copied to clipboard.' })
+  } catch {
+    notifications.notify({ level: 'error', message: 'Could not copy to the clipboard.' })
+  }
+}
+
+/**
+ * Paste a profile from the clipboard into the on-screen fields. Nothing is
+ * saved — reassigning the JSON Forms values re-renders its inputs; the manual
+ * fallback re-seeds its rows.
+ */
+async function importProfile() {
+  let incoming: Record<string, unknown>
+  try {
+    incoming = await readProfileJson()
+  } catch (err) {
+    notifications.notify({ level: 'error', message: (err as Error).message })
+    return
+  }
+  if (hasFields.value) {
+    values.value = withSchemaDefaults(form.value?.schema, incoming)
+  } else {
+    manual.value = rowsFromSettings(incoming)
+  }
+  notifications.notify({ level: 'success', message: 'Profile settings pasted from clipboard.' })
 }
 
 /** The values to save: the rendered form's, or the manual rows'. */
@@ -141,6 +184,27 @@ async function save() {
       <div class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Profile name</label>
         <input v-model="title" class="input" placeholder="e.g. Production" />
+      </div>
+
+      <!-- Move a profile's field values in or out as JSON on the clipboard.
+           Import only fills the on-screen fields — the user still saves. -->
+      <div class="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          class="flex items-center gap-1 text-[12px] text-fg-subtle hover:text-accent"
+          title="Copy these settings to the clipboard as JSON"
+          @click="exportProfile"
+        >
+          <Icon name="export" :size="13" /> Export
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-1 text-[12px] text-fg-subtle hover:text-accent"
+          title="Paste settings JSON from the clipboard into this form"
+          @click="importProfile"
+        >
+          <Icon name="import" :size="13" /> Import
+        </button>
       </div>
 
       <!-- The plugin advertised a form: render exactly what it asked for. -->

@@ -8,6 +8,8 @@ import { fetchOpenRouterModels, type OpenRouterModel } from '@/lib/openrouter'
 import { fetchPluginRegistrations, pluginRegistration, type PluginRegistration } from '@/lib/nodeExtRefs'
 import { fetchPluginIntro } from '@/lib/pluginSettings'
 import { toPluginForm, withSchemaDefaults } from '@/lib/pluginForm'
+import { copyProfileJson, readProfileJson } from '@/lib/profileClipboard'
+import { useNotificationsStore } from '@/stores/notifications'
 import { NODE_LIST } from '@/data/nodeCatalog'
 import Modal from '@/components/ui/Modal.vue'
 import Button from '@/components/ui/Button.vue'
@@ -80,6 +82,7 @@ const form = reactive<{
 })
 const submitting = ref(false)
 const formError = ref<string | null>(null)
+const notifications = useNotificationsStore()
 
 // The typed schema for the profile being edited, or null → key/value editor.
 const schema = computed(() => settingsSchemaFor(form.nodeType))
@@ -314,6 +317,55 @@ function removeRow(i: number) {
   form.rows.splice(i, 1)
 }
 
+/**
+ * The values the active editor is currently holding, as a plain object — the
+ * same shape `submit` saves, but best-effort: required fields aren't enforced,
+ * since export/copy is about moving whatever is on screen, not committing it.
+ */
+function currentSettings(): Record<string, unknown> {
+  if (pluginForm.value) return { ...(pluginValues.value ?? {}) }
+  if (schema.value) return settingsFromSchema(schema.value.fields).settings
+  const out: Record<string, unknown> = {}
+  for (const row of form.rows) {
+    const key = row.key.trim()
+    if (key) out[key] = parseValue(row.value)
+  }
+  return out
+}
+
+async function exportProfile() {
+  try {
+    await copyProfileJson(currentSettings())
+    notifications.notify({ level: 'success', message: 'Profile settings copied to clipboard.' })
+  } catch {
+    notifications.notify({ level: 'error', message: 'Could not copy to the clipboard.' })
+  }
+}
+
+/**
+ * Paste a profile from the clipboard into the active editor. Nothing is saved —
+ * only the on-screen fields are updated, and the user still reviews and saves.
+ * Each editor takes the object its own way: reassigning the JSON Forms values
+ * re-renders its inputs, the typed and key/value editors re-seed from it.
+ */
+async function importProfile() {
+  let incoming: Record<string, unknown>
+  try {
+    incoming = await readProfileJson()
+  } catch (err) {
+    notifications.notify({ level: 'error', message: (err as Error).message })
+    return
+  }
+  if (pluginForm.value) {
+    pluginValues.value = withSchemaDefaults(pluginForm.value.schema, incoming)
+  } else if (schema.value) {
+    form.values = valuesFromSettings(schema.value.fields, incoming)
+  } else {
+    form.rows = rowsFromSettings(incoming)
+  }
+  notifications.notify({ level: 'success', message: 'Profile settings pasted from clipboard.' })
+}
+
 async function submit() {
   formError.value = null
   const nodeUniqId = form.nodeUniqId.trim()
@@ -408,6 +460,28 @@ async function submit() {
       <div class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Profile name</label>
         <input v-model="form.title" class="input" placeholder="e.g. OpenAI prod" />
+      </div>
+
+      <!-- Move a profile's field values between dialogs as JSON on the
+           clipboard. Paste only updates the on-screen fields — nothing is
+           saved until the user does. -->
+      <div class="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          class="flex items-center gap-1 text-[12px] text-fg-subtle hover:text-accent"
+          title="Copy these settings to the clipboard as JSON"
+          @click="exportProfile"
+        >
+          <Icon name="export" :size="13" /> Export
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-1 text-[12px] text-fg-subtle hover:text-accent"
+          title="Paste settings JSON from the clipboard into this form"
+          @click="importProfile"
+        >
+          <Icon name="import" :size="13" /> Import
+        </button>
       </div>
 
       <!-- The plugin's own form, read live. -->
