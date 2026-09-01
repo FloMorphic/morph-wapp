@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { markRaw, nextTick, provide, ref, type Component } from 'vue'
+import { markRaw, nextTick, onMounted, provide, ref, type Component } from 'vue'
 import { VueFlow, useVueFlow, getRectOfNodes, MarkerType, ConnectionLineType, Position, type Connection, type GraphNode } from '@vue-flow/core'
 import { toPng } from 'html-to-image'
 import { Background } from '@vue-flow/background'
@@ -19,8 +19,9 @@ import {
 } from '@/data/nodeCatalog'
 import type { VueFlowGraph } from '@/types/api'
 import type { NodeExtRef } from '@/lib/nodeSettings'
-import { fetchNodeExtRefs, fetchPluginActions, type PluginActionEntry } from '@/lib/nodeExtRefs'
+import { fetchNodeExtRefs, fetchPluginActions, INSTALLED_PLUGIN_ACTIONS, type PluginActionEntry } from '@/lib/nodeExtRefs'
 import type { PlannedPatch } from '@/lib/aiGraph'
+import { namespaceOf, type PluginManifestEntry, type MissingPlugin } from '@/lib/exportFlow'
 import { layeredLayout } from '@/lib/graphLayout'
 import {
   routeEdge,
@@ -307,19 +308,23 @@ function getGraph(): VueFlowGraph {
  * edge tags are derived from the ports exactly as a hand-drawn edge's are — a
  * node from here is indistinguishable from one dropped by hand.
  */
-async function applyPatch(patch: PlannedPatch): Promise<void> {
+async function applyPatch(patch: PlannedPatch, plugins: PluginManifestEntry[] = []): Promise<void> {
   if (patch.nodes.length === 0 && patch.edges.length === 0) return
   const refs = await fetchNodeExtRefs()
   // A patch may reference an imported-plugin action (the prompt lists them). It
-  // carries only the pluginId + action; the extension row id, the action's form
-  // and any outbound ports are looked up here and stamped, so a plugin node the
-  // AI added is identical to one dragged from the palette (see addNode).
+  // carries only the action; the extension row id, the action's form and any
+  // outbound ports are looked up here and stamped, so a plugin node the AI added
+  // is identical to one dragged from the palette (see addNode).
   const pluginActions = patch.nodes.some((n) => n.type === 'plugin') ? await fetchPluginActions() : []
 
   for (const n of patch.nodes) {
     const data = { ...n.data } as Record<string, unknown>
     if (n.type === 'plugin') {
       stampPluginRef(data, pluginActions)
+      // Unresolved here means no local plugin provides this action — mark it as
+      // an unrecognized plugin so the canvas badges it and the drawer can offer
+      // the file's repo to install it (see FlowNode / NodeConfig).
+      if (!data.extensionId) markMissingPlugin(data, plugins)
     } else {
       const ext = refs?.[n.type]
       if (ext?.extensionId) {
@@ -362,8 +367,24 @@ async function applyPatch(patch: PlannedPatch): Promise<void> {
 function stampPluginRef(data: Record<string, unknown>, actions: PluginActionEntry[]): void {
   const pluginId = String(data.pluginId ?? '').trim()
   const action = String(data.action ?? '').trim()
-  if (!pluginId || !action) return
-  const hit = actions.find((a) => a.pluginId === pluginId && a.action === action)
+  // Clear any incoming identity BEFORE resolving. A plugin node compiles its NATS
+  // subject straight from `data.pluginId` (backend pluginUniqId), so a foreign or
+  // stale id that survives to compile publishes to a subject nothing answers on —
+  // a silent "no responders" at run time. Better to leave the node visibly
+  // unbound (and flagged in review) than to let a wrong address masquerade as
+  // configured. It is re-set only when a local plugin actually provides the action.
+  delete data.extensionId
+  delete data.pluginId
+  delete data.form
+  delete data.outbound
+  if (!action) return
+  // Match on the action method — the key that survives across installs (a
+  // pluginId is a per-install address). Prefer the exact pair when the incoming
+  // pluginId also names a local row (a same-install re-import or an AI patch);
+  // otherwise any local plugin exposing this method resolves it.
+  const hit =
+    (pluginId && actions.find((a) => a.pluginId === pluginId && a.action === action)) ||
+    actions.find((a) => a.action === action)
   if (!hit) return
   data.extensionId = hit.ref.extensionId
   data.pluginId = hit.ref.pluginId
@@ -371,6 +392,28 @@ function stampPluginRef(data: Record<string, unknown>, actions: PluginActionEntr
   if (!String(data.title ?? '').trim()) data.title = hit.label
   if (hit.ref.form) data.form = hit.ref.form
   if (hit.ref.outbound?.length) data.outbound = hit.ref.outbound
+  delete data.missingPlugin // resolved — drop the unrecognized marker
+}
+
+/**
+ * Mark a plugin node whose action no local plugin provides as "unrecognized",
+ * carrying the name and repo the file's manifest recorded for it (matched by the
+ * node's action). The marker survives a save, so the node's drawer can offer the
+ * repo to install — or a pick of an installed plugin — long after the import
+ * dialog is gone. Falls back to the action's namespace for a name, and to no
+ * repo, when the file carried no manifest (an older export or a bare patch).
+ */
+function markMissingPlugin(data: Record<string, unknown>, plugins: PluginManifestEntry[]): void {
+  const action = String(data.action ?? '').trim()
+  if (!action) return
+  const entry = plugins.find((p) => p.actions.includes(action))
+  const marker: MissingPlugin = {
+    name: entry?.name || namespaceOf(action) || 'plugin',
+    repo: entry?.repo,
+    ref: entry?.ref,
+    subdir: entry?.subdir,
+  }
+  data.missingPlugin = marker
 }
 
 /**
@@ -429,6 +472,20 @@ function portRank(sourceId?: string | null, handleId?: string | null): number {
 // animation frame so dragging a node stays smooth.
 const routedPaths = ref<Map<string, RoutedPath>>(new Map())
 provide(ROUTED_PATHS, routedPaths)
+
+// The action methods this install's plugins expose, shared with every node so it
+// can badge itself "unrecognized" the moment it holds an action nothing local
+// provides (see FlowNode). `null` until first load, so nodes don't flash the
+// badge before the set is known. Refreshed after an import or a plugin install.
+const installedActions = ref<Set<string> | null>(null)
+provide(INSTALLED_PLUGIN_ACTIONS, installedActions)
+async function refreshInstalledActions(force = false): Promise<Set<string>> {
+  const rows = await fetchPluginActions(force).catch(() => [] as PluginActionEntry[])
+  const set = new Set(rows.map((r) => r.action))
+  installedActions.value = set
+  return set
+}
+onMounted(() => void refreshInstalledActions())
 
 // Past this many nodes the search is skipped and edges fall back to smoothstep:
 // the routing lattice grows with the node count, and a graph that large is past
@@ -633,11 +690,43 @@ function removeSelected(node: GraphNode | null) {
   emit('dirty')
 }
 
+/**
+ * Re-bind every plugin node against the current registry — the cascade a node's
+ * drawer triggers after a plugin is installed or picked. One node was resolved by
+ * hand, but the fix is the plugin, so every node calling that plugin's actions is
+ * re-stamped in one pass: the live action set is refreshed (so badges clear) and
+ * each plugin node is run back through stampPluginRef, which now finds the local
+ * row and stamps its extensionId/pluginId/form. Nodes whose plugin is still
+ * missing are left as-is (re-marked). Leaves the canvas dirty when anything moved.
+ */
+async function rebindPluginNodes(): Promise<void> {
+  const pluginNodes = nodes.value.filter((n) => n.type === 'plugin')
+  if (!pluginNodes.length) return
+  await refreshInstalledActions(true)
+  const actions = await fetchPluginActions().catch(() => [] as PluginActionEntry[])
+  const manifest: PluginManifestEntry[] = []
+  let changed = false
+  for (const n of pluginNodes) {
+    const data = n.data as Record<string, unknown>
+    const before = String(data.extensionId ?? '')
+    stampPluginRef(data, actions)
+    // Still unresolved and never marked — give it a namespace-only marker; an
+    // existing marker (with the file's repo) is left intact by stampPluginRef.
+    if (!data.extensionId && !data.missingPlugin) markMissingPlugin(data, manifest)
+    if (String(data.extensionId ?? '') !== before) changed = true
+  }
+  if (changed) {
+    scheduleReroute()
+    emit('dirty')
+  }
+}
+
 defineExpose({
   addNode,
   loadGraph,
   getGraph,
   applyPatch,
+  rebindPluginNodes,
   autoArrange,
   captureImage,
   removeSelected,

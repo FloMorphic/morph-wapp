@@ -17,7 +17,8 @@ import { useFlowLogsStore } from '@/stores/flowLogs'
 import { useFlowGraphsStore } from '@/stores/flowGraphs'
 import { useNotificationsStore } from '@/stores/notifications'
 import { offsetPatch, planPatch, summarize, type AiGraphPatch, type PlannedPatch } from '@/lib/aiGraph'
-import { downloadFile, fileBase, workflowExportJson } from '@/lib/exportFlow'
+import { downloadFile, fileBase, workflowExportJson, type AvailablePlugin, type PluginManifestEntry } from '@/lib/exportFlow'
+import { fetchPluginRegistrations } from '@/lib/nodeExtRefs'
 import { nodeUniqId, usesSettingsProfile } from '@/lib/nodeSettings'
 import { nodeSettingsApi } from '@/api/nodeSettings'
 import type { NodeSetting } from '@/types/api'
@@ -133,14 +134,24 @@ async function onAiPatch(patch: PlannedPatch) {
  * The file's name is adopted only for a workflow that hasn't been named yet, so
  * importing into a workflow you already titled never renames it behind your back.
  */
-async function onImport({ patch, mode, title: fileTitle }: { patch: AiGraphPatch; mode: 'add' | 'replace'; title?: string }) {
+async function onImport({
+  patch,
+  mode,
+  title: fileTitle,
+  plugins,
+}: {
+  patch: AiGraphPatch
+  mode: 'add' | 'replace'
+  title?: string
+  plugins?: PluginManifestEntry[]
+}) {
   if (mode === 'replace') {
     canvas.value?.loadGraph({ nodes: [], edges: [] })
     await nextTick()
-    return applyImport(planPatch(patch, null), mode, fileTitle)
+    return applyImport(planPatch(patch, null), mode, fileTitle, plugins)
   }
   const existing = currentGraph()
-  return applyImport(planPatch(offsetPatch(patch, existing), existing), mode, fileTitle)
+  return applyImport(planPatch(offsetPatch(patch, existing), existing), mode, fileTitle, plugins)
 }
 
 /**
@@ -175,9 +186,14 @@ async function resolveImportedProfiles(planned: PlannedPatch): Promise<void> {
   )
 }
 
-async function applyImport(planned: PlannedPatch, mode: 'add' | 'replace', fileTitle?: string) {
+async function applyImport(
+  planned: PlannedPatch,
+  mode: 'add' | 'replace',
+  fileTitle?: string,
+  plugins?: PluginManifestEntry[],
+) {
   await resolveImportedProfiles(planned)
-  await canvas.value?.applyPatch(planned)
+  await canvas.value?.applyPatch(planned, plugins)
   if (mode === 'replace' && fileTitle && isUnnamed(title.value)) title.value = fileTitle
   dirty.value = true
   notifications.notify({
@@ -192,11 +208,22 @@ async function applyImport(planned: PlannedPatch, mode: 'add' | 'replace', fileT
  * not, so an unsaved draft can still be taken away. See lib/exportFlow for the
  * envelope and what a file does *not* carry across installs.
  */
-function exportJson() {
+async function exportJson() {
   const graph = canvas.value?.getGraph()
   if (!graph) return
+  // The plugins this install has registered, so the file can name each plugin
+  // the flow uses (and its repo) for a target install that is missing one. Fails
+  // soft to none — the manifest then just lists actions without a name/repo.
+  const registrations = await fetchPluginRegistrations().catch(() => [])
+  const available: AvailablePlugin[] = registrations.map((r) => ({
+    pluginId: r.pluginId,
+    name: r.name,
+    repo: r.repo,
+    ref: r.ref,
+    subdir: r.subdir,
+  }))
   downloadFile(
-    new Blob([workflowExportJson(title.value, graph)], { type: 'application/json' }),
+    new Blob([workflowExportJson(title.value, graph, available)], { type: 'application/json' }),
     `${fileBase(title.value)}.flow.json`,
   )
   notifications.notify({
@@ -351,7 +378,12 @@ async function save() {
         <WorkflowCanvas ref="canvas" @select="onSelect" @dirty="dirty = true" />
         <FlowLogDrawer />
       </div>
-      <NodeSettingDetails :node="selected" @close="selected = null" @delete="onDelete" />
+      <NodeSettingDetails
+        :node="selected"
+        @close="selected = null"
+        @delete="onDelete"
+        @resolved="canvas?.rebindPluginNodes()"
+      />
     </div>
   </div>
 </template>

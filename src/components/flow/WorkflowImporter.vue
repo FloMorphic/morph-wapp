@@ -6,7 +6,8 @@ import Button from '@/components/ui/Button.vue'
 import ToolButton from '@/components/ui/ToolButton.vue'
 import PatchReview from './PatchReview.vue'
 import { planPatch, type AiGraphPatch } from '@/lib/aiGraph'
-import { parseWorkflowFile } from '@/lib/exportFlow'
+import { parseWorkflowFile, referencedActions, namespaceOf, type PluginManifestEntry } from '@/lib/exportFlow'
+import { fetchPluginActions } from '@/lib/nodeExtRefs'
 import type { VueFlowGraph } from '@/types/api'
 
 /**
@@ -34,7 +35,7 @@ const props = defineProps<{
   resolveGraph: () => VueFlowGraph
 }>()
 const emit = defineEmits<{
-  (e: 'apply', payload: { patch: AiGraphPatch; mode: 'add' | 'replace'; title?: string }): void
+  (e: 'apply', payload: { patch: AiGraphPatch; mode: 'add' | 'replace'; title?: string; plugins?: PluginManifestEntry[] }): void
 }>()
 
 const open = ref(false)
@@ -43,8 +44,17 @@ const fileTitle = ref<string | undefined>(undefined)
 const patch = ref<AiGraphPatch | null>(null)
 const error = ref<string | null>(null)
 const newerVersion = ref<number | undefined>(undefined)
+const filePlugins = ref<PluginManifestEntry[]>([])
 const dragging = ref(false)
 const input = ref<HTMLInputElement | null>(null)
+
+// The action methods this install's registered plugins expose — the portable
+// key a flow's plugin nodes are checked against (an install's own pluginId is a
+// per-install address that never matches across machines; the method names a
+// plugin declares are the same everywhere). Loaded when the dialog opens and
+// fails soft to empty — with no backend every action reads as "not installed",
+// which is exactly the note a user with no plugins needs to see.
+const installedActions = ref<Set<string>>(new Set())
 
 // Snapshotted on open like the AI dialog does: the review is planned against
 // this graph, so it must not shift under the dialog while it is up.
@@ -55,6 +65,9 @@ function openDialog() {
   snapshot.value = props.resolveGraph()
   reset()
   open.value = true
+  void fetchPluginActions()
+    .then((rows) => (installedActions.value = new Set(rows.map((r) => r.action))))
+    .catch(() => (installedActions.value = new Set()))
 }
 
 function reset() {
@@ -63,6 +76,7 @@ function reset() {
   patch.value = null
   error.value = null
   newerVersion.value = undefined
+  filePlugins.value = []
   dragging.value = false
   if (input.value) input.value.value = ''
 }
@@ -77,6 +91,7 @@ async function readFile(file: File | undefined | null) {
     error.value = parsed.error
     fileTitle.value = parsed.title
     newerVersion.value = parsed.newerVersion
+    filePlugins.value = parsed.plugins ?? []
   } catch (err) {
     error.value = (err as Error).message
   }
@@ -94,9 +109,44 @@ function onDrop(e: DragEvent) {
 const plan = computed(() => (patch.value ? planPatch(patch.value, snapshot.value) : null))
 const canApply = computed(() => (plan.value?.nodes.length ?? 0) > 0)
 
+/**
+ * The plugins this flow runs but this install can't provide — the note that
+ * tells the designer what to install before a run. Importing does not need them:
+ * a plugin node lands either way, but a run of it errors while no local plugin
+ * exposes its action.
+ *
+ * The check is per action method (the portable key), grouped back into plugins
+ * for the note: a manifest entry claims the missing actions it declares (and
+ * lends them its name + repo); any missing action no manifest entry claims — an
+ * older file, or a bare patch — is grouped by its namespace so it is still shown.
+ */
+const missingPlugins = computed<PluginManifestEntry[]>(() => {
+  if (!patch.value) return []
+  const missing = referencedActions(patch.value).filter((a) => !installedActions.value.has(a))
+  if (!missing.length) return []
+
+  const out: PluginManifestEntry[] = []
+  const claimed = new Set<string>()
+  for (const entry of filePlugins.value) {
+    const hits = entry.actions.filter((a) => missing.includes(a))
+    if (!hits.length) continue
+    hits.forEach((a) => claimed.add(a))
+    out.push({ ...entry, actions: hits })
+  }
+  // Actions the manifest never named — key them by namespace (`qdrant.*`).
+  const orphans = new Map<string, string[]>()
+  for (const a of missing) {
+    if (claimed.has(a)) continue
+    const ns = namespaceOf(a) || a
+    orphans.set(ns, [...(orphans.get(ns) ?? []), a])
+  }
+  for (const [ns, actions] of orphans) out.push({ name: ns, actions })
+  return out
+})
+
 function apply(mode: 'add' | 'replace') {
   if (!patch.value || !canApply.value) return
-  emit('apply', { patch: patch.value, mode, title: fileTitle.value })
+  emit('apply', { patch: patch.value, mode, title: fileTitle.value, plugins: filePlugins.value })
   open.value = false
   reset()
 }
@@ -157,6 +207,54 @@ function apply(mode: 'add' | 'replace') {
         This file was written by a newer version of FloMorphic (format {{ newerVersion }}). Anything this app doesn't
         recognise is listed below.
       </p>
+
+      <!-- Plugins this flow needs that aren't installed here -------------- -->
+      <section
+        v-if="plan && missingPlugins.length"
+        class="rounded-xl border p-3 text-[12px]"
+        :style="{
+          borderColor: 'color-mix(in srgb, var(--warning) 40%, var(--line))',
+          background: 'color-mix(in srgb, var(--warning) 8%, transparent)',
+        }"
+      >
+        <p class="flex items-start gap-1.5 font-semibold text-warning">
+          <Icon name="alert-triangle" :size="14" class="mt-px shrink-0" />
+          {{ missingPlugins.length }} plugin{{ missingPlugins.length === 1 ? '' : 's' }} this flow uses
+          {{ missingPlugins.length === 1 ? "isn't" : "aren't" }} installed here
+        </p>
+        <p class="mt-1 text-fg-muted">
+          Importing is fine — the {{ missingPlugins.length === 1 ? 'node lands' : 'nodes land' }} either way — but a
+          run will error while {{ missingPlugins.length === 1 ? 'this plugin is' : 'these plugins are' }} missing.
+          Install and register {{ missingPlugins.length === 1 ? 'it' : 'each one' }} from Extensions, then reopen the
+          node to reconnect it. Not required to import.
+        </p>
+        <ul class="mt-2 space-y-2">
+          <li v-for="(p, i) in missingPlugins" :key="p.name + i" class="space-y-0.5">
+            <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span class="font-semibold text-fg">{{ p.name }}</span>
+              <a
+                v-if="p.repo"
+                :href="p.repo"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1 text-accent hover:underline"
+              >
+                <Icon name="external-link" :size="12" class="shrink-0" />
+                <span class="break-all">{{ p.repo }}</span>
+                <span v-if="p.ref" class="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10.5px]">{{ p.ref }}</span>
+              </a>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <span
+                v-for="a in p.actions"
+                :key="a"
+                class="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10.5px] text-fg-subtle"
+                >{{ a }}</span
+              >
+            </div>
+          </li>
+        </ul>
+      </section>
 
       <!-- What would land ----------------------------------------------- -->
       <section v-if="plan" class="space-y-2">

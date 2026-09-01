@@ -542,20 +542,17 @@ function inspectNode(spec: NodeSpec, data: BaseNodeData, at: string): PatchProbl
     out.push({ level: 'warn', at, message: `${spec.label} has no store selected — pick one in the node drawer.` })
   }
 
-  // An imported-plugin node is meaningless without the identity of the action it
-  // calls — that pair is what applyPatch resolves to the extension row (and the
-  // action's form). A model that emits one with either half missing has picked a
-  // plugin that is not registered here; the node lands but cannot be configured.
-  if (spec.kind === 'plugin') {
-    const pluginId = String(data.pluginId ?? '').trim()
-    const action = String(data.action ?? '').trim()
-    if (!pluginId || !action) {
-      out.push({
-        level: 'error',
-        at,
-        message: 'Plugin node is missing `pluginId` and/or `action`. Use only a plugin action listed under "Plugins available" — copy both verbatim.',
-      })
-    }
+  // An imported-plugin node is meaningless without the `action` it calls — that
+  // method name is what applyPatch resolves to a local extension row (and the
+  // action's form), and the only part of a plugin node's identity that carries
+  // across installs (a pluginId is a per-install address). Missing it, the node
+  // lands but cannot be configured.
+  if (spec.kind === 'plugin' && !String(data.action ?? '').trim()) {
+    out.push({
+      level: 'error',
+      at,
+      message: 'Plugin node is missing `action`. Use only a plugin action listed under "Plugins available" — copy it verbatim.',
+    })
   }
 
   return out
@@ -765,11 +762,18 @@ function estimateHeight(spec: NodeSpec, data: BaseNodeData): number {
  *
  * Two things are deliberately dropped. Canvas ids and handle ids, because they
  * are regenerated on import and mean nothing outside the graph that made them;
- * and the extension identity (`extensionId` / `pluginId`), because those name
- * rows in *one* install's extension table — applyPatch re-stamps them from the
- * local table, which is exactly what makes the file portable. Settings profile
- * ids are kept: they are a choice the designer made, and a file carried to
- * another install reports them as something to re-pick (see inspectNode).
+ * and the install-local `extensionId` (plus a plugin action's re-derivable
+ * `form` / `outbound`), because that id names a row in *one* install's extension
+ * table — applyPatch re-stamps it from the local table, which is what makes the
+ * file portable. A plugin node keeps its `action` (`qdrant.points.search`): that
+ * method name is declared by the plugin, so it is the same on every install and
+ * is what the target resolves the node against — and warns about when no local
+ * plugin exposes it (see lib/exportFlow's manifest). Its `pluginId` is kept too
+ * but only as a same-install hint, not a portable id: an install's pluginId is a
+ * per-install address (`slug(name)-<uuid>`), so it resolves an exact re-import on
+ * the same machine and is ignored elsewhere. Settings profile ids are kept: they
+ * are a choice the designer made, and a file carried to another install reports
+ * them as something to re-pick (see inspectNode).
  */
 export function graphToPatch(graph: VueFlowGraph): AiGraphPatch {
   const refById = new Map<string, string>()
@@ -793,6 +797,12 @@ export function graphToPatch(graph: VueFlowGraph): AiGraphPatch {
     if (n.position) out.position = { x: Math.round(n.position.x), y: Math.round(n.position.y) }
 
     const custom = changedData(data, defaults)
+    // A plugin node's portable identity is its `action` alone (kept by
+    // changedData — not in the skip set). The `pluginId` is deliberately NOT
+    // exported: it is a per-install address, and a plugin node compiles its NATS
+    // subject straight from `data.pluginId` (backend pluginUniqId), so a foreign
+    // id reaching another install's compiler dead-ends at "no responders". The
+    // importer re-stamps the local id from the action instead (stampPluginRef).
     if (Object.keys(custom).length) out.data = custom
     return out
   })
@@ -826,7 +836,10 @@ export function graphToPatch(graph: VueFlowGraph): AiGraphPatch {
  * loaded, otherwise the reference dangles until the designer picks one.
  */
 function changedData(data: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> {
-  const skip = new Set(['title', 'key', 'scope', 'extensionId', 'pluginId', 'settings', 'settingsName'])
+  // `form` / `outbound` are re-stamped from the target's registry on import
+  // (see WorkflowCanvas.stampPluginRef), so they are install-local like the row
+  // id; `pluginId` is dropped here and re-added for plugin nodes by graphToPatch.
+  const skip = new Set(['title', 'key', 'scope', 'extensionId', 'pluginId', 'form', 'outbound', 'settings', 'settingsName'])
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(data)) {
     if (skip.has(k) || v === undefined) continue

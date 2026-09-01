@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
 import { specForType, type BaseNodeData, type NodePort } from '@/data/nodeCatalog'
 import { createId } from '@/lib/id'
 import { pluginColor } from '@/lib/pluginColor'
+import { INSTALLED_PLUGIN_ACTIONS } from '@/lib/nodeExtRefs'
+import { namespaceOf } from '@/lib/exportFlow'
 
 /**
  * A single generic node renderer, driven entirely by the node catalog. Vue Flow
@@ -30,6 +32,30 @@ const spec = computed(() => specForType(props.type))
 // plugin is visually distinct instead of every action sharing the one plugin
 // spec purple; builtins keep their fixed catalog color.
 const isPlugin = computed(() => !!spec.value?.plugin)
+
+// Whether the install can run this imported-plugin action, checked live: the
+// canvas shares the set of action methods its plugins expose (null until loaded),
+// and a `plugin` node whose action isn't among them is unrecognized here. Live so
+// it self-corrects — a plugin installed or removed after the flow was saved flips
+// the badge without a re-import. Only real `plugin` action nodes are checked;
+// builtin plugin-backed kinds (llm/mcp/cast/http) are always present.
+const installedActions = inject(INSTALLED_PLUGIN_ACTIONS, ref<Set<string> | null>(null))
+const nodeAction = computed(() => String((props.data as Record<string, unknown>)?.action ?? '').trim())
+const isMissingPlugin = computed(
+  () =>
+    props.type === 'plugin' &&
+    !!nodeAction.value &&
+    installedActions.value !== null &&
+    !installedActions.value.has(nodeAction.value),
+)
+// Name + repo the importer recorded for the missing plugin (display only); falls
+// back to the action's namespace when the file carried no manifest.
+const missingPlugin = computed(() => {
+  if (!isMissingPlugin.value) return null
+  const m = (props.data as Record<string, unknown>)?.missingPlugin
+  const info = m && typeof m === 'object' ? (m as { name?: string; repo?: string }) : null
+  return { name: info?.name || namespaceOf(nodeAction.value), repo: info?.repo }
+})
 const accent = computed(() => {
   const data = props.data as Record<string, unknown>
   const pluginId = data?.pluginId
@@ -42,11 +68,19 @@ const accent = computed(() => {
 // Plugin icons are filled (MDI) and blend into a same-hue tint, so their tile is
 // a neutral surface with an accent ring; the builtin stroke icons read fine on
 // the original soft tint, so they keep it.
-const iconTileStyle = computed(() =>
-  isPlugin.value
+const iconTileStyle = computed(() => {
+  // An unrecognized plugin reads as a warning, not its plugin hue — there is no
+  // plugin here yet to take a color from.
+  if (missingPlugin.value)
+    return {
+      background: 'color-mix(in srgb, var(--warning) 14%, transparent)',
+      color: 'var(--warning)',
+      borderColor: 'color-mix(in srgb, var(--warning) 45%, var(--line))',
+    }
+  return isPlugin.value
     ? { background: 'var(--surface-2)', color: accent.value, borderColor: `color-mix(in srgb, ${accent.value} 35%, var(--line))` }
-    : { background: `color-mix(in srgb, ${accent.value} 16%, transparent)`, color: accent.value },
-)
+    : { background: `color-mix(in srgb, ${accent.value} 16%, transparent)`, color: accent.value }
+})
 // A plugin node stamps the action's own icon (an MDI name) onto its data; every
 // builtin has none and falls back to its fixed spec icon. Without this, every
 // plugin action shares the one generic plug glyph of the shared plugin spec.
@@ -310,7 +344,11 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
         >
           {{ title }}
         </p>
-        <p class="truncate text-[11px] leading-tight text-fg-subtle">{{ spec?.label }}</p>
+        <p v-if="missingPlugin" class="flex items-center gap-1 truncate text-[10.5px] font-semibold leading-tight text-warning">
+          <Icon name="alert-triangle" :size="10" class="shrink-0" />
+          <span class="truncate">Plugin not installed{{ missingPlugin.name ? ` · ${missingPlugin.name}` : '' }}</span>
+        </p>
+        <p v-else class="truncate text-[11px] leading-tight text-fg-subtle">{{ spec?.label }}</p>
       </div>
 
       <!-- On-node actions: copy the node (always) + Key / Scope quick-edit

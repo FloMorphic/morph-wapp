@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
+import Button from '@/components/ui/Button.vue'
 import CodeEditor from '@/components/ui/CodeEditor.vue'
 import JsonSchemaForm from '@/components/flow/JsonSchemaForm.vue'
 import PluginForm from '@/components/plugin/PluginForm.vue'
@@ -18,6 +19,8 @@ import {
   withSchemaDefaults,
   type PluginForm as PluginFormSpec,
 } from '@/lib/pluginForm'
+import { fetchPluginActions, type PluginActionEntry } from '@/lib/nodeExtRefs'
+import { namespaceOf, type MissingPlugin } from '@/lib/exportFlow'
 import type { FlowRecord, McpTool } from '@/types/api'
 
 /**
@@ -35,6 +38,8 @@ import type { FlowRecord, McpTool } from '@/types/api'
  * re-derives its output ports from `data.handlers` / `data.functions` live.
  */
 const props = defineProps<{ node: GraphNode }>()
+const emit = defineEmits<{ (e: 'resolved'): void }>()
+const router = useRouter()
 
 function data(): Record<string, unknown> {
   return props.node.data as Record<string, unknown>
@@ -105,6 +110,71 @@ async function loadPluginForm() {
   // its control is touched, so without this the node would ship without values
   // the form visibly shows — and a plugin's defaults are meaningful.
   if (pluginForm.value) pluginBody.value = withSchemaDefaults(pluginForm.value.schema, pluginBody.value)
+}
+
+// ---- Unrecognized plugin ---------------------------------------------------
+// A plugin node is "unrecognized" here when no installed plugin binds it: its
+// action isn't served by any local plugin (needs installing) or it is, but this
+// node was imported before the plugin existed and never got stamped (needs
+// connecting). Either way the node can't run until it resolves — the drawer
+// offers the file's repo to install, or a pick of a plugin already installed.
+
+/** Every action row this install exposes, to find who provides this node's action. */
+const localPluginActions = ref<PluginActionEntry[]>([])
+const candidatesLoaded = ref(false)
+async function loadPluginCandidates() {
+  candidatesLoaded.value = false
+  localPluginActions.value = await fetchPluginActions().catch(() => [])
+  candidatesLoaded.value = true
+}
+
+/** The plugin(s) already installed here that expose this node's action. */
+const actionProviders = computed(() =>
+  pluginActionName.value
+    ? localPluginActions.value.filter((a) => a.action === pluginActionName.value)
+    : [],
+)
+
+/** Bound = this node names a live local plugin that serves its action. */
+const isBound = computed(() => {
+  const pluginId = String(data().pluginId ?? '').trim()
+  const extensionId = String(data().extensionId ?? '').trim()
+  return !!extensionId && actionProviders.value.some((a) => a.pluginId === pluginId)
+})
+
+/** Show the helper whenever a real action node is not bound to a local plugin —
+ *  held until the local action list has loaded so a bound node doesn't flash it. */
+const isUnrecognized = computed(
+  () => isPluginAction.value && !!pluginActionName.value && candidatesLoaded.value && !isBound.value,
+)
+
+/** Name + repo the file recorded for the missing plugin (display only). */
+const missingPlugin = computed<MissingPlugin | null>(() => {
+  const m = data().missingPlugin
+  return m && typeof m === 'object' ? (m as MissingPlugin) : null
+})
+const missingName = computed(() => missingPlugin.value?.name || namespaceOf(pluginActionName.value) || 'this plugin')
+
+/** Bind this node to an installed plugin the user picked, then cascade the rest. */
+function selectProvider(pluginId: string) {
+  data().pluginId = pluginId
+  // The canvas re-stamps this node (exact pluginId + action) and every sibling
+  // using the same plugin; the extensionId watch below reloads the form after.
+  emit('resolved')
+}
+
+/** Hand the file's repo to the Extensions add-from-repo flow (prefilled). */
+function installFromRepo() {
+  const m = missingPlugin.value
+  void router.push({
+    name: 'extensions',
+    query: {
+      ...(m?.repo ? { repo: m.repo } : {}),
+      ...(m?.name ? { name: m.name } : {}),
+      ...(m?.ref ? { ref: m.ref } : {}),
+      ...(m?.subdir ? { subdir: m.subdir } : {}),
+    },
+  })
 }
 
 /** The collected values. Bound straight to `data.body`, created on first edit
@@ -765,7 +835,23 @@ async function loadTargetNodes(flowId: string) {
 
 // Re-read a plugin node's action form whenever the drawer lands on one. The
 // component is keyed by node id upstream, so this fires once per node opened.
-watch(isPluginAction, (on) => on && loadPluginForm(), { immediate: true })
+watch(
+  isPluginAction,
+  (on) => {
+    if (!on) return
+    void loadPluginForm()
+    void loadPluginCandidates()
+  },
+  { immediate: true },
+)
+// After a re-bind (install or pick) stamps this node's extensionId, load the form
+// the freshly-bound plugin serves — the node becomes configurable in place.
+watch(
+  () => data().extensionId,
+  (id, prev) => {
+    if (isPluginAction.value && id && id !== prev) void loadPluginForm()
+  },
+)
 
 // Load the flow list (and any already-selected target's nodes) for a Goto node.
 watch(
@@ -912,11 +998,70 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
 
     <!-- ================= Imported plugin action ================= -->
     <template v-else-if="isPluginAction">
+      <!-- Unrecognized: no installed plugin binds this action yet. -->
+      <div
+        v-if="isUnrecognized"
+        class="space-y-2.5 rounded-lg border p-3"
+        :style="{
+          borderColor: 'color-mix(in srgb, var(--warning) 40%, var(--line))',
+          background: 'color-mix(in srgb, var(--warning) 8%, transparent)',
+        }"
+      >
+        <p class="flex items-start gap-1.5 text-[12px] font-semibold text-warning">
+          <Icon name="alert-triangle" :size="14" class="mt-px shrink-0" />
+          Unrecognized plugin — {{ missingName }}
+        </p>
+        <p class="text-[11.5px] leading-relaxed text-fg-muted">
+          Nothing installed here provides <code class="font-mono">{{ pluginActionName }}</code> yet.
+          <template v-if="missingPlugin?.repo">Install it from its repo</template>
+          <template v-else>Register or start its plugin in Extensions — a dev plugin ships no repo to fetch</template
+          ><template v-if="actionProviders.length">, or pick a plugin already installed</template>. This node — and
+          every node using {{ missingName }} — reconnects once it's here. A run errors until it does.
+        </p>
+
+        <!-- Pick a plugin already installed that serves this action. -->
+        <div v-if="actionProviders.length" class="space-y-1">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Use an installed plugin</label>
+          <button
+            v-for="p in actionProviders"
+            :key="p.pluginId"
+            class="flex w-full items-center gap-2 rounded-md border bg-surface px-2.5 py-1.5 text-left text-[12px] hover:border-[color:var(--accent)]"
+            @click="selectProvider(p.pluginId)"
+          >
+            <Icon name="plugin" :size="13" class="shrink-0 text-accent" />
+            <span class="min-w-0 flex-1 truncate font-medium text-fg">{{ p.pluginName }}</span>
+            <span class="shrink-0 font-mono text-[10px] text-fg-subtle">{{ p.pluginId }}</span>
+          </button>
+        </div>
+
+        <!-- Install from the repo the file recorded. -->
+        <div class="flex flex-wrap items-center gap-2">
+          <Button v-if="missingPlugin?.repo" variant="primary" icon="external-link" @click="installFromRepo">
+            Install {{ missingName }} from repo
+          </Button>
+          <a
+            v-if="missingPlugin?.repo"
+            :href="missingPlugin.repo"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="min-w-0 truncate font-mono text-[10.5px] text-accent hover:underline"
+            >{{ missingPlugin.repo }}</a
+          >
+          <RouterLink
+            v-else
+            :to="{ name: 'extensions' }"
+            class="text-[11.5px] text-accent hover:underline"
+          >
+            Add it in Extensions →
+          </RouterLink>
+        </div>
+      </div>
+
       <div class="flex items-center gap-2 rounded-lg border bg-surface-2 px-3 py-2">
         <Icon name="plugin" :size="14" class="shrink-0 text-accent" />
         <div class="min-w-0">
           <p class="truncate text-[12px] font-medium text-fg">{{ pluginActionName || 'no action' }}</p>
-          <p class="truncate font-mono text-[10.5px] text-fg-subtle">{{ data().pluginId }}</p>
+          <p v-if="data().pluginId" class="truncate font-mono text-[10.5px] text-fg-subtle">{{ data().pluginId }}</p>
         </div>
       </div>
 

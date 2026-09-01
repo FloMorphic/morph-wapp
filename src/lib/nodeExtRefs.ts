@@ -15,9 +15,19 @@
  * stamp, exactly as the palette already behaves standalone.
  */
 
+import type { InjectionKey, Ref } from 'vue'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
 import { specForType } from '@/data/nodeCatalog'
 import type { NodeExtRef } from '@/lib/nodeSettings'
+
+/**
+ * The action methods every locally-registered plugin exposes, provided by the
+ * canvas so a plugin node can tell live whether the target can run it — the
+ * source of truth behind the "unrecognized plugin" badge (a per-install pluginId
+ * never matches across installs, but an action method does). `null` means "not
+ * loaded yet", so a node holds off badging until the set is known.
+ */
+export const INSTALLED_PLUGIN_ACTIONS: InjectionKey<Ref<Set<string> | null>> = Symbol('installedPluginActions')
 
 export type NodeExtRefMap = Record<string, NodeExtRef>
 
@@ -77,6 +87,12 @@ export interface PluginRegistration {
   extensionId: string
   pluginId: string
   name: string
+  /** The plugin's git source, when this install registered one with a repository
+   *  — carried into an export's plugin manifest so a target install can name a
+   *  repo for a plugin it is missing (see lib/exportFlow). */
+  repo?: string
+  ref?: string
+  subdir?: string
 }
 
 let registrationCache: Promise<PluginRegistration[]> | null = null
@@ -105,7 +121,14 @@ async function loadRegistrations(): Promise<PluginRegistration[]> {
   const page = await nodeRegistryApi.list({ kind: 'extension', per_page: 200 })
   return page.list
     .filter((row) => !row.action && row.pluginId)
-    .map((row) => ({ extensionId: row.id, pluginId: row.pluginId, name: row.name }))
+    .map((row) => ({
+      extensionId: row.id,
+      pluginId: row.pluginId,
+      name: row.name,
+      repo: row.install?.repo?.trim() || undefined,
+      ref: row.install?.ref?.trim() || undefined,
+      subdir: row.install?.subdir?.trim() || undefined,
+    }))
 }
 
 let actionCache: Promise<PluginActionEntry[]> | null = null

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { emptyInstall, useExtensionsStore, type PluginStatus } from '@/stores/extensions'
 import { useNotificationsStore } from '@/stores/notifications'
 import { fetchPluginIntro } from '@/lib/pluginSettings'
@@ -36,9 +37,24 @@ import CopyBlock from '@/components/ui/CopyBlock.vue'
 const store = useExtensionsStore()
 const notify = useNotificationsStore()
 
+const route = useRoute()
+const router = useRouter()
+
 onMounted(async () => {
   await store.refresh()
   if (store.isRemote) store.probeAll()
+  // Deep-link from a flow's "unrecognized plugin" helper: open the add-from-repo
+  // form prefilled with the repo the workflow file recorded, then strip the query
+  // so a refresh doesn't reopen it.
+  const q = route.query
+  if (typeof q.repo === 'string' && q.repo.trim()) {
+    openAdd('repo')
+    form.repo = q.repo.trim()
+    if (typeof q.name === 'string') form.name = q.name
+    if (typeof q.ref === 'string') form.ref = q.ref
+    if (typeof q.subdir === 'string') form.subdir = q.subdir
+    void router.replace({ query: {} })
+  }
 })
 
 // ---- Add flow ---------------------------------------------------------------

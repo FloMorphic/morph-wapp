@@ -37,6 +37,61 @@ import type { VueFlowGraph } from '@/types/api'
 /** Bumped only if the header's shape changes — the patch versions with the catalog. */
 export const WORKFLOW_FILE_VERSION = 1
 
+/**
+ * One imported plugin a workflow depends on, recorded so a target install can
+ * tell the designer what to install before the flow will run.
+ *
+ * The match key is `actions`, not a plugin id. An install's `pluginId` is a
+ * per-install *address* — `slug(name)-<uuid>`, minted by the backend on
+ * registration and never portable (see flomorphic-api resolvePluginID) — so it
+ * cannot identify the same plugin on another machine. What *is* stable is the
+ * action method names the plugin declares in its `@actions` (`qdrant.points.
+ * search`, …): the same on every install of that plugin. The target checks those
+ * against the methods its own registered plugins expose to know what's missing,
+ * and `repo` / `name` answer "which plugin, and where do I get it".
+ *
+ * Nothing here is required to import: a file with no manifest still imports, it
+ * just can't name a repo for a plugin the target is missing.
+ */
+export interface PluginManifestEntry {
+  /** The plugin's display name on the exporting install, for the note. */
+  name: string
+  /** The action methods this flow uses from the plugin (e.g. `qdrant.points.
+   *  search`) — the portable key the target matches against its own plugins. */
+  actions: string[]
+  /** Git remote to clone, when the exporting install registered one. */
+  repo?: string
+  /** Branch / tag / commit, when pinned. */
+  ref?: string
+  /** Path inside the repo, for a multi-plugin repo. */
+  subdir?: string
+}
+
+/** What the exporting install knows about one of its registered plugins — the
+ *  source `buildWorkflowExport` draws a manifest entry's name/repo from, keyed by
+ *  the install-local `pluginId` only to group the graph's nodes (never written). */
+export interface AvailablePlugin {
+  pluginId: string
+  name: string
+  repo?: string
+  ref?: string
+  subdir?: string
+}
+
+/**
+ * Stamped onto a plugin node at import when the target has no plugin providing
+ * its action — the "unrecognized plugin" marker the canvas badges and the node
+ * drawer turns into an install / pick-a-plugin helper. It carries only what the
+ * node needs to name the plugin and offer its repo; it is cleared the moment the
+ * node is bound to a local plugin (see WorkflowCanvas.stampPluginRef).
+ */
+export interface MissingPlugin {
+  name: string
+  repo?: string
+  ref?: string
+  subdir?: string
+}
+
 export interface WorkflowExport extends AiGraphPatch {
   flomorphic: {
     kind: 'workflow'
@@ -45,19 +100,76 @@ export interface WorkflowExport extends AiGraphPatch {
     exportedAt: string
   }
   title: string
+  /** The imported plugins this flow uses, when it uses any — the import dialog
+   *  diffs these against what the target has installed (see parseWorkflowFile). */
+  plugins?: PluginManifestEntry[]
 }
 
-export function buildWorkflowExport(title: string, graph: VueFlowGraph): WorkflowExport {
+/**
+ * `available` is the plugins the exporting install has, keyed however the caller
+ * fetched them; only the ones this graph actually references are written, and a
+ * referenced plugin missing from `available` is still listed by id so the target
+ * can at least name it (it just has no repo to offer).
+ */
+export function buildWorkflowExport(
+  title: string,
+  graph: VueFlowGraph,
+  available: AvailablePlugin[] = [],
+): WorkflowExport {
+  const plugins = pluginManifest(graph, available)
   return {
     flomorphic: { kind: 'workflow', version: WORKFLOW_FILE_VERSION, exportedAt: new Date().toISOString() },
     title: title.trim() || 'Untitled workflow',
+    ...(plugins.length ? { plugins } : {}),
     ...graphToPatch(graph),
   }
 }
 
 /** Pretty-printed on purpose: the file is meant to be read, diffed and pasted into a chat. */
-export function workflowExportJson(title: string, graph: VueFlowGraph): string {
-  return `${JSON.stringify(buildWorkflowExport(title, graph), null, 2)}\n`
+export function workflowExportJson(title: string, graph: VueFlowGraph, available: AvailablePlugin[] = []): string {
+  return `${JSON.stringify(buildWorkflowExport(title, graph, available), null, 2)}\n`
+}
+
+/**
+ * One manifest entry per plugin the graph's `plugin` nodes reach, carrying the
+ * action methods used and the name/repo of the plugin behind them. Nodes are
+ * grouped by their install-local `pluginId` (so one plugin's methods land in one
+ * entry) but that id is never written — only the portable `actions` are.
+ */
+function pluginManifest(graph: VueFlowGraph, available: AvailablePlugin[]): PluginManifestEntry[] {
+  const byId = new Map(available.map((p) => [p.pluginId, p]))
+  const groups = new Map<string, { info?: AvailablePlugin; actions: Set<string> }>()
+  for (const n of graph.nodes ?? []) {
+    if (n.type !== 'plugin') continue
+    const data = n.data as Record<string, unknown> | undefined
+    const pluginId = String(data?.pluginId ?? '').trim()
+    const action = String(data?.action ?? '').trim()
+    // Group by the plugin (its local id), or by the action alone when a node
+    // carries no id — either way the entry is keyed for the target by `actions`.
+    const key = pluginId || action
+    if (!key) continue
+    const g = groups.get(key) ?? { info: byId.get(pluginId), actions: new Set<string>() }
+    if (action) g.actions.add(action)
+    groups.set(key, g)
+  }
+  const out: PluginManifestEntry[] = []
+  for (const [key, g] of groups) {
+    const actions = [...g.actions].sort()
+    out.push({
+      name: g.info?.name || namespaceOf(actions[0]) || key,
+      actions,
+      repo: g.info?.repo,
+      ref: g.info?.ref,
+      subdir: g.info?.subdir,
+    })
+  }
+  return out
+}
+
+/** The plugin's namespace — the token an action method leads with (`qdrant` of
+ *  `qdrant.points.search`) — a readable last-resort label when nothing named it. */
+export function namespaceOf(action: string | undefined): string {
+  return String(action ?? '').split('.')[0] ?? ''
 }
 
 export interface WorkflowFile {
@@ -69,6 +181,25 @@ export interface WorkflowFile {
   title?: string
   /** Set when the header claims a format newer than this app writes. */
   newerVersion?: number
+  /** The imported plugins the file declares it depends on, when it carries a
+   *  manifest — the source the import dialog names a missing plugin's repo from. */
+  plugins?: PluginManifestEntry[]
+}
+
+/**
+ * The distinct action methods a patch's `plugin` nodes call — the portable ids a
+ * target install checks against the methods its own plugins expose to warn about
+ * the missing ones. Reads straight off the nodes, so it works on any patch, with
+ * or without a manifest; the manifest only adds the name and repo for display.
+ */
+export function referencedActions(patch: AiGraphPatch): string[] {
+  const actions = new Set<string>()
+  for (const n of patch.nodes ?? []) {
+    if (n.kind !== 'plugin') continue
+    const action = String((n.data as Record<string, unknown> | undefined)?.action ?? '').trim()
+    if (action) actions.add(action)
+  }
+  return [...actions]
 }
 
 /**
@@ -88,23 +219,48 @@ export function parseWorkflowFile(text: string): WorkflowFile {
     error: null,
     title: header.title,
     newerVersion: header.version && header.version > WORKFLOW_FILE_VERSION ? header.version : undefined,
+    plugins: header.plugins,
   }
 }
 
 /** The envelope fields around the patch, when the document has them. */
-function readHeader(text: string): { title?: string; version?: number } {
+function readHeader(text: string): { title?: string; version?: number; plugins?: PluginManifestEntry[] } {
   try {
     const raw = JSON.parse(text) as Record<string, unknown>
     const meta = (raw?.flomorphic ?? {}) as Record<string, unknown>
     return {
       title: typeof raw?.title === 'string' && raw.title.trim() ? raw.title.trim() : undefined,
       version: typeof meta.version === 'number' ? meta.version : undefined,
+      plugins: readManifest(raw?.plugins),
     }
   } catch {
     // Fenced or prose-wrapped JSON still planned fine above; it just has no header.
     return {}
   }
 }
+
+/** The `plugins` array of the header, kept only where an entry names actions. */
+function readManifest(value: unknown): PluginManifestEntry[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const out: PluginManifestEntry[] = []
+  for (const raw of value) {
+    const row = raw as Record<string, unknown> | null
+    const actions = Array.isArray(row?.actions)
+      ? row.actions.map((a) => String(a ?? '').trim()).filter(Boolean)
+      : []
+    if (!actions.length) continue
+    out.push({
+      name: String(row?.name ?? '').trim() || namespaceOf(actions[0]) || 'Plugin',
+      actions,
+      repo: str(row?.repo),
+      ref: str(row?.ref),
+      subdir: str(row?.subdir),
+    })
+  }
+  return out.length ? out : undefined
+}
+
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
 
 /** Workflow title → a safe, readable file-name stem. */
 export function fileBase(title: string): string {

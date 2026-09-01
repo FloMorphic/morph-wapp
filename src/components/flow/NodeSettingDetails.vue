@@ -29,7 +29,7 @@ const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'mcp', 'goto', 
  * areas — so every node kind is editable without a bespoke form.
  */
 const props = defineProps<{ node: GraphNode | null }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'delete', node: GraphNode): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'delete', node: GraphNode): void; (e: 'resolved'): void }>()
 
 const spec = computed(() => (props.node ? specForType(props.node.type) : undefined))
 // Plugin nodes carry the action's own icon on their data; builtins fall back to
@@ -427,7 +427,7 @@ onBeforeUnmount(stopResize)
 
       <!-- Bespoke editor for code / rule / llm nodes. -->
       <div v-if="isCustom" class="border-t pt-4">
-        <NodeConfig :key="node.id" :node="node" />
+        <NodeConfig :key="node.id" :node="node" @resolved="emit('resolved')" />
       </div>
     </div>
 
