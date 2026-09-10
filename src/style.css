@@ -27,12 +27,16 @@
   --line: #e6e5ea;
   --line-strong: #d6d5db;
 
-  /* Brand accent (Inflowenger violet) */
-  --accent: #8b2fe0;
-  --accent-hover: #7a25c9;
+  /* Brand accent (FloMorphic blue, matching the mark and inflowenger.com).
+     Darkened from the dark-theme blue so it clears 4.5:1 on white. */
+  --accent: #2f6fe0;
+  --accent-hover: #255bc0;
   --accent-fg: #ffffff;
-  --accent-soft: rgba(139, 47, 224, 0.1);
-  --accent-border: rgba(139, 47, 224, 0.4);
+  --accent-soft: rgba(47, 111, 224, 0.1);
+  --accent-border: rgba(47, 111, 224, 0.4);
+
+  /* Chip behind the logo mark; see components/ui/Logo.vue. */
+  --logo-chip: #0d0e13;
 
   /* Status */
   --success: #16a34a;
@@ -64,11 +68,14 @@
   --line: #2a2c36;
   --line-strong: #383b47;
 
-  --accent: #c084fc;
-  --accent-hover: #cd9bfd;
-  --accent-fg: #16060f;
-  --accent-soft: rgba(192, 132, 252, 0.14);
-  --accent-border: rgba(192, 132, 252, 0.45);
+  --accent: #4c8dff;
+  --accent-hover: #6fa3ff;
+  --accent-fg: #06101f;
+  --accent-soft: rgba(76, 141, 255, 0.14);
+  --accent-border: rgba(76, 141, 255, 0.45);
+
+  /* The mark already reads on a dark surface, so no chip is needed here. */
+  --logo-chip: transparent;
 
   --success: #4ade80;
   --warning: #fbbf24;
