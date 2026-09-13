@@ -354,7 +354,9 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       scope: '$',
       lang: 'js',
       // Same evaluation model as the JS node: `input` in, last expression out.
-      logic_rule: 'let scopedData = input // the slice selected by `scope`\n\nlet decision = { pass: true }\n\ndecision // last expression — this is the routed decision\n',
+      // The decision must be a handler NAME (a string) on every path — anything
+      // else fires no port and silently prunes every edge.
+      logic_rule: 'let scopedData = input // the slice selected by `scope`\n\n// Return the NAME of the handler to fire, as a string — decide on every path.\nlet decision = scopedData.ok ? \'approved\' : \'rejected\'\n\ndecision // last expression — this is the routed decision\n',
       opa_result: '',
       // [{ key, value }]
       conditions: [],
