@@ -191,9 +191,17 @@ const totalAvailable = computed(() => summary.value?.connectableProviderCount ??
 const accountOf = (id: string) => connMap.value.get(id)?.account
 
 /* ---- connect flow ---- */
+// The console routes /connections/<service> to the app's own connect page
+// (redirecting to the team-scoped URL itself); the bare slug drops any
+// no_auth: prefix so it matches the console's provider path.
+function consoleUrlFor(app: AppItem): string {
+  const slug = app.id.replace(/^no_auth:/, '')
+  return `https://console.oomol.com/connections/${encodeURIComponent(slug)}`
+}
+
 async function connectApp(app: AppItem) {
   if (!canConnect.value || !app.oauth) {
-    window.open('https://console.oomol.com/connections', '_blank', 'noopener')
+    window.open(consoleUrlFor(app), '_blank', 'noopener')
     startPolling(app.id)
     return
   }
