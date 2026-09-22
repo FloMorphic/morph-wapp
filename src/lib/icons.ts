@@ -105,6 +105,9 @@ export const icons: Record<string, string> = {
     '<path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/><path d="M12 7.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" fill="currentColor" stroke="none"/>',
   'node-mcp':
     '<circle cx="12" cy="5" r="2.4"/><circle cx="5" cy="19" r="2.4"/><circle cx="19" cy="19" r="2.4"/><path d="M12 7.4v3.2M11 10.6l-4.4 6.2M13 10.6l4.4 6.2"/>',
+  // Histogram — a calibrated distribution over declared options (Jev).
+  'node-jev':
+    '<path d="M3 20h18"/><path d="M6 20v-6"/><path d="M11 20V6"/><path d="M16 20v-9"/><path d="M21 20v-3"/><circle cx="11" cy="4" r="1.4" fill="currentColor" stroke="none"/>',
   'node-rule':
     '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M6 9v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9"/><path d="M12 12v3"/>',
   'node-code': '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',

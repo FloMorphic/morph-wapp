@@ -33,6 +33,7 @@ import {
   type NodeKind,
   type NodePort,
   type NodeSpec,
+  jevQuestionRoutes,
 } from '@/data/nodeCatalog'
 import { createId } from '@/lib/id'
 import { layeredLayout } from '@/lib/graphLayout'
@@ -431,6 +432,11 @@ function mergeData(spec: NodeSpec, raw: AiNodeSpec): BaseNodeData {
   // would point at a handle that no longer exists. The drawer stamps an id on
   // anything it creates, so do the same here.
   if (spec.kind === 'llm') data.functions = stampIds(data.functions, 'fn')
+  // A Jev port is an option row nested under its question: the option gets the
+  // stable id (the handle an edge keeps across renames). A question's `id` is
+  // its semantic key — the answer key and tag prefix — so it stays as written.
+  if (spec.kind === 'jev')
+    data.questions = asRows(data.questions).map((q) => ({ ...q, options: stampIds(q.options, 'opt') }))
   // A handler names its branch; `tags` is the field the engine and the compiler
   // read, so derive it here rather than trusting the model to write both.
   if (spec.kind === 'rule')
@@ -518,6 +524,27 @@ function inspectNode(spec: NodeSpec, data: BaseNodeData, at: string): PatchProbl
     if (fns.length === 0 && !messageText(data)) {
       out.push({ level: 'warn', at, message: 'LLM node has neither init messages nor bound functions — it would call the model with an empty prompt.' })
     }
+  }
+
+  if (spec.kind === 'jev') {
+    const qs = asRows(data.questions)
+    if (qs.length === 0) out.push({ level: 'error', at, message: 'Jev node has no questions — there is nothing to decide.' })
+    if (!String(asObject(data.body)?.state ?? '').trim()) out.push({ level: 'warn', at, message: 'Jev node has an empty `body.state` — it would evaluate nothing. Point it at the context (`{{$.ticket}}`).' })
+    qs.forEach((q, i) => {
+      const id = String(q.id ?? '').trim()
+      const type = String(q.type ?? '').trim().toLowerCase()
+      const where = `${at} · question ${id || i + 1}`
+      const n = asRows(q.options).length
+      if (!id) out.push({ level: 'error', at: where, message: 'Question has no `id` — its answer has no key and its ports would carry no route tag.' })
+      if (!String(q.instructions ?? '').trim()) out.push({ level: 'warn', at: where, message: 'Question has no `instructions` — Jev evaluates the state against them.' })
+      if (type === 'choice' && n === 0) out.push({ level: 'error', at: where, message: 'A choice question needs at least one option — each is an output port.' })
+      else if (type === 'score' && (n < 2 || n > 10)) out.push({ level: 'error', at: where, message: 'A score question needs 2–10 ordered levels as its options.' })
+      else if (!['choice', 'score', 'noul'].includes(type)) out.push({ level: 'error', at: where, message: 'Question `type` must be "choice", "score" or "noul".' })
+      asRows(q.options).forEach((o, oi) => {
+        if (!String(o.name ?? '').trim()) out.push({ level: 'error', at: `${where} · option ${oi + 1}`, message: 'Option has no `name` — its port would carry no route tag.' })
+      })
+    })
+    if (qs.length > 0 && !qs.some(jevQuestionRoutes)) out.push({ level: 'warn', at, message: 'Every question is `route: false`, so the node has a single plain output and only writes the answers under `key`.' })
   }
 
   if (spec.kind === 'rule') {
@@ -983,9 +1010,9 @@ export function buildDesignerPrompt(
     'It breaks down only when the node\'s OUTGOING EDGE depends on its result, because a node has ONE set of edges for the whole node — there is no per-element edge to carry a second answer.',
     'Whenever that happens the runtime STOPS at the first element that picks a branch: the remaining elements are never processed, and it logs a warning saying how many were skipped. So a many-scope on such a node does not iterate — it quietly becomes "run the first one, then decide".',
     'This is not an LLM quirk. It applies to every node whose ports are derived from its result:',
-    '- Plugin-backed nodes — `llm`, `mcp`, `cast`, `http` and an imported `plugin` action are ALL the same Plugin primitive underneath, and any of them can route at run time by firing tags. The visible signal is `functions` (LLM) or `outbound` (plugin action).',
+    '- Plugin-backed nodes — `llm`, `jev`, `mcp`, `cast`, `http` and an imported `plugin` action are ALL the same Plugin primitive underneath, and any of them can route at run time by firing tags. The visible signal is `functions` (LLM), `questions` with routed options (Jev) or `outbound` (plugin action).',
     '- `rule` nodes, whose `handlers` are the branches the contract chooses between.',
-    'So: give any node whose ports are derived — a plugin node with `functions`/`outbound`, a Rule node with `handlers` — a single-valued `scope` (usually `$`).',
+    'So: give any node whose ports are derived — a plugin node with `functions`/`questions`/`outbound`, a Rule node with `handlers` — a single-valued `scope` (usually `$`).',
     'When per-element work feeds a SINGLE decision made AFTER the whole collection, that is TWO nodes, and it is the correct shape rather than a workaround:',
     '1. a per-element node on `scope: "$.orders[*]"` (LLM without functions, `js`, `http`, …) writing its result under each element via `key`,',
     '2. then a decision node on `scope: "$"` reading what accumulated and routing ONCE.',
@@ -1032,13 +1059,14 @@ export function buildDesignerPrompt(
     'Sequence is only for a real chain: assess (needs both retrievals) → calculate payable (needs the assessment) → route (needs the amount). Each of those genuinely reads the previous one, so each is a single edge in a line.',
     'Rule of thumb: list what each step reads. Same upstream input and independent of its siblings → parallel branches under a `promissall`. Reads a sibling\'s output → an edge from that sibling.',
     '- Branching has exactly ONE source: a node having several outgoing EDGES that stay active. That is the only way a run forks — the runtime starts one task per edge it follows. Nothing else branches: not scope cardinality (that is a queue inside a single node), not `key`, not a node running several times. If two things must happen independently, draw two edges.',
-    '- A node with derived output ports (LLM with bound functions, Rule with handlers, an imported plugin action with `outbound`) has NO default handle: every edge leaving it MUST name a `port`.',
+    '- A node with derived output ports (LLM with bound functions, Jev with routed questions, Rule with handlers, an imported plugin action with `outbound`) has NO default handle: every edge leaving it MUST name a `port`.',
     '- For an LLM node, `port` is the bound function\'s `name` — the model calling that function is what routes the flow down that edge.',
     "- Every LLM node with functions also has an `_exception` port: use `port: \"_exception\"` for the branch that handles a plugin error or the model picking no function.",
+    '- For a Jev node, `port` is `<question id>.<option name>` (e.g. `category.billing`) — Jev\'s top answer for that question is what routes the flow down that edge. Every Jev node with a routed question also has an `_exception` port (API error, missing answer, or confidence below `min_confidence`).',
     "- For a Rule node, `port` is the handler's `name` — the tag its branch fires.",
     "- For an imported `plugin` action, `port` is the outbound entry's `title` (falling back to its joined `tags`) — the plugin fires those tags at run time, exactly as a Rule does.",
     '- Other kinds have a single unnamed output: omit `port`.',
-    '- A node with derived ports routes for the whole node, so its `scope` must select ONE value (usually `$`). Never give a wildcard or filter scope to any plugin-backed node carrying `functions`/`outbound` (`llm`, `mcp`, `cast`, `http`, `plugin` — all the same primitive), nor to a Rule node with `handlers`. See the many-scope limit above.',
+    '- A node with derived ports routes for the whole node, so its `scope` must select ONE value (usually `$`). Never give a wildcard or filter scope to any plugin-backed node carrying `functions`/`questions`/`outbound` (`llm`, `jev`, `mcp`, `cast`, `http`, `plugin` — all the same primitive), nor to a Rule node with `handlers`. See the many-scope limit above.',
     '- Fanning out to several nodes runs them in parallel.',
     '- A Rule node that fires no tag at run time prunes every one of its edges: that branch of the flow simply ends, with no error and no log line. The rule must return a handler `name` (or an array of them) on EVERY path — see "Writing code" above — and the handlers must cover every case, or add a default branch.',
     '',
@@ -1076,6 +1104,17 @@ export function buildDesignerPrompt(
         'Init messages: use the shorthand `"system": "…"` and `"prompt": "…"` on `data` instead of writing body.messages by hand.',
         'Each bound function is `{ "name": "snake_case_tool_name", "title": "Label", "description": "when the model should call this", "parameters": { "type": "object", "properties": { … }, "required": [] } }`.',
         '`name` is both the tool name and the route tag, `description` is what the model chooses on (always write one), `parameters` is the JSON Schema of the call arguments (flat properties only).',
+      )
+    }
+    if (spec.kind === 'jev') {
+      lines.push(
+        '`body.state` is the content to evaluate: a text template with `{{$.path}}` context vars. Keep it to what the questions need. A template that is exactly one `{{$.obj}}` token sends that JSON value as-is.',
+        'Each question is `{ "id": "snake_case_id", "type": "choice" | "score" | "noul", "instructions": "the question Jev evaluates the state against", "route": true, "min_confidence": 0, "options": [{ "name": "snake_case", "description": "what this option means" }] }`.',
+        '`options` per type — choice: one row per selectable option (1–255); score: the ordered levels lowest first (2–10 rows); noul: rows named `yes` / `no` carrying only descriptions (optional).',
+        'A routed question (`route: true`, the default) turns every option into an output port whose route tag is `<question id>.<option name>` (e.g. `category.billing`, `repeat.yes`); the top answer\'s port fires. Several routed questions fire one port each. `route: false` keeps the answer as data only (no ports).',
+        'Jev cannot answer outside the declared options and cannot decline: when the state fits none, it still picks one. Declare an `other` option when the state may not fit — that is the visible no-match branch.',
+        'The full distribution lands under `key` (`answers.<id>.probabilities`, `.confidence`, `.answer`), so a `rule` node after it can apply a policy; prefer that over `min_confidence` when the threshold should be visible on the canvas.',
+        'Not a reasoner: no tools, no memory, no chain of thought. When the decision needs reading documents or multi-step judgment, use an `llm` node with bound functions instead.',
       )
     }
     if (spec.kind === 'mcp') {

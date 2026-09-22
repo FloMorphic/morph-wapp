@@ -195,10 +195,55 @@ const httpSchema: SettingsSchema = {
   ],
 }
 
+/**
+ * Jev node — mirrors the jev plugin's `JevSettings` struct (the `body.settings`
+ * contract its `run` action reads; see the backend jevSettingsBody projection).
+ * Jev is one endpoint and one bearer key, so the profile is just that: the key,
+ * the model alias and an optional base URL for a proxy or a private deployment.
+ */
+const jevSchema: SettingsSchema = {
+  summary: 'TypeSafe API config the Jev node ships per request (its body.settings contract).',
+  fields: [
+    {
+      key: 'access_token',
+      label: 'API key',
+      type: 'password',
+      required: true,
+      placeholder: 'TypeSafe API key',
+      help: 'Sent as a bearer token to the System One endpoint.',
+    },
+    {
+      key: 'model',
+      label: 'Model',
+      type: 'text',
+      default: 'jev-latest',
+      placeholder: 'jev-latest',
+      help: 'Model id. "jev-latest" tracks the current release; a vendor-prefixed pinned id such as "typesafe/jev-1.13" keeps a live flow on one decider.',
+    },
+    {
+      key: 'url',
+      label: 'Base URL',
+      type: 'text',
+      placeholder: 'https://thejevai.com',
+      help: 'Optional — only for a proxy or a private deployment. The node appends /v1/systemone.',
+    },
+    {
+      key: 'timeout_seconds',
+      label: 'Timeout (seconds)',
+      type: 'number',
+      default: 30,
+      min: 0,
+      step: 1,
+      help: 'Per-call timeout. Jev answers in well under a second; this is a safety net.',
+    },
+  ],
+}
+
 export const SETTINGS_SCHEMAS: Record<string, SettingsSchema> = {
   llm: llmSchema,
   mcp: mcpSchema,
   http: httpSchema,
+  jev: jevSchema,
   hitl: hitlSchema,
 }
 

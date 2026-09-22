@@ -27,7 +27,7 @@ watch(kind, (k) => store.refreshKind(k))
 
 // Icon choices come from FloMorphic's local icon set (see @/lib/icons).
 const ICON_CHOICES = [
-  'node-start', 'node-goto', 'node-wait', 'node-until', 'node-llm', 'node-mcp',
+  'node-start', 'node-goto', 'node-wait', 'node-until', 'node-llm', 'node-jev', 'node-mcp',
   'node-rule', 'node-code', 'node-docstore', 'node-vecstore', 'node-cast', 'node-human',
 ]
 

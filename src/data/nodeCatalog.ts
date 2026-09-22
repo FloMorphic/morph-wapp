@@ -46,6 +46,7 @@ export type NodeKind =
   | 'vecstore'
   | 'promissall'
   | 'llm'
+  | 'jev'
   | 'mcp'
   | 'rule'
   | 'js'
@@ -141,7 +142,7 @@ export interface NodeSpec {
   /** Inflowenger primitive(s) this node compiles down to (display label). */
   primitives: string
   /**
-   * Lowers to a Plugin primitive (llm / mcp / cast). Plugin nodes take their
+   * Lowers to a Plugin primitive (llm / jev / mcp / cast). Plugin nodes take their
    * runtime config from a settings profile, so the drawer shows the profile
    * picker only for these (see {@link usesSettingsProfile} in lib/nodeSettings).
    */
@@ -191,6 +192,25 @@ export function handlerTags(h: Record<string, unknown>): string[] {
 /** A handler's name as the drawer edits it — legacy rows fall back to their first tag. */
 export function handlerName(h: Record<string, unknown>): string {
   return handlerTags(h)[0] ?? ''
+}
+
+/**
+ * The route tag of one Jev option: the question id and the option name joined
+ * with a dot (`category.billing`). Prefixed by the question so two questions
+ * that both declare `high` never share a tag. The jev plugin fires exactly this
+ * string for the question's top answer, and the api's jevPorts mirrors it.
+ */
+export function jevOptionTag(questionId: unknown, optionName: unknown): string {
+  return `${String(questionId ?? '').trim()}.${String(optionName ?? '').trim()}`
+}
+
+/**
+ * Whether a Jev question derives ports. `route` defaults ON — a question is a
+ * decision unless the drawer turned it into data only — matching the plugin's
+ * reading of an absent flag.
+ */
+export function jevQuestionRoutes(q: Record<string, unknown>): boolean {
+  return q.route !== false
 }
 
 export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
@@ -335,6 +355,79 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
         })),
         exceptionPort(),
       ]
+    },
+  }),
+  jev: spec({
+    kind: 'jev',
+    type: 'jev',
+    label: 'Jev',
+    icon: 'node-jev',
+    color: '#0d9488',
+    group: 'ai',
+    tagline: 'Decide fast among declared options',
+    description:
+      'Evaluate a block of state against typed questions on Jev (TypeSafe\'s System One decider). Each question declares the answers it may return — choice options, score levels or yes/no — and Jev returns a calibrated probability over every one of them in a single fast call, never free text. Every option of a routed question is an output port; the top answer\'s port fires. API key from a settings profile; `body.state` is the state template. Compiles to a Plugin node.',
+    primitives: 'Plugin',
+    plugin: true,
+    defaults: () => ({
+      title: 'Jev',
+      key: 'decision',
+      scope: '$',
+      subject_prefix: 'jev',
+      idle_min: 5,
+      request: 'run',
+      // The state template — the content Jev evaluates. May embed {{$.path}}
+      // context vars; a template that is exactly one token sends that JSON
+      // value as-is. Sent to the plugin as body.state.
+      body: { state: '' },
+      // [{ id, type, instructions, route, min_confidence, options: [{ id, name,
+      // description }] }] — each routed question's options render as output
+      // ports (see ports()). `options` rows are the same shape as an LLM
+      // function: `name` is the port's identity (tag = `<question id>.<name>`),
+      // `description` is what the model reads.
+      questions: [],
+    }),
+    preview: (d) => {
+      const qs = asRows(d.questions)
+      const routed = qs.filter(jevQuestionRoutes).length
+      if (qs.length === 0) return 'no questions'
+      return `${qs.length} question${qs.length === 1 ? '' : 's'} · ${routed} routed`
+    },
+    // Options can grow numerous (a choice may declare dozens), so they render
+    // as stacked cards under the node body, one right-side handle each.
+    portLayout: 'stack',
+    // Every option of every routed question is a port whose tag is
+    // `<question id>.<option name>` — the jev plugin fires that exact string for
+    // the question's top answer, so the edge off this port carries it (see
+    // portTags / WorkflowCanvas) or the branch never runs. The port's label is
+    // the option name, the question id is shown as its description prefix so a
+    // reader can tell `category.high` from `urgency.high` on the canvas. A
+    // `route: false` question derives nothing — its answer is data only.
+    //
+    // As with LLM functions, routing replaces the plain default handle, so the
+    // exception port is appended for the API-error / no-answer /
+    // below-confidence cases the plugin routes out of `_exception`.
+    ports: (d) => {
+      const out: NodePort[] = []
+      asRows(d.questions).forEach((q, qi) => {
+        if (!jevQuestionRoutes(q)) return
+        const qid = String(q.id ?? '').trim()
+        if (!qid) return
+        asRows(q.options).forEach((o, oi) => {
+          const name = String(o.name ?? '').trim()
+          const tag = name ? jevOptionTag(qid, name) : ''
+          const desc = String(o.description ?? '').trim()
+          out.push({
+            id: String(o.id ?? '').trim() || tag || `q${qi}-opt${oi}`,
+            label: name || `option ${oi + 1}`,
+            description: desc ? `${qid} · ${desc}` : qid,
+            tags: tag ? [tag] : [],
+          })
+        })
+      })
+      if (out.length === 0) return []
+      out.push(exceptionPort())
+      return out
     },
   }),
   rule: spec({
@@ -690,7 +783,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
 
 export const PALETTE_GROUPS: { id: PaletteGroupId; label: string; kinds: NodeKind[] }[] = [
   { id: 'flow', label: 'Flow', kinds: ['startNode', 'promissall', 'until', 'goto'] },
-  { id: 'ai', label: 'AI & Logic', kinds: ['llm', 'mcp', 'rule', 'js', 'opa'] },
+  { id: 'ai', label: 'AI & Logic', kinds: ['llm', 'jev', 'mcp', 'rule', 'js', 'opa'] },
   { id: 'stores', label: 'Stores', kinds: ['docstore', 'vecstore', 'cast'] },
   { id: 'integrations', label: 'Integrations', kinds: ['http'] },
   { id: 'human', label: 'Human', kinds: ['hitl'] },
