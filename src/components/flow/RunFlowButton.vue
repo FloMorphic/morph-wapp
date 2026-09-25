@@ -266,7 +266,7 @@ function summary(c: ContextRecord): string {
             <div class="space-y-1">
               <label class="flex items-center justify-between text-[12px] font-medium text-fg">
                 <span>Execute timeout</span>
-                <span class="text-[11px] font-normal text-fg-subtle">seconds · default 3600 (1h)</span>
+                <span class="text-[11px] font-normal text-fg-subtle">seconds · default 10800 (3h)</span>
               </label>
               <input
                 v-model.number="runSettings.executeTimeoutSec"

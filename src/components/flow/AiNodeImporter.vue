@@ -207,6 +207,13 @@ function apply() {
           <Icon name="alert-triangle" :size="14" class="mt-px shrink-0" />
           {{ parsed.error }}
         </p>
+        <p v-else-if="parsed.repaired" class="flex items-start gap-1.5 text-[12px] text-warning">
+          <Icon name="alert-triangle" :size="14" class="mt-px shrink-0" />
+          <span>
+            That JSON was broken and has been auto-repaired. Check any code, prompt or regex field in the review
+            below — a repair can cut a value short or drop a backslash.
+          </span>
+        </p>
       </section>
 
       <!-- 3 · review ---------------------------------------------------- -->

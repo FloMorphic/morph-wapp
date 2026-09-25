@@ -35,6 +35,8 @@ import {
   type NodeSpec,
   jevQuestionRoutes,
 } from '@/data/nodeCatalog'
+import { jsonrepair } from 'jsonrepair'
+
 import { createId } from '@/lib/id'
 import { layeredLayout } from '@/lib/graphLayout'
 import type { PluginActionEntry } from '@/lib/nodeExtRefs'
@@ -127,6 +129,13 @@ export const hasErrors = (p: PlannedPatch): boolean => p.problems.some((x) => x.
 export interface ParseResult {
   patch: AiGraphPatch | null
   error: string | null
+  /**
+   * True when the text was not valid JSON and had to be salvaged by
+   * {@link repairJson}. The patch is then a *guess* — see that function for the
+   * ways a repair can quietly change a value — so callers must put the result
+   * in front of the user rather than applying it silently.
+   */
+  repaired: boolean
 }
 
 /**
@@ -136,24 +145,32 @@ export interface ParseResult {
  */
 export function parseAiGraph(raw: string): ParseResult {
   const text = (raw ?? '').trim()
-  if (!text) return { patch: null, error: null }
+  if (!text) return { patch: null, error: null, repaired: false }
 
   const body = stripFence(text)
   const json = body.startsWith('{') || body.startsWith('[') ? body : sliceFirstObject(body)
-  if (!json) return { patch: null, error: 'No JSON object found in that text.' }
+  if (!json) return { patch: null, error: 'No JSON object found in that text.', repaired: false }
 
   let value: unknown
+  let repaired = false
   try {
     value = JSON.parse(json)
   } catch (err) {
-    return { patch: null, error: `Invalid JSON — ${(err as Error).message}` }
+    // Assistants routinely emit JSON that is *nearly* right — a raw newline in a
+    // code string, a trailing comma, a smart quote. Rather than making the user
+    // hunt for it, try to repair it and hand the result to the review step
+    // marked as repaired.
+    const fixed = repairJson(json) ?? (json === body ? null : repairJson(body))
+    if (fixed === null) return { patch: null, error: `Invalid JSON — ${(err as Error).message}`, repaired: false }
+    value = fixed
+    repaired = true
   }
 
   // A bare array is read as the node list, which is what models tend to emit
   // when the goal needs no wiring.
   const obj = Array.isArray(value) ? { nodes: value } : (value as Record<string, unknown>)
-  if (!obj || typeof obj !== 'object') return { patch: null, error: 'Expected a JSON object.' }
-  if (!Array.isArray(obj.nodes)) return { patch: null, error: 'Missing a "nodes" array.' }
+  if (!obj || typeof obj !== 'object') return { patch: null, error: 'Expected a JSON object.', repaired }
+  if (!Array.isArray(obj.nodes)) return { patch: null, error: 'Missing a "nodes" array.', repaired }
 
   return {
     patch: {
@@ -162,6 +179,38 @@ export function parseAiGraph(raw: string): ParseResult {
       notes: Array.isArray(obj.notes) ? obj.notes.map(String) : [],
     },
     error: null,
+    repaired,
+  }
+}
+
+/**
+ * Last-resort parse of text `JSON.parse` rejected. Returns the repaired value,
+ * or `null` when even the repair cannot make sense of it.
+ *
+ * This is a *fallback only* — never run it on text that already parses, because
+ * the repair is heuristic and buys its tolerance with silent edits:
+ *
+ *   - An unescaped `"` inside a value that also contains `{` or `:` (a pasted JS
+ *     snippet, say `"code": "return { msg: "hi" };"`) can be read as a real
+ *     delimiter and split the value apart.
+ *   - An invalid escape is dropped rather than kept, so a regex `/\d+/g` inside
+ *     an already-broken document comes back as `/d+/g`.
+ *
+ * Both failures produce a patch that looks plausible, which is why the result is
+ * flagged `repaired` all the way to the review list instead of being applied.
+ */
+function repairJson(text: string): unknown {
+  try {
+    const value: unknown = JSON.parse(jsonrepair(text))
+    // jsonrepair turns prose wrapped around an object into a top-level array of
+    // fragments; dig the real patch back out of it.
+    if (Array.isArray(value) && !value.every((v) => v && typeof v === 'object')) {
+      const patch = value.find((v) => v && typeof v === 'object' && Array.isArray((v as Record<string, unknown>).nodes))
+      return patch ?? null
+    }
+    return value
+  } catch {
+    return null
   }
 }
 

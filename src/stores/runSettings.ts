@@ -6,12 +6,12 @@ import { readValue, writeValue } from '@/lib/localStore'
  * Per-user run settings for launching a workflow — the engine tunables surfaced
  * in the Run dialog. They are NOT asked per run: the last-used values persist in
  * localStorage and prefill every launch, so a user sets them once and forgets.
- * Each maps to an inflow-fusion run setting; the values here are the engine
- * defaults, so a fresh install launches exactly as before.
+ * Each maps to an inflow-fusion run setting; the values here are what a fresh
+ * install sends, overriding the engine default where they differ.
  */
 
-/** How long the whole run may take before the engine stops it. Default one hour. */
-export const DEFAULT_EXECUTE_TIMEOUT_SEC = 60 * 60
+/** How long the whole run may take before the engine stops it. Default three hours. */
+export const DEFAULT_EXECUTE_TIMEOUT_SEC = 3 * 60 * 60
 /** Node-visit budget for one run — the guard against runaway loops. */
 export const DEFAULT_PROCESS_NODE_LIMIT = 500
 /** Fallback per-request timeout used for any http/nats call without its own. */

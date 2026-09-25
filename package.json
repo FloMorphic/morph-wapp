@@ -30,6 +30,7 @@
     "@vue-flow/minimap": "^1.5.4",
     "codemirror": "^6.0.2",
     "html-to-image": "^1.11.13",
+    "jsonrepair": "^3.15.0",
     "pinia": "^3.0.3",
     "socket.io-client": "^4.8.3",
     "vue": "^3.5.34",

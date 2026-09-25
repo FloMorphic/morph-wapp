@@ -453,7 +453,7 @@ export interface StartProcessInput {
 }
 
 /** Caller-tunable engine run settings sent with a launch. Each is an override of
- * the engine default (proc_timeout 1h, proc_node_limit 500, svc_req_timeout 5s);
+ * the engine default (proc_timeout 3h, proc_node_limit 500, svc_req_timeout 5s);
  * a 0/absent field leaves that default in place. */
 export interface ProcessRunSettings {
   /** Process execute timeout, in seconds (`proc_timeout`). */
