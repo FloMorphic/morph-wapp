@@ -234,6 +234,32 @@
     background: var(--danger);
     color: #fff;
   }
+  /* Two tools that are one idea, rendered as a segmented pair rather than two
+     loose buttons — so the row says they belong together instead of leaving a
+     help button sitting among the actions. The group owns the outline; the
+     segments inside only tint on hover, and the divider is an inset shadow so a
+     hover border-colour change cannot erase it. */
+  .tool-group {
+    @apply inline-flex shrink-0 items-stretch rounded-lg border;
+    border-color: var(--line-strong);
+  }
+  .tool-group > .tool-btn {
+    @apply rounded-none;
+  }
+  .tool-group > .tool-btn:first-child {
+    @apply rounded-l-lg;
+  }
+  .tool-group > .tool-btn:last-child {
+    @apply rounded-r-lg;
+  }
+  .tool-group > .tool-btn--quiet:hover:not(:disabled),
+  .tool-group > .tool-btn--quiet.is-active {
+    border-color: transparent;
+  }
+  .tool-group > .tool-btn + .tool-btn {
+    box-shadow: inset 1px 0 0 var(--line-strong);
+  }
+
   /* Hairline between groups of tools. */
   .tool-sep {
     @apply mx-0.5 h-7 w-px shrink-0;

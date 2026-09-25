@@ -9,6 +9,7 @@ import FlowInflightBanner from '@/components/flow/FlowInflightBanner.vue'
 import FlowLogDrawer from '@/components/flow/FlowLogDrawer.vue'
 import RunFlowButton from '@/components/flow/RunFlowButton.vue'
 import AiNodeImporter from '@/components/flow/AiNodeImporter.vue'
+import AiConnectButton from '@/components/flow/AiConnectButton.vue'
 import WorkflowImporter from '@/components/flow/WorkflowImporter.vue'
 import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -305,6 +306,18 @@ async function save() {
       <!-- Tools, grouped: view · design · runtime · commit. Scrolls rather than
            wraps on a narrow window, so the row always stays one line high. -->
       <div class="ml-auto flex min-w-0 items-center gap-1 overflow-x-auto">
+        <!-- AI leads the row, ahead of the tools, as one segmented control: AI
+             build puts nodes on this canvas, AI connect explains pointing your
+             own client at the MCP server. One question with two answers — and
+             the help half is not an action, so it does not belong among
+             Import / Export / Snapshot. -->
+        <div class="tool-group">
+          <AiNodeImporter :resolve-graph="currentGraph" @apply="onAiPatch" />
+          <AiConnectButton />
+        </div>
+
+        <span class="tool-sep" />
+
         <ToolButton
           icon="tidy"
           label="Tidy"
@@ -322,7 +335,6 @@ async function save() {
 
         <span class="tool-sep" />
 
-        <AiNodeImporter :resolve-graph="currentGraph" @apply="onAiPatch" />
         <WorkflowImporter :resolve-graph="currentGraph" @apply="onImport" />
         <ToolButton
           icon="export"

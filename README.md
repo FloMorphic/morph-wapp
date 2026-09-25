@@ -80,6 +80,11 @@ it reads / writes).
   metric) and **Document** stores (table + column schema); the Memory node references one by id.
 - 🧭 **Full app shell** — collapsible sidebar, routing, and sections for Workflows, Extensions,
   Memory and Contexts.
+- 🤖 **Use it with an AI, without handing over a key** — **AI build** in the canvas toolbar hands
+  you a prompt carrying this install's real node catalog, then validates and previews the graph you
+  paste back. Or point your own MCP client (Claude Desktop, Claude Code, Cursor, Codex) at `/mcp`
+  and drive the whole API as tools — including from a Claude Pro/Max or ChatGPT Plus subscription:
+  [docs/connect-mcp-client.md](docs/connect-mcp-client.md).
 
 > Workflow and memory-store lists are served by the backend API (`/flow`, `/memory`,
 > `/extension`). With no backend configured the app falls back to browser-local persistence so it
