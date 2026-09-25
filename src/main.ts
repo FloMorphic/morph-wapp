@@ -9,6 +9,7 @@ import {
 import App from './App.vue'
 import router from './router'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
+import { setAuthToken } from '@/api/client'
 import { useNotificationsStore, type NotificationLevel } from '@/stores/notifications'
 
 // Base styles + design tokens (Tailwind v4)
@@ -32,6 +33,22 @@ import '@inflowenger/plugin-form-builder/vanilla-fixes.css'
 
 // FloMorphic Vue Flow overrides (themed to design tokens)
 import './assets/vue-flow.css'
+
+// Authenticate to the backend before anything can call it.
+//
+// An API started with AUTH_ENABLED=true gates every CRUD group behind an HS256
+// bearer signed with its API_JWT_SECRET, and the log WebSocket and /mcp read the
+// same token back out of the client. There is no login endpoint to obtain one
+// from, so the token is configuration: minted out of band and handed to the app
+// as VITE_API_TOKEN. It therefore identifies the *install*, not a user — it is
+// inlined into the bundle and reaches every browser that loads the page, which
+// is why it belongs only to a single-tenant deployment behind a trusted
+// boundary. Unset (the default) sends no header, for an API with auth off.
+//
+// Set here rather than in client.ts so the token stays injected configuration
+// and the client keeps no opinion on where a credential comes from — leaving
+// room for a real per-user flow to call setAuthToken instead.
+if (import.meta.env.VITE_API_TOKEN) setAuthToken(import.meta.env.VITE_API_TOKEN)
 
 const app = createApp(App)
 
