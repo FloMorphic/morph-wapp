@@ -1,4 +1,4 @@
-import type { Process, ProcessStatus } from '@/types/api'
+import type { Process, ProcessStatus, RunErrorItem, RunErrorKind, RunErrors } from '@/types/api'
 
 /** Tailwind classes for a status pill, one per lifecycle state. */
 export function processStatusClass(status: ProcessStatus): string {
@@ -74,4 +74,74 @@ export function formatDuration(p: Process): string {
   if (!ms && p.status === 'running' && p.startedAt) ms = Date.now() - p.startedAt
   if (!ms) return '—'
   return formatMs(ms)
+}
+
+/* ---- Run error ledger ------------------------------------------------------
+ * What the engine stamped into the run's context header under `_errors`, lifted
+ * onto the process row by the backend. A node error does not stop a flow, so a
+ * finished run can still carry a ledger — these helpers are what let the list
+ * say so instead of reporting a clean completion.
+ */
+
+/**
+ * The run's error ledger, or null when there is nothing to show.
+ *
+ * Presence of the field is not the test: a clean run has no `errors` at all, and
+ * a run off an engine that predates the ledger can answer with an empty object.
+ * Having a count is.
+ */
+export function processErrors(p: Process): RunErrors | null {
+  const errs = p.errors
+  if (!errs) return null
+  const items = Array.isArray(errs.items) ? errs.items : []
+  const count = errs.count || items.length
+  if (count === 0) return null
+  return { pid: errs.pid ?? '', count, items }
+}
+
+/** Normalized kind — anything the engine does not name is the flow's own. */
+export function errorKind(item: RunErrorItem): RunErrorKind {
+  return item.kind === 'system' ? 'system' : 'node'
+}
+
+/**
+ * How many entries of each kind the ledger carries.
+ *
+ * Counted over the kept items, not `count`: the cap drops the tail, and a split
+ * derived from what is in hand is the only one that can be trusted to add up to
+ * what is on screen.
+ */
+export function errorKindCounts(items: RunErrorItem[]): Record<RunErrorKind, number> {
+  const counts: Record<RunErrorKind, number> = { node: 0, system: 0 }
+  for (const item of items) counts[errorKind(item)] += 1
+  return counts
+}
+
+/** Tailwind classes for a kind badge. The two are deliberately different tones:
+ * only one of them is something the flow author can act on. */
+export function errorKindClass(kind: RunErrorKind): string {
+  return kind === 'system'
+    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+    : 'bg-red-500/15 text-red-600 dark:text-red-400'
+}
+
+/** One-line summary for a tag's tooltip — "3 errors · 2 node, 1 system". */
+export function errorSummary(errs: RunErrors): string {
+  const { node, system } = errorKindCounts(errs.items)
+  const parts: string[] = []
+  if (node) parts.push(`${node} node`)
+  if (system) parts.push(`${system} system`)
+  const head = `${errs.count} error${errs.count === 1 ? '' : 's'} recorded during this run`
+  return parts.length ? `${head} · ${parts.join(', ')}` : head
+}
+
+/** Clock time with seconds — the errors of one run land seconds apart, so the
+ * list-level `formatProcessTime` (minutes) cannot order them. */
+export function formatErrorTime(ms: number): string {
+  if (!ms) return ''
+  return new Date(ms).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }

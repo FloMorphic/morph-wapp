@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useProcessesStore } from '@/stores/processes'
 import { flowsApi } from '@/api/flows'
@@ -9,12 +9,15 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
+import ProcessErrors from '@/components/process/ProcessErrors.vue'
 import {
   processStatusClass,
   formatProcessTime,
   formatDuration,
   isStoppable,
   resumeOrigin,
+  processErrors,
+  errorSummary,
 } from '@/lib/process'
 
 const store = useProcessesStore()
@@ -28,6 +31,35 @@ function openContext(contextId: string, e?: Event) {
   if (!contextId) return
   router.push({ name: 'context-detail', params: { id: contextId } })
 }
+
+/**
+ * The rows the table draws: each run with its error ledger already resolved.
+ *
+ * Resolved once here rather than in the template, where the tag, the expansion
+ * and the expanded panel would each re-derive it on every repaint.
+ */
+const rows = computed(() => store.items.map((p) => ({ p, errors: processErrors(p) })))
+
+/**
+ * Which runs have their errors expanded under them, by indexId.
+ *
+ * A run does not stop for a node error, so a row can read `finished` and still
+ * have hit things — the tag says how many, and opening it in place is what lets
+ * an operator scan a page of runs without going through the detail panel for
+ * each one.
+ */
+const expandedErrors = ref<number[]>([])
+
+function toggleErrors(indexId: number, e?: Event): void {
+  // The row itself opens the detail panel; the tag is a control on top of it.
+  e?.stopPropagation()
+  expandedErrors.value = expandedErrors.value.includes(indexId)
+    ? expandedErrors.value.filter((id) => id !== indexId)
+    : [...expandedErrors.value, indexId]
+}
+
+/** The open run's ledger, for the detail panel's own Errors section. */
+const activeErrors = computed(() => (store.active ? processErrors(store.active) : null))
 
 const searchInput = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -188,25 +220,43 @@ watch(
           </tr>
         </thead>
         <tbody>
+          <template v-for="row in rows" :key="row.p.indexId">
           <tr
-            v-for="p in store.items"
-            :key="p.indexId"
             class="group cursor-pointer border-b last:border-0 transition-colors hover:bg-surface-2"
-            @click="store.open(p)"
+            :class="{ 'border-b-0': row.errors && expandedErrors.includes(row.p.indexId) }"
+            @click="store.open(row.p)"
           >
-            <td class="px-4 py-2.5 font-mono text-fg-muted">{{ p.indexId }}</td>
+            <td class="px-4 py-2.5 font-mono text-fg-muted">{{ row.p.indexId }}</td>
             <td class="px-4 py-2.5">
-              <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize" :class="processStatusClass(p.status)">
-                {{ p.status }}
-              </span>
+              <div class="flex items-center gap-1.5">
+                <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize" :class="processStatusClass(row.p.status)">
+                  {{ row.p.status }}
+                </span>
+                <!-- A run does not stop for a node error, so `finished` alone
+                     does not mean it went cleanly. The tag is the only place the
+                     list says otherwise; it opens the ledger in place. -->
+                <button
+                  v-if="row.errors"
+                  class="inline-flex items-center gap-1 rounded-full bg-danger-soft px-2 py-0.5 text-[11px] font-semibold text-danger transition hover:brightness-95"
+                  :title="`${errorSummary(row.errors)} — click to list them`"
+                  @click="toggleErrors(row.p.indexId, $event)"
+                >
+                  <Icon name="alert-triangle" :size="11" />
+                  {{ row.errors.count }}
+                  <Icon
+                    :name="expandedErrors.includes(row.p.indexId) ? 'chevron-down' : 'chevron-right'"
+                    :size="11"
+                  />
+                </button>
+              </div>
             </td>
             <td class="px-4 py-2.5 font-mono text-fg-muted">
               <div class="flex items-center gap-1.5">
-                <span>{{ p.flowId || '—' }}</span>
+                <span>{{ row.p.flowId || '—' }}</span>
                 <span
-                  v-if="resumeOrigin(p)"
+                  v-if="resumeOrigin(row.p)"
                   class="chip inline-flex items-center gap-1 whitespace-nowrap"
-                  :title="`Resumed by closing human task ${resumeOrigin(p)!.humanTaskId}${resumeOrigin(p)!.sourcePid ? ` · from pid ${resumeOrigin(p)!.sourcePid.slice(0, 8)}` : ''}`"
+                  :title="`Resumed by closing human task ${resumeOrigin(row.p)!.humanTaskId}${resumeOrigin(row.p)!.sourcePid ? ` · from pid ${resumeOrigin(row.p)!.sourcePid.slice(0, 8)}` : ''}`"
                 >
                   <Icon name="node-human" :size="11" /> resumed
                 </span>
@@ -214,27 +264,27 @@ watch(
             </td>
             <td class="px-4 py-2.5 font-mono">
               <button
-                v-if="p.contextId"
+                v-if="row.p.contextId"
                 class="inline-flex items-center gap-1 text-accent transition hover:underline"
                 title="Open context document"
-                @click="openContext(p.contextId, $event)"
+                @click="openContext(row.p.contextId, $event)"
               >
                 <Icon name="context" :size="13" />
-                {{ p.contextId }}
+                {{ row.p.contextId }}
               </button>
               <span v-else class="text-fg-subtle">—</span>
             </td>
-            <td class="px-4 py-2.5 font-mono text-fg-subtle">{{ p.pid ? p.pid.slice(0, 8) : '—' }}</td>
-            <td class="px-4 py-2.5 text-fg-muted">{{ formatProcessTime(p.startedAt || p.scheduledAt) || '—' }}</td>
-            <td class="px-4 py-2.5 text-fg-muted">{{ formatDuration(p) }}</td>
+            <td class="px-4 py-2.5 font-mono text-fg-subtle">{{ row.p.pid ? row.p.pid.slice(0, 8) : '—' }}</td>
+            <td class="px-4 py-2.5 text-fg-muted">{{ formatProcessTime(row.p.startedAt || row.p.scheduledAt) || '—' }}</td>
+            <td class="px-4 py-2.5 text-fg-muted">{{ formatDuration(row.p) }}</td>
             <td class="px-4 py-2.5">
               <div class="flex items-center justify-end gap-1 opacity-0 transition group-hover:opacity-100">
                 <button
-                  v-if="isStoppable(p.status)"
+                  v-if="isStoppable(row.p.status)"
                   class="rounded-lg p-1.5 text-fg-subtle transition hover:bg-danger-soft hover:text-danger"
                   title="Stop run"
                   :disabled="busy"
-                  @click="stopRun(p, $event)"
+                  @click="stopRun(row.p, $event)"
                 >
                   <Icon name="x" :size="15" />
                 </button>
@@ -243,13 +293,21 @@ watch(
                   class="rounded-lg p-1.5 text-fg-subtle transition hover:bg-danger-soft hover:text-danger"
                   title="Delete"
                   :disabled="busy"
-                  @click="removeRun(p, $event)"
+                  @click="removeRun(row.p, $event)"
                 >
                   <Icon name="trash" :size="15" />
                 </button>
               </div>
             </td>
           </tr>
+
+          <!-- The ledger, opened in place under its run. -->
+          <tr v-if="row.errors && expandedErrors.includes(row.p.indexId)" class="border-b last:border-0 bg-surface-2">
+            <td colspan="8" class="px-4 pb-3 pt-1">
+              <ProcessErrors :errors="row.errors" />
+            </td>
+          </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -325,6 +383,18 @@ watch(
         </dl>
 
         <p v-if="store.active.error" class="rounded-lg bg-danger-soft px-3 py-2 text-danger">{{ store.active.error }}</p>
+
+        <!-- Errors the run recorded and carried on past — distinct from `error`
+             above, which is the one thing that ended the run. Open by default:
+             it is the reason someone opens a run that says it finished. -->
+        <section v-if="activeErrors" class="space-y-2">
+          <h3 class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-danger">
+            <Icon name="alert-triangle" :size="12" />
+            Errors ({{ activeErrors.count }})
+          </h3>
+          <p class="text-[11px] text-fg-subtle">{{ errorSummary(activeErrors) }}</p>
+          <ProcessErrors :errors="activeErrors" />
+        </section>
 
         <details v-if="store.active.meta">
           <summary class="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Meta</summary>

@@ -409,6 +409,51 @@ export interface ProcessRequestInput {
  */
 export type ProcessStatus = 'scheduled' | 'running' | 'waiting' | 'finished' | 'stopped' | 'failed'
 
+/* ---- Run error ledger (the engine's `_errors` header slot) ----
+ * Every error one run recorded, stamped into the context document's header by
+ * the engine (fractal-core errstamp.go) and lifted onto that run's process row
+ * by the backend. A flow does not stop for a node error — the node reports it
+ * and the run carries on — so this is the record of what a run hit, not a cause
+ * of death: a run that hit several can still finish `finished`.
+ */
+
+/** Whose error a recorded one was. `node` is the flow author's own — their js or
+ * rego, the node data they wrote, something their node called that did not
+ * deliver — and is what they can act on. `system` is the platform's: infra that
+ * would not answer, a reply that would not marshal. Nothing in the flow caused
+ * it and nothing in the flow mends it. */
+export type RunErrorKind = 'node' | 'system'
+
+/** One entry of the ledger (fractal-core `models.NodeError`). */
+export interface RunErrorItem {
+  ts: number
+  kind: RunErrorKind
+  /** The flow the error was raised in — a run that went through a GoTo has
+   *  entries from more than one. */
+  flow: string
+  node: string
+  /** The actor that raised it — `rt` / `js` / `rego` / `plugin:<title>` — the
+   *  same vocabulary a log event's `src` uses, so an entry joins onto the run's
+   *  event stream. */
+  src: string
+  /** Engine status code (fractal `StatusFractal`). */
+  code: number
+  msg: string
+  /** JSON path the failure happened on. Set only for a node running over a
+   *  fan-out, where the node id alone does not place it. */
+  loc?: string
+}
+
+/** The `_errors` slot for one run. `count` is the true total and `items` may be
+ * shorter: the header rides inside the context document, which has a publish
+ * limit, so a cascading run's entries are capped — the ones kept are the
+ * earliest, which is where the cause of a cascade is. */
+export interface RunErrors {
+  pid: string
+  count: number
+  items: RunErrorItem[]
+}
+
 export interface Process {
   /** Auto-increment integer identity (the "indexId"). */
   indexId: number
@@ -427,6 +472,12 @@ export interface Process {
   request?: Record<string, unknown>
   /** Backend-only object kept alongside the run (e.g. parked next-node list). */
   meta?: Record<string, unknown>
+  /** Everything that went wrong during this run, kept per-pid (not on the shared
+   *  context row, which overlapping runs clobber). It is how a caller who was not
+   *  watching the event stream learns what a run actually did — without it a row
+   *  that hit five node errors and still completed reads exactly like a clean
+   *  one. Absent for a run that hit nothing. */
+  errors?: RunErrors
   error?: string
   /** Epoch millis a scheduled run should launch at; 0 for an immediate run. */
   scheduledAt: number
