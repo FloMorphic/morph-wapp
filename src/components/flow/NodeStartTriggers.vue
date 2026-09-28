@@ -138,6 +138,7 @@ interface Draft {
   execTimeoutSec: number
   nodeLimit: number
   reqTimeoutSec: number
+  stopOnError: boolean
   // webhook
   slug: string
   methods: string[]
@@ -171,6 +172,7 @@ function blankDraft(kind: TriggerKind): Draft {
     execTimeoutSec: 0,
     nodeLimit: 0,
     reqTimeoutSec: 0,
+    stopOnError: false,
     slug: '',
     methods: [],
     authMethod: 'none',
@@ -191,7 +193,9 @@ function blankDraft(kind: TriggerKind): Draft {
 }
 
 /** Copy a trigger's shared run-context + settings fields into a draft. */
-function draftContext(t: Trigger): Pick<Draft, 'contextMode' | 'contextId' | 'contextTitle' | 'execTimeoutSec' | 'nodeLimit' | 'reqTimeoutSec'> {
+function draftContext(
+  t: Trigger,
+): Pick<Draft, 'contextMode' | 'contextId' | 'contextTitle' | 'execTimeoutSec' | 'nodeLimit' | 'reqTimeoutSec' | 'stopOnError'> {
   return {
     contextMode: t.contextMode ?? 'new',
     contextId: t.contextId ?? '',
@@ -199,6 +203,7 @@ function draftContext(t: Trigger): Pick<Draft, 'contextMode' | 'contextId' | 'co
     execTimeoutSec: t.settings?.executeTimeoutSec ?? 0,
     nodeLimit: t.settings?.processNodeLimit ?? 0,
     reqTimeoutSec: t.settings?.requestTimeoutSec ?? 0,
+    stopOnError: t.settings?.stopOnError ?? false,
   }
 }
 
@@ -290,11 +295,12 @@ const canSave = computed(() => {
 })
 
 function buildSettings(d: Draft): SaveTriggerInput['settings'] {
-  if (!d.execTimeoutSec && !d.nodeLimit && !d.reqTimeoutSec) return undefined
+  if (!d.execTimeoutSec && !d.nodeLimit && !d.reqTimeoutSec && !d.stopOnError) return undefined
   return {
     executeTimeoutSec: d.execTimeoutSec || undefined,
     processNodeLimit: d.nodeLimit || undefined,
     requestTimeoutSec: d.reqTimeoutSec || undefined,
+    stopOnError: d.stopOnError || undefined,
   }
 }
 
@@ -684,7 +690,7 @@ const secretPlaceholder = computed(() =>
         <!-- ---- Run settings (optional, both kinds) ---- -->
         <div class="space-y-1.5 border-t pt-3">
           <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
-            Run settings <span class="font-normal normal-case text-fg-subtle">(optional — 0 keeps engine default)</span>
+            Run settings <span class="font-normal normal-case text-fg-subtle">(optional — 0/off keeps engine default)</span>
           </label>
           <div class="grid grid-cols-3 gap-2">
             <div class="space-y-1">
@@ -700,6 +706,13 @@ const secretPlaceholder = computed(() =>
               <input v-model.number="draft.reqTimeoutSec" type="number" min="0" class="input font-mono text-xs" />
             </div>
           </div>
+          <label class="flex items-center gap-2 text-[13px] text-fg">
+            <input v-model="draft.stopOnError" type="checkbox" class="h-4 w-4 accent-[var(--accent)]" />
+            <span>Stop on error</span>
+          </label>
+          <p class="text-[11px] text-fg-subtle">
+            Halts a fired run at the first node error instead of carrying on down the flow.
+          </p>
         </div>
 
         <!-- ---- Webhook fields ---- -->

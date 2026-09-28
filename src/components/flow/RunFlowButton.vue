@@ -314,6 +314,21 @@ function summary(c: ContextRecord): string {
               </p>
             </div>
 
+            <div class="space-y-1">
+              <label class="flex items-center gap-2 text-[12px] font-medium text-fg">
+                <input
+                  v-model="runSettings.stopOnError"
+                  type="checkbox"
+                  class="h-4 w-4 accent-[var(--accent)]"
+                />
+                <span>Stop on error</span>
+                <span class="ml-auto text-[11px] font-normal text-fg-subtle">default off</span>
+              </label>
+              <p class="text-[11px] text-fg-subtle">
+                Halts the run at the first node error instead of carrying on down the flow.
+              </p>
+            </div>
+
             <div class="flex justify-end">
               <button
                 type="button"

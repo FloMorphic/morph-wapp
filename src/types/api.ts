@@ -453,8 +453,8 @@ export interface StartProcessInput {
 }
 
 /** Caller-tunable engine run settings sent with a launch. Each is an override of
- * the engine default (proc_timeout 3h, proc_node_limit 500, svc_req_timeout 5s);
- * a 0/absent field leaves that default in place. */
+ * the engine default (proc_timeout 3h, proc_node_limit 500, svc_req_timeout 5s,
+ * stop_on_error false); a 0/false/absent field leaves that default in place. */
 export interface ProcessRunSettings {
   /** Process execute timeout, in seconds (`proc_timeout`). */
   executeTimeoutSec?: number
@@ -462,6 +462,10 @@ export interface ProcessRunSettings {
   processNodeLimit?: number
   /** Fallback per-request timeout, in seconds (`svc_req_timeout`). */
   requestTimeoutSec?: number
+  /** Halt the run at the first node error instead of carrying on down the flow
+   * (`stop_on_error`). The engine carries on by default, so only `true` is an
+   * override. */
+  stopOnError?: boolean
 }
 
 /* ---- Node settings profiles (FloMorphic-specific) ----
@@ -705,7 +709,7 @@ export interface TriggerBase {
   /** Title for the context doc minted each fire, when `contextMode === 'new'`. */
   contextTitle?: string
   /** Optional engine run-setting overrides applied to each launched run — the
-   *  same three the manual Run dialog collects. Omitted/zero fields keep defaults. */
+   *  same ones the manual Run dialog collects. Omitted/zero fields keep defaults. */
   settings?: ProcessRunSettings
   createdAt: number
   updatedAt: number
