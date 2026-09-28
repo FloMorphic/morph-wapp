@@ -7,6 +7,7 @@ import NodeSettingDetails from '@/components/flow/NodeSettingDetails.vue'
 import FlowProcessesButton from '@/components/flow/FlowProcessesButton.vue'
 import FlowInflightBanner from '@/components/flow/FlowInflightBanner.vue'
 import FlowLogDrawer from '@/components/flow/FlowLogDrawer.vue'
+import FlowRunHud from '@/components/flow/FlowRunHud.vue'
 import RunFlowButton from '@/components/flow/RunFlowButton.vue'
 import AiNodeImporter from '@/components/flow/AiNodeImporter.vue'
 import AiConnectButton from '@/components/flow/AiConnectButton.vue'
@@ -387,7 +388,10 @@ async function save() {
     <!-- Canvas + inspector -->
     <div class="flex min-h-0 flex-1">
       <div class="relative min-w-0 flex-1">
-        <WorkflowCanvas ref="canvas" @select="onSelect" @dirty="dirty = true" />
+        <WorkflowCanvas ref="canvas" :flow-id="currentId" @select="onSelect" @dirty="dirty = true" />
+        <!-- Which run the node/edge overlays belong to, and the control for
+             switching between the runs live on this flow. -->
+        <FlowRunHud :flow-id="currentId" />
         <FlowLogDrawer />
       </div>
       <NodeSettingDetails

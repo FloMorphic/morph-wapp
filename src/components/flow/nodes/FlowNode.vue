@@ -2,6 +2,8 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
+import NodeRunEffect from './NodeRunEffect.vue'
+import { useFlowLogsStore } from '@/stores/flowLogs'
 import { specForType, type BaseNodeData, type NodePort } from '@/data/nodeCatalog'
 import { createId } from '@/lib/id'
 import { pluginColor } from '@/lib/pluginColor'
@@ -17,6 +19,12 @@ import { namespaceOf } from '@/lib/exportFlow'
  * Nodes whose spec derives `ports()` (LLM functions, Rule handlers) render one
  * output handle per port along the bottom edge instead of a single right handle,
  * mirroring the Inflowenger inspector's routing nodes.
+ *
+ * While a run is being followed (see stores/flowLogs) the node also wears what
+ * that process is doing to it — status ring, progress, errors — through
+ * NodeRunEffect. That is a live overlay on the design, never part of it: it
+ * reads the store and touches no node data, so nothing about watching a run can
+ * dirty the graph.
  */
 const props = defineProps<{
   id: string
@@ -240,6 +248,22 @@ function closePop() {
   openPop.value = null
 }
 
+// ---- Live run state --------------------------------------------------------
+// What the followed process is doing to *this* node, resolved by the store from
+// the flow the canvas has open (a node id is only unique within its flow). Null
+// whenever no run is being followed or the run never reached this node — which
+// is what keeps a canvas with nothing running looking untouched.
+const logs = useFlowLogsStore()
+const run = computed(() => logs.nodeRun(props.id))
+const runLive = computed(() => logs.canvasRun?.status === 'running')
+
+/** Ring + tint that puts the node's run state on the card itself. */
+const runClass = computed(() => {
+  if (!run.value) return logs.dimIdleNodes && logs.canvasRun ? 'run-idle' : ''
+  if (run.value.status === 'running' && run.value.wait) return 'run-waiting'
+  return `run-${run.value.status}`
+})
+
 // ---- Hover tile ------------------------------------------------------------
 // A floating "name tag" that lifts above the node on hover, so the full title
 // reads at a glance even when the on-node title is truncated. Suppressed while
@@ -262,7 +286,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   <div
     ref="rootEl"
     class="flow-node group relative rounded-xl border bg-elevated transition-shadow"
-    :class="{ 'has-ports': ports.length > 0 }"
+    :class="[{ 'has-ports': ports.length > 0 }, runClass]"
     :style="{
       borderColor: selected ? accent : 'var(--line)',
       boxShadow: selected ? `0 0 0 1px ${accent}, var(--shadow-md)` : 'var(--shadow-sm)',
@@ -430,6 +454,10 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
       </button>
     </div>
 
+    <!-- Live run overlay: the corner state badge and, when the run has
+         something to say about this node, a band above the footer. -->
+    <NodeRunEffect v-if="run" :run="run" :accent="accent" :live="runLive" />
+
     <div class="flex items-center justify-between gap-2 border-t px-3 py-1.5">
       <span class="truncate font-mono text-[10.5px] text-fg-muted">{{ preview }}</span>
       <span
@@ -536,6 +564,12 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
 <style scoped>
 .flow-node {
   width: 194px;
+  /* Includes the shadow the utility class would have transitioned, so dimming
+     an idle node and lifting a selected one are the one animation. */
+  transition:
+    opacity 0.2s ease,
+    filter 0.2s ease,
+    box-shadow 0.2s ease;
 }
 /* The hover name tile lifts up and fades in — quick enough to feel responsive
    to the pointer, soft enough to read as a floating label rather than a jump. */
@@ -572,6 +606,62 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   line-clamp: 2;
   overflow: hidden;
 }
+/* ---- Live run effects -----------------------------------------------------
+   A ring drawn *outside* the card as a pseudo-element, not as a border or a
+   box-shadow on the node itself: the node's own border carries selection and
+   its box-shadow is set inline, so a run state written into either would fight
+   the editor. Only the node actually working right now is allowed to animate. */
+.run-pending::after,
+.run-running::after,
+.run-waiting::after,
+.run-ok::after,
+.run-error::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 14px;
+  border: 2px solid transparent;
+  pointer-events: none;
+}
+.run-pending::after {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  border-style: dashed;
+}
+.run-running::after {
+  border-color: var(--accent);
+  animation: run-node-glow 1.5s ease-in-out infinite;
+}
+.run-waiting::after {
+  border-color: var(--warning);
+  border-style: dashed;
+}
+.run-ok::after {
+  border-color: color-mix(in srgb, var(--success) 65%, transparent);
+}
+.run-error::after {
+  border-color: var(--danger);
+}
+@keyframes run-node-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+/* "Focus path": everything the followed run never touched steps back so the
+   path it did take is the only thing in full colour. */
+.run-idle {
+  opacity: 0.42;
+  filter: saturate(0.5);
+}
+@media (prefers-reduced-motion: reduce) {
+  .run-running::after {
+    animation: none;
+  }
+}
+
 /* The exception card is the odd one out — a tinted band, dashed off from the
    defined ports above it, so it never reads as another bound function. */
 .port-card--exception {

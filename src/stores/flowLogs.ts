@@ -4,11 +4,13 @@ import { io, type Socket } from 'socket.io-client'
 import {
   createFlowTracker,
   describeEvent,
+  nodeKey,
   type Level,
   type LogCategory,
   type LogDetail,
   type ProcEvent,
 } from '@inflowenger/flow-trace'
+import { applyEvent, runTouchesFlow, type EdgeRun, type NodeRun, type RunState } from '@/lib/runState'
 import { apiBaseUrl, apiEnabled, getAuthToken } from '@/api/client'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useHitlStore } from '@/stores/hitl'
@@ -24,6 +26,10 @@ import { useWorkflowsStore } from '@/stores/workflows'
  *   - `messages`  — one display line per accepted event, for the log drawer.
  *   - `processes` — per-pid lifecycle, so a flow's live-run count is derived
  *                   from the stream instead of polling `/process`.
+ *   - `runs`      — per-pid node/edge state (see lib/runState), which is what
+ *                   paints the run onto the canvas: the same events the drawer
+ *                   prints as text, folded into where the process has been, what
+ *                   it is doing now, and how far along each node is.
  *
  * Modelled on flomorphic-api's useSocketIO composable, adapted to a Pinia
  * singleton so the drawer and the toolbar badge share one connection.
@@ -75,6 +81,19 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
   const focusedPid = ref<string | null>(null)
   /** Per-pid lifecycle, keyed by pid. */
   const processes = ref<Record<string, LiveProcess>>({})
+  /** Per-pid node/edge state — the canvas' view of the same stream. */
+  const runs = ref<Record<string, RunState>>({})
+  /**
+   * The flow the editor canvas has open, set by the canvas while it is mounted.
+   *
+   * The canvas asks about node `n_…` of whatever flow it is showing hundreds of
+   * times per repaint (one node component each, plus every edge), so the flow it
+   * is asking about is held here once and the selected run resolved once, rather
+   * than every component re-deriving it from a pid.
+   */
+  const canvasFlow = ref<string | undefined>(undefined)
+  /** Dim nodes the followed run never touched, so its path reads on its own. */
+  const dimIdleNodes = ref(false)
 
   // The tracker owns mutable internal state — keep it out of Vue's reactivity
   // and subscribe to its typed events instead.
@@ -108,12 +127,24 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
     pushMessage({ timestamp: Date.now(), ...msg })
   }
 
+  /**
+   * Empty the drawer. Finished runs go with it — their effects on the canvas are
+   * the same history the lines were — but a run still in flight is kept, because
+   * clearing the log to watch what happens next should not blind the canvas to
+   * the process it is watching.
+   */
   function clearMessages(): void {
     messages.value = []
+    for (const [pid, run] of Object.entries(runs.value)) {
+      if (run.status !== 'running') delete runs.value[pid]
+    }
+    if (focusedPid.value && !runs.value[focusedPid.value]) focusedPid.value = null
   }
 
-  // Every accepted event becomes a drawer line, already demuxed and seq-ordered.
+  // Every accepted event becomes a drawer line, already demuxed and seq-ordered
+  // — and, in the same pass, is folded into the run state the canvas draws.
   tracker.on('event', (event) => {
+    applyEvent(runs.value, event)
     pushMessage({
       timestamp: event.ts,
       level: event.level,
@@ -281,6 +312,86 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
     focusedPid.value = pid
   }
 
+  // ---- Canvas run view -------------------------------------------------------
+  // Which run the canvas paints, and the lookups its node and edge renderers do.
+
+  /** Runs that have been in `flowId`, newest first. The drawer's pid list. */
+  function runsForFlow(flowId?: string): RunState[] {
+    if (!flowId) return []
+    return Object.values(runs.value)
+      .filter((run) => runTouchesFlow(run, flowId))
+      .sort((a, b) => (b.startedAt ?? b.lastEventAt) - (a.startedAt ?? a.lastEventAt))
+  }
+
+  /** Runs on the flow the canvas has open, newest first. */
+  const canvasRuns = computed(() => runsForFlow(canvasFlow.value))
+
+  /**
+   * The run the canvas is following.
+   *
+   * The drawer's process filter is the control: focus a pid there and the canvas
+   * shows that run, which is the only way to read a canvas at all when several
+   * processes are live on one flow. With no pid focused it falls to the newest
+   * run that has been in this flow — live if there is one, otherwise the last to
+   * have finished, so a run's path is still on screen after it ends.
+   *
+   * Null when the focused pid never entered this flow: better a blank canvas
+   * than one painted with another flow's node ids, which do collide.
+   */
+  const canvasRun = computed<RunState | null>(() => {
+    const flowId = canvasFlow.value
+    if (!flowId) return null
+    if (focusedPid.value) {
+      const run = runs.value[focusedPid.value]
+      return run && runTouchesFlow(run, flowId) ? run : null
+    }
+    const candidates = canvasRuns.value
+    return candidates.find((r) => r.status === 'running') ?? candidates[0] ?? null
+  })
+
+  /** State for one node of the followed run, or null if it never reached it. */
+  function nodeRun(nodeId: string): NodeRun | null {
+    const flowId = canvasFlow.value
+    if (!flowId) return null
+    return canvasRun.value?.nodes[nodeKey(flowId, nodeId)] ?? null
+  }
+
+  /**
+   * State for one edge of the followed run, keyed by the graph's own edge id.
+   *
+   * Edge ids are generated per graph, so one is checked against the flow it was
+   * decided in before it lights anything up — a run that jumped into another
+   * flow must not paint this one's canvas.
+   */
+  function edgeRun(edgeId: string): EdgeRun | null {
+    const state = canvasRun.value?.edges[edgeId]
+    if (!state) return null
+    return state.from.flow === canvasFlow.value ? state : null
+  }
+
+  /** The canvas announces the flow it has open while it is mounted. */
+  function setCanvasFlow(flowId: string | undefined): void {
+    canvasFlow.value = flowId
+  }
+
+  /**
+   * Forget one run's effects (or every finished one) without clearing the log.
+   *
+   * Dropping the run the drawer is focused on releases the focus with it —
+   * otherwise the filter would keep pointing at a process that no longer has a
+   * chip to unfocus it with.
+   */
+  function clearRuns(pid?: string): void {
+    if (pid) {
+      delete runs.value[pid]
+      if (focusedPid.value === pid) focusedPid.value = null
+      return
+    }
+    for (const [id, run] of Object.entries(runs.value)) {
+      if (run.status !== 'running') delete runs.value[id]
+    }
+  }
+
   return {
     connected,
     connecting,
@@ -289,6 +400,11 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
     isOpen,
     focusedPid,
     processes,
+    runs,
+    canvasFlow,
+    canvasRun,
+    canvasRuns,
+    dimIdleNodes,
     isRemote,
     errorCount,
     liveCountForFlow,
@@ -298,6 +414,11 @@ export const useFlowLogsStore = defineStore('flowLogs', () => {
     open,
     close,
     clearMessages,
+    clearRuns,
     setFocusedPid,
+    setCanvasFlow,
+    runsForFlow,
+    nodeRun,
+    edgeRun,
   }
 })

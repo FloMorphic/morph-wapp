@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { markRaw, nextTick, onMounted, provide, ref, type Component } from 'vue'
+import { markRaw, nextTick, onBeforeUnmount, onMounted, provide, ref, watch, type Component } from 'vue'
 import { VueFlow, useVueFlow, getRectOfNodes, MarkerType, ConnectionLineType, Position, type Connection, type GraphNode } from '@vue-flow/core'
 import { toPng } from 'html-to-image'
 import { Background } from '@vue-flow/background'
@@ -35,6 +35,19 @@ import {
   type Side,
 } from '@/lib/edgeRouting'
 import { createId } from '@/lib/id'
+import { useFlowLogsStore } from '@/stores/flowLogs'
+
+const props = defineProps<{
+  /**
+   * The saved flow this canvas is showing, or undefined for an unsaved draft.
+   *
+   * Only the live-run overlay needs it: the runtime stream names nodes by
+   * `flow:node` (ids are unique only within a flow, and a process spans several
+   * via GoTo), so the node and edge renderers cannot resolve their own run state
+   * without knowing which flow they are part of.
+   */
+  flowId?: string
+}>()
 
 const emit = defineEmits<{
   (e: 'select', node: GraphNode | null): void
@@ -87,6 +100,13 @@ const {
   getNodes,
   vueFlowRef,
 } = useVueFlow()
+
+// The flow on screen, announced to the log store for as long as this canvas is
+// mounted: it resolves the followed run once there, rather than every node and
+// edge component deriving it for itself on each repaint.
+const logs = useFlowLogsStore()
+watch(() => props.flowId, (id) => logs.setCanvasFlow(id), { immediate: true })
+onBeforeUnmount(() => logs.setCanvasFlow(undefined))
 
 // Minimap visibility, toggled from the editor toolbar (see WorkflowEditorView).
 // Off by default — it covers a corner of the canvas, so it is opt-in per session.

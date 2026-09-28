@@ -55,6 +55,16 @@ export function formatProcessTime(ms: number): string {
   })
 }
 
+/** Human duration for a span of milliseconds — `250ms`, `1.4s`, `2m 5s`. */
+export function formatMs(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const s = ms / 1000
+  if (s < 60) return `${s.toFixed(1)}s`
+  const m = Math.floor(s / 60)
+  const rem = Math.round(s % 60)
+  return `${m}m ${rem}s`
+}
+
 /**
  * Human duration for a run: the engine-reported durationMs once finished,
  * otherwise the live elapsed time since it started (for a running row), else '—'.
@@ -63,10 +73,5 @@ export function formatDuration(p: Process): string {
   let ms = p.durationMs
   if (!ms && p.status === 'running' && p.startedAt) ms = Date.now() - p.startedAt
   if (!ms) return '—'
-  if (ms < 1000) return `${ms}ms`
-  const s = ms / 1000
-  if (s < 60) return `${s.toFixed(1)}s`
-  const m = Math.floor(s / 60)
-  const rem = Math.round(s % 60)
-  return `${m}m ${rem}s`
+  return formatMs(ms)
 }

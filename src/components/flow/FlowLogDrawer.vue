@@ -7,6 +7,7 @@ import { useFlowLogsStore, type FlowLogMessage, type LogLevel } from '@/stores/f
 import { useFlowGraphsStore } from '@/stores/flowGraphs'
 import { useNotificationsStore } from '@/stores/notifications'
 import { processesApi } from '@/api/processes'
+import { formatMs } from '@/lib/process'
 
 /**
  * Bottom, resizable drawer showing the live runtime log stream for the editor.
@@ -15,6 +16,12 @@ import { processesApi } from '@/api/processes'
  * readable "pretty" view is the default because it is what you scan; the raw
  * event stays one click away because this is an inspector — a summary you can't
  * check against the wire is useless when debugging the engine itself.
+ *
+ * The process strip under the header is the drawer's other job: the stream
+ * carries every run on the engine, several of which can be on the flow you have
+ * open. Picking one there filters these lines *and* is what the canvas paints —
+ * node badges, progress and the path — so the drawer is where you choose which
+ * process you are watching, in text and on the graph at once.
  */
 const store = useFlowLogsStore()
 const graphs = useFlowGraphsStore()
@@ -74,18 +81,49 @@ const availableKinds = computed(() => {
   return [...kinds].sort()
 })
 
-const availablePids = computed(() => {
+/** How many lines each pid has contributed, for the strip's counts. */
+const lineCounts = computed(() => {
   const pids = new Map<string, number>()
   for (const m of store.messages) {
     if (m.pid) pids.set(m.pid, (pids.get(m.pid) ?? 0) + 1)
   }
-  return [...pids.entries()].map(([pid, count]) => ({ pid, count }))
+  return pids
 })
 
-const pidFilter = computed({
-  get: () => store.focusedPid ?? 'all',
-  set: (v: string) => store.setFocusedPid(v === 'all' ? null : v),
-})
+/**
+ * One chip per process the stream has carried, newest first.
+ *
+ * Built from the run state rather than from the lines, so a process that is
+ * still live keeps its chip after the log is cleared — the canvas is still
+ * painting it, and losing the only control for that would be worse than losing
+ * the lines.
+ */
+const processChips = computed(() =>
+  Object.values(store.runs)
+    .sort((a, b) => (b.startedAt ?? b.lastEventAt) - (a.startedAt ?? a.lastEventAt))
+    .map((run) => ({
+      pid: run.pid,
+      status: run.status,
+      running: run.counts.running,
+      done: run.counts.ok,
+      failed: run.counts.error + run.errors.node,
+      lines: lineCounts.value.get(run.pid) ?? 0,
+      duration: run.durationMs !== undefined ? formatMs(run.durationMs) : '',
+      /** The run the canvas is painting right now — the strip says which. */
+      followed: store.canvasRun?.pid === run.pid,
+    })),
+)
+
+const statusDot: Record<string, string> = {
+  running: 'bg-sky-500',
+  completed: 'bg-emerald-500',
+  failed: 'bg-red-500',
+  stopped: 'bg-slate-400',
+}
+
+function focusPid(pid: string | null) {
+  store.setFocusedPid(store.focusedPid === pid ? null : pid)
+}
 
 const levelCounts = computed(() => {
   const counts: Record<string, number> = { all: store.messages.length, debug: 0, info: 0, warn: 0, error: 0 }
@@ -298,18 +336,6 @@ async function copyAll() {
 
         <div class="ml-auto flex flex-wrap items-center gap-1.5">
           <select
-            v-if="availablePids.length > 0"
-            v-model="pidFilter"
-            class="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-fg outline-none focus:border-accent"
-            title="Focus one process"
-          >
-            <option value="all">All processes{{ availablePids.length > 1 ? ` (${availablePids.length})` : '' }}</option>
-            <option v-for="p in availablePids" :key="p.pid" :value="p.pid">
-              {{ p.pid.slice(0, 8) }}… ({{ p.count }})
-            </option>
-          </select>
-
-          <select
             v-model="filterLevel"
             class="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-fg outline-none focus:border-accent"
             title="Filter by severity"
@@ -373,6 +399,48 @@ async function copyAll() {
             <Icon name="x" :size="16" />
           </button>
         </div>
+      </div>
+
+      <!-- Process strip: every run the stream has carried, newest first. Picking
+           one filters these lines and tells the canvas which run to paint. -->
+      <div
+        v-if="processChips.length > 0"
+        class="flex items-center gap-1.5 overflow-x-auto border-b border-line px-3 py-1.5"
+      >
+        <button
+          class="pid-chip shrink-0"
+          :class="{ 'pid-chip--on': !store.focusedPid }"
+          title="Show every process; the canvas follows the newest run on this flow"
+          @click="focusPid(null)"
+        >
+          All
+          <span class="text-fg-subtle">{{ processChips.length }}</span>
+        </button>
+
+        <button
+          v-for="chip in processChips"
+          :key="chip.pid"
+          class="pid-chip shrink-0"
+          :class="{ 'pid-chip--on': store.focusedPid === chip.pid }"
+          :title="`Process ${chip.pid} — ${chip.status}${chip.duration ? ` in ${chip.duration}` : ''} · ${chip.lines} log lines. Click to follow it here and on the canvas.`"
+          @click="focusPid(chip.pid)"
+        >
+          <span class="relative flex h-2 w-2 shrink-0">
+            <span
+              v-if="chip.status === 'running'"
+              class="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75"
+            />
+            <span class="relative inline-flex h-2 w-2 rounded-full" :class="statusDot[chip.status] ?? 'bg-slate-400'" />
+          </span>
+          <span class="font-mono">{{ chip.pid.slice(0, 8) }}</span>
+          <span v-if="chip.running" class="text-sky-500">{{ chip.running }}▶</span>
+          <span v-if="chip.done" class="text-emerald-500">{{ chip.done }}✓</span>
+          <span v-if="chip.failed" class="text-danger">{{ chip.failed }}✕</span>
+          <span v-if="chip.duration" class="text-fg-subtle">{{ chip.duration }}</span>
+          <!-- The one the canvas is actually painting, which is not always the
+               focused one: with nothing focused the store follows the newest. -->
+          <Icon v-if="chip.followed" name="eye" :size="11" class="text-accent" />
+        </button>
       </div>
 
       <!-- Body -->
@@ -468,6 +536,28 @@ async function copyAll() {
 </template>
 
 <style scoped>
+.pid-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  transition: all 0.15s;
+}
+.pid-chip:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.pid-chip--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .drawer-icon-btn {
   display: flex;
   align-items: center;
