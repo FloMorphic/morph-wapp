@@ -79,6 +79,25 @@ export interface RoutedPath {
 /** Injection key for the canvas-computed routes the custom edge reads. */
 export const ROUTED_PATHS: InjectionKey<Ref<Map<string, RoutedPath>>> = Symbol('routedPaths')
 
+/**
+ * Zoom at which an edge starts drawing its close-up detail (the blinking trace
+ * behind an edge the run has crossed — see RoutedEdge).
+ *
+ * Below this you are reading the shape of the graph, and a mark behind every
+ * taken edge would be noise on top of the lines it sits behind; above it you are
+ * reading one corner of it, and there is room for the extra layer.
+ */
+export const EDGE_DETAIL_ZOOM = 1.35
+
+/**
+ * Injection key: whether the canvas is zoomed in past {@link EDGE_DETAIL_ZOOM}.
+ *
+ * The canvas watches its own viewport and flips this only as the threshold is
+ * crossed, so panning and zooming do not re-render every edge on every frame —
+ * an edge is told "there is room for detail now", not the live zoom level.
+ */
+export const EDGE_ZOOMED_IN: InjectionKey<Ref<boolean>> = Symbol('edgeZoomedIn')
+
 /** Unit vector pointing out of a node from a port on the given side. */
 function outward(side: Side): Point {
   switch (side) {

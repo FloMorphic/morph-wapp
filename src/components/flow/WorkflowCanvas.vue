@@ -28,6 +28,8 @@ import {
   roundedPath,
   midpoint,
   DEFAULT_ROUTE_OPTIONS,
+  EDGE_DETAIL_ZOOM,
+  EDGE_ZOOMED_IN,
   ROUTED_PATHS,
   type Rect,
   type RouteRequest,
@@ -492,6 +494,21 @@ function portRank(sourceId?: string | null, handleId?: string | null): number {
 // animation frame so dragging a node stays smooth.
 const routedPaths = ref<Map<string, RoutedPath>>(new Map())
 provide(ROUTED_PATHS, routedPaths)
+
+// Zoomed in far enough for an edge to draw its close-up detail. Derived from the
+// viewport here and shared as a *boolean*, flipped only as the threshold is
+// crossed: the zoom itself changes on every wheel frame, and every edge on the
+// canvas reads this.
+const zoomedIn = ref(false)
+provide(EDGE_ZOOMED_IN, zoomedIn)
+watch(
+  () => viewport.value.zoom,
+  (zoom) => {
+    const next = zoom >= EDGE_DETAIL_ZOOM
+    if (next !== zoomedIn.value) zoomedIn.value = next
+  },
+  { immediate: true },
+)
 
 // The action methods this install's plugins expose, shared with every node so it
 // can badge itself "unrecognized" the moment it holds an action nothing local

@@ -301,6 +301,43 @@ function functions(): Fn[] {
   if (!Array.isArray(data().functions)) data().functions = []
   return data().functions as Fn[]
 }
+
+/**
+ * Every tool the server advertised at the last load — the list the drawer shows
+ * and ticks. Falls back to `functions` for a flow saved before the catalogue was
+ * split out, so an older node still lists its tools instead of looking empty.
+ */
+function mcpCatalog(): Fn[] {
+  if (!Array.isArray(data().mcpToolCatalog)) data().mcpToolCatalog = []
+  const cat = data().mcpToolCatalog as Fn[]
+  return cat.length ? cat : functions()
+}
+
+/** Whether `name` is in the bound whitelist. */
+function isToolBound(name: string): boolean {
+  return functions().some((f) => f.name === name)
+}
+
+/**
+ * Tick/untick one tool. Unticking the last one leaves `functions` empty, which
+ * the plugin reads as "bind everything" — the template says so out loud rather
+ * than silently doing the opposite of what an empty list looks like.
+ */
+function toggleTool(name: string): void {
+  const fns = functions()
+  const at = fns.findIndex((f) => f.name === name)
+  if (at >= 0) {
+    fns.splice(at, 1)
+    return
+  }
+  const known = mcpCatalog().find((f) => f.name === name)
+  fns.push(
+    known
+      ? { ...known, id: known.id || `fn-${name}-${Date.now()}` }
+      : { id: `fn-${name}-${Date.now()}`, name, title: name, description: '' },
+  )
+}
+
 function addFunction() {
   functions().push({ id: `fn-${Date.now()}`, name: '', title: '', description: '', params: [] })
 }
@@ -508,7 +545,9 @@ const mcpTool = computed<string>({
 })
 // The selected tool's loaded function entry and its JSON-schema, which drives
 // the generated argument form (inspector-style). No usable schema → JSON only.
-const selectedMcpFn = computed(() => functions().find((f) => f.name === mcpTool.value))
+// `call_tool` ignores the whitelist entirely, so the picker and its argument
+// schema come from the catalogue — a tool left unticked is still callable here.
+const selectedMcpFn = computed(() => mcpCatalog().find((f) => f.name === mcpTool.value))
 const mcpToolSchema = computed<Record<string, unknown> | null>(() => {
   const s = selectedMcpFn.value?.inputSchema
   const properties = s && typeof s === 'object' ? (s as { properties?: object }).properties : undefined
@@ -602,8 +641,10 @@ async function loadMcpTools() {
       transport: mcpTransport.value,
       auth: mcpAuth.value.trim() || undefined,
     })
+    // The catalogue is replaced wholesale — it is just what the server says.
     const existing = functions()
-    data().functions = (tools ?? []).map((t: McpTool) => {
+    const hadSelection = existing.length > 0
+    const catalogue = (tools ?? []).map((t: McpTool) => {
       const prior = existing.find((f) => f.name === t.name)
       return {
         id: prior?.id ?? `fn-${t.name}-${Date.now()}`,
@@ -613,9 +654,19 @@ async function loadMcpTools() {
         inputSchema: t.inputSchema,
       }
     })
+    data().mcpToolCatalog = catalogue
+
+    // The WHITELIST is not. Reloading must never widen what the model may call,
+    // so an existing selection is only ever intersected with what the server
+    // still advertises (a tool that vanished drops out, nothing is added). A node
+    // with no selection yet takes the whole catalogue, which is the same thing the
+    // plugin would have done with an empty list.
+    data().functions = hadSelection
+      ? catalogue.filter((f) => existing.some((e) => e.name === f.name))
+      : catalogue.map((f) => ({ ...f }))
     // The previously selected tool may have vanished from the server — drop the
     // stale selection (and its arguments) rather than calling a ghost tool.
-    if (mcpTool.value && !functions().some((f) => f.name === mcpTool.value)) {
+    if (mcpTool.value && !mcpCatalog().some((f) => f.name === mcpTool.value)) {
       mcpTool.value = ''
     }
     mcpLoadedAt.value = Date.now()
@@ -1509,23 +1560,52 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
               @click="loadMcpTools"
             >
               <Icon name="refresh" :size="13" />
-              {{ mcpLoading ? 'Loading…' : functions().length ? 'Reload tools' : 'Load tools' }}
+              {{ mcpLoading ? 'Loading…' : mcpCatalog().length ? 'Reload tools' : 'Load tools' }}
             </button>
           </div>
 
           <p v-if="mcpError" class="text-[12px] text-danger">{{ mcpError }}</p>
 
-          <div v-for="f in functions()" :key="f.id" class="space-y-1 rounded-lg border p-2">
-            <div class="flex items-center gap-2">
-              <Icon name="node-mcp" :size="13" class="shrink-0 text-fg-subtle" />
-              <span class="min-w-0 flex-1 truncate font-mono text-xs text-fg">{{ f.name }}</span>
-            </div>
-            <p v-if="f.description" class="text-[11px] leading-relaxed text-fg-muted">{{ f.description }}</p>
-          </div>
+          <p v-if="mcpCatalog().length" class="text-[11px] leading-relaxed text-fg-subtle">
+            Tick the tools this node may call. Reloading the catalogue never adds a tool to the
+            selection, so a restricted node stays restricted.
+          </p>
 
-          <p v-if="functions().length === 0" class="text-[11px] text-fg-subtle">
-            No tools loaded yet — set the server above and click <em>Load tools</em>. Each tool the
-            server advertises becomes available for the model to call internally.
+          <label
+            v-for="f in mcpCatalog()"
+            :key="f.id"
+            class="flex cursor-pointer items-start gap-2 rounded-lg border p-2"
+          >
+            <input
+              type="checkbox"
+              class="mt-0.5 shrink-0"
+              :checked="isToolBound(f.name)"
+              @change="toggleTool(f.name)"
+            />
+            <span class="min-w-0 flex-1">
+              <span class="flex items-center gap-2">
+                <Icon name="node-mcp" :size="13" class="shrink-0 text-fg-subtle" />
+                <span class="min-w-0 flex-1 truncate font-mono text-xs text-fg">{{ f.name }}</span>
+              </span>
+              <span
+                v-if="f.description"
+                class="mt-0.5 block text-[11px] leading-relaxed text-fg-muted"
+              >{{ f.description }}</span>
+            </span>
+          </label>
+
+          <p
+            v-if="mcpCatalog().length && functions().length === 0"
+            class="rounded-lg border border-danger bg-danger-soft p-2 text-[11px] leading-relaxed"
+          >
+            <strong>Nothing ticked — every tool is bound.</strong> The plugin reads an empty selection
+            as &ldquo;bind everything the server advertises&rdquo;, so the model can call all
+            {{ mcpCatalog().length }} of them. Tick the ones you want to allow to restrict it.
+          </p>
+
+          <p v-if="mcpCatalog().length === 0" class="text-[11px] text-fg-subtle">
+            No tools loaded yet — set the server above and click <em>Load tools</em>, then tick the
+            ones the model may call.
           </p>
         </div>
       </template>
@@ -1543,20 +1623,20 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
               @click="loadMcpTools"
             >
               <Icon name="refresh" :size="13" />
-              {{ mcpLoading ? 'Loading…' : functions().length ? 'Reload tools' : 'Load tools' }}
+              {{ mcpLoading ? 'Loading…' : mcpCatalog().length ? 'Reload tools' : 'Load tools' }}
             </button>
           </div>
 
           <p v-if="mcpError" class="text-[12px] text-danger">{{ mcpError }}</p>
 
           <select v-model="mcpTool" class="input text-xs">
-            <option value="">{{ functions().length ? '— select a tool —' : 'No tools loaded' }}</option>
-            <option v-for="f in functions()" :key="f.id" :value="f.name">{{ f.title || f.name }}</option>
+            <option value="">{{ mcpCatalog().length ? '— select a tool —' : 'No tools loaded' }}</option>
+            <option v-for="f in mcpCatalog()" :key="f.id" :value="f.name">{{ f.title || f.name }}</option>
           </select>
           <p v-if="selectedMcpFn?.description" class="text-[11px] leading-relaxed text-fg-muted">
             {{ selectedMcpFn.description }}
           </p>
-          <p v-if="functions().length === 0" class="text-[11px] text-fg-subtle">
+          <p v-if="mcpCatalog().length === 0" class="text-[11px] text-fg-subtle">
             No tools loaded yet — set the server above and click <em>Load tools</em>, then pick the
             tool this node calls.
           </p>

@@ -5,13 +5,27 @@
 }
 
 /* Edges */
-/* A canvas-coloured halo around every edge: where two edges cross, or one runs
+/* A canvas-coloured casing behind every edge: where two edges cross, or one runs
    over the background dots, you can still tell them apart and follow one back to
    its source. It does NOT reveal an edge hidden *behind* a node — both edge and
-   halo sit in the pane below the nodes; routing edges clear of node bodies is
-   the ELK job. Applied to the whole edges layer so one filter covers them all. */
-.vue-flow__edges {
-  filter: drop-shadow(0 0 1.5px var(--canvas-bg));
+   casing sit in the pane below the nodes; routing edges clear of node bodies is
+   the router's job (see lib/edgeRouting).
+   Drawn as a real stroke under each edge (see RoutedEdge), NOT as a filter on the
+   edges layer: a CSS filter clips the element it is on to its filter region, and
+   that region is the `<svg>`'s border box — the size of the canvas container —
+   while Vue Flow draws the edges far outside it through `overflow: visible`. A
+   drop-shadow there cut every edge off at a fixed rectangle (plus the shadow's
+   couple of px of padding), which is invisible while you are zoomed in on graph
+   space that happens to fall inside the box and cuts across the screen as soon as
+   you zoom out to the middle of the range or pan away from it. Same reason no
+   filter is used on the run layers below: on a straight edge the path's bounding
+   box has no height at all, so a glow clipped to it takes the stroke with it. */
+.run-edge-casing {
+  stroke: var(--canvas-bg);
+  stroke-width: 5;
+  stroke-linecap: round;
+  fill: none;
+  pointer-events: none;
 }
 
 .vue-flow__edge-path,
@@ -51,11 +65,72 @@
   stroke: var(--accent);
   stroke-width: 2.25;
 }
+/* Feeding a node that is still working: the line lightens as that node's
+   progress climbs (`--run-progress`, 0–100, set per edge by RoutedEdge), so the
+   picture drains while the work it delivered is being finished, and the stroke
+   transition above carries it back to full when the node exits. */
+.vue-flow__edge-path.run-edge-draining {
+  stroke: color-mix(in srgb, var(--accent) calc(100% - var(--run-progress, 0) * 0.6%), var(--line-strong));
+  stroke-width: 2;
+}
 /* Evaluated and decided against: still drawn, so a branch that was considered
    reads differently from one the run never got near. */
 .vue-flow__edge-path.run-edge-pruned {
   stroke-dasharray: 4 5;
   opacity: 0.45;
+}
+/* Marching dashes along an edge whose target is still working — the wait between
+   two nodes, which the comet (a single traversal) cannot show. The group carries
+   the progress fade so the dashes' own fade-in stays a plain 0 → 1. */
+.run-edge-flow {
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+/* The delay is what "long running" means here: the element mounts when the
+   target starts working, so a node that answers in under half a second never
+   gets as far as showing dashes at all. */
+.run-edge-flow-dash {
+  stroke: var(--accent);
+  stroke-width: 2.25;
+  stroke-dasharray: 7 11;
+  fill: none;
+  opacity: 0;
+  animation:
+    run-edge-flow-in 260ms ease-out 550ms forwards,
+    run-edge-flow-march 900ms linear 550ms infinite;
+}
+@keyframes run-edge-flow-in {
+  to {
+    opacity: 1;
+  }
+}
+/* Negative offset marches the dashes source → target: the path is drawn from the
+   source port, so this is the direction the run is actually travelling. */
+@keyframes run-edge-flow-march {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+/* Zoomed in past EDGE_DETAIL_ZOOM: a soft line behind every edge the run has
+   crossed, blinking slowly. Up close the taken edges are far apart and the
+   accent alone stops separating the path from the wiring around it; at a
+   distance this same layer would just fatten every line, so it is not drawn. */
+.run-edge-trace {
+  stroke: var(--accent);
+  stroke-width: 7;
+  stroke-linecap: round;
+  pointer-events: none;
+  opacity: 0.14;
+  animation: run-edge-trace-blink 2.2s ease-in-out infinite;
+}
+@keyframes run-edge-trace-blink {
+  0%,
+  100% {
+    opacity: 0.1;
+  }
+  50% {
+    opacity: 0.42;
+  }
 }
 /* One dash sent along the path per traversal. `path-length="100"` normalises the
    geometry, so the same keyframes work on a short hop and a long detour alike. */
@@ -64,9 +139,14 @@
   stroke-width: 3.5;
   stroke-linecap: round;
   stroke-dasharray: 6 100;
+  fill: none;
   pointer-events: none;
-  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 70%, transparent));
   animation: run-edge-comet 0.8s ease-in-out forwards;
+}
+/* The comet's glow, as a wider translucent dash travelling with it. */
+.run-edge-comet-glow {
+  stroke: color-mix(in srgb, var(--accent) 35%, transparent);
+  stroke-width: 9;
 }
 @keyframes run-edge-comet {
   from {
@@ -84,6 +164,17 @@
 @media (prefers-reduced-motion: reduce) {
   .run-edge-comet {
     display: none;
+  }
+  /* The states stay legible without the motion: the flow holds as a static dashed
+     overlay (still "in flight", still draining with progress) and the trace as a
+     steady band behind the path. */
+  .run-edge-flow-dash {
+    opacity: 1;
+    animation: none;
+  }
+  .run-edge-trace {
+    opacity: 0.22;
+    animation: none;
   }
 }
 

@@ -517,11 +517,17 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       url: '',
       transport: 'streamable-http',
       auth: '',
-      // [{ id, name, title, description, inputSchema }] — loaded from the MCP
-      // server via the "load tools" button and listed in the drawer only: the
-      // plugin binds and calls tools internally, so they are not workflow ports;
-      // inputSchema drives the argument dialog for 'tool' mode's call_tool.
+      // The tools the model MAY call — the plugin's whitelist. selectBoundTools
+      // binds exactly these by name, and an EMPTY list means "bind everything the
+      // server advertises". So this is a permission list, not a catalogue: keep
+      // the discovered tools in mcpToolCatalog and leave only the chosen subset
+      // here. Shape: [{ id, name, title, description, inputSchema }].
       functions: [],
+      // Every tool the server advertised at the last "load tools", for the
+      // drawer to list and tick. Held apart from `functions` so reloading the
+      // catalogue cannot silently widen what the model is allowed to call;
+      // inputSchema drives the argument dialog for 'tool' mode's call_tool.
+      mcpToolCatalog: [],
       // 'tool' mode (call_tool) only: the single tool to call and the arguments
       // to call it with (shaped by that tool's inputSchema).
       tool: '',
