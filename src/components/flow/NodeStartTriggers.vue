@@ -137,7 +137,6 @@ interface Draft {
   contextTitle: string
   execTimeoutSec: number
   nodeLimit: number
-  reqTimeoutSec: number
   stopOnError: boolean
   // webhook
   slug: string
@@ -171,7 +170,6 @@ function blankDraft(kind: TriggerKind): Draft {
     contextTitle: '',
     execTimeoutSec: 0,
     nodeLimit: 0,
-    reqTimeoutSec: 0,
     stopOnError: false,
     slug: '',
     methods: [],
@@ -195,14 +193,13 @@ function blankDraft(kind: TriggerKind): Draft {
 /** Copy a trigger's shared run-context + settings fields into a draft. */
 function draftContext(
   t: Trigger,
-): Pick<Draft, 'contextMode' | 'contextId' | 'contextTitle' | 'execTimeoutSec' | 'nodeLimit' | 'reqTimeoutSec' | 'stopOnError'> {
+): Pick<Draft, 'contextMode' | 'contextId' | 'contextTitle' | 'execTimeoutSec' | 'nodeLimit' | 'stopOnError'> {
   return {
     contextMode: t.contextMode ?? 'new',
     contextId: t.contextId ?? '',
     contextTitle: t.contextTitle ?? '',
     execTimeoutSec: t.settings?.executeTimeoutSec ?? 0,
     nodeLimit: t.settings?.processNodeLimit ?? 0,
-    reqTimeoutSec: t.settings?.requestTimeoutSec ?? 0,
     stopOnError: t.settings?.stopOnError ?? false,
   }
 }
@@ -295,11 +292,10 @@ const canSave = computed(() => {
 })
 
 function buildSettings(d: Draft): SaveTriggerInput['settings'] {
-  if (!d.execTimeoutSec && !d.nodeLimit && !d.reqTimeoutSec && !d.stopOnError) return undefined
+  if (!d.execTimeoutSec && !d.nodeLimit && !d.stopOnError) return undefined
   return {
     executeTimeoutSec: d.execTimeoutSec || undefined,
     processNodeLimit: d.nodeLimit || undefined,
-    requestTimeoutSec: d.reqTimeoutSec || undefined,
     stopOnError: d.stopOnError || undefined,
   }
 }
@@ -700,10 +696,6 @@ const secretPlaceholder = computed(() =>
             <div class="space-y-1">
               <label class="text-[10px] text-fg-subtle">Node limit</label>
               <input v-model.number="draft.nodeLimit" type="number" min="0" class="input font-mono text-xs" />
-            </div>
-            <div class="space-y-1">
-              <label class="text-[10px] text-fg-subtle">Req s</label>
-              <input v-model.number="draft.reqTimeoutSec" type="number" min="0" class="input font-mono text-xs" />
             </div>
           </div>
           <label class="flex items-center gap-2 text-[13px] text-fg">

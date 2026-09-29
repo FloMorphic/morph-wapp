@@ -297,22 +297,6 @@ function summary(c: ContextRecord): string {
               </p>
             </div>
 
-            <div class="space-y-1">
-              <label class="flex items-center justify-between text-[12px] font-medium text-fg">
-                <span>Request timeout</span>
-                <span class="text-[11px] font-normal text-fg-subtle">seconds · default 5</span>
-              </label>
-              <input
-                v-model.number="runSettings.requestTimeoutSec"
-                type="number"
-                min="1"
-                step="1"
-                class="input w-full"
-              />
-              <p class="text-[11px] text-fg-subtle">
-                Fallback timeout for any http or nats request that did not set its own.
-              </p>
-            </div>
 
             <div class="space-y-1">
               <label class="flex items-center gap-2 text-[12px] font-medium text-fg">

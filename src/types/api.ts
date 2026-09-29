@@ -511,7 +511,10 @@ export interface ProcessRunSettings {
   executeTimeoutSec?: number
   /** Max node visits before the run is stopped (`proc_node_limit`). */
   processNodeLimit?: number
-  /** Fallback per-request timeout, in seconds (`svc_req_timeout`). */
+  /**
+   * Bound on ONE extrinsic / svc call (`svc_req_timeout`). Backend-owned: this
+   * app never sends it and exposes no field for it. uint8 on the engine.
+   */
   requestTimeoutSec?: number
   /** Halt the run at the first node error instead of carrying on down the flow
    * (`stop_on_error`). The engine carries on by default, so only `true` is an

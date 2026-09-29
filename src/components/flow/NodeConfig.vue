@@ -302,11 +302,7 @@ function functions(): Fn[] {
   return data().functions as Fn[]
 }
 
-/**
- * Every tool the server advertised at the last load — the list the drawer shows
- * and ticks. Falls back to `functions` for a flow saved before the catalogue was
- * split out, so an older node still lists its tools instead of looking empty.
- */
+/** Every tool the server advertised at the last load — what the drawer lists and ticks. */
 function mcpCatalog(): Fn[] {
   if (!Array.isArray(data().mcpToolCatalog)) data().mcpToolCatalog = []
   const cat = data().mcpToolCatalog as Fn[]
@@ -318,11 +314,7 @@ function isToolBound(name: string): boolean {
   return functions().some((f) => f.name === name)
 }
 
-/**
- * Tick/untick one tool. Unticking the last one leaves `functions` empty, which
- * the plugin reads as "bind everything" — the template says so out loud rather
- * than silently doing the opposite of what an empty list looks like.
- */
+/** Tick/untick one tool. An empty selection means "bind everything" to the plugin. */
 function toggleTool(name: string): void {
   const fns = functions()
   const at = fns.findIndex((f) => f.name === name)
@@ -545,8 +537,7 @@ const mcpTool = computed<string>({
 })
 // The selected tool's loaded function entry and its JSON-schema, which drives
 // the generated argument form (inspector-style). No usable schema → JSON only.
-// `call_tool` ignores the whitelist entirely, so the picker and its argument
-// schema come from the catalogue — a tool left unticked is still callable here.
+// `call_tool` ignores the whitelist, so the picker comes from the catalogue.
 const selectedMcpFn = computed(() => mcpCatalog().find((f) => f.name === mcpTool.value))
 const mcpToolSchema = computed<Record<string, unknown> | null>(() => {
   const s = selectedMcpFn.value?.inputSchema
@@ -641,7 +632,6 @@ async function loadMcpTools() {
       transport: mcpTransport.value,
       auth: mcpAuth.value.trim() || undefined,
     })
-    // The catalogue is replaced wholesale — it is just what the server says.
     const existing = functions()
     const hadSelection = existing.length > 0
     const catalogue = (tools ?? []).map((t: McpTool) => {
@@ -656,11 +646,8 @@ async function loadMcpTools() {
     })
     data().mcpToolCatalog = catalogue
 
-    // The WHITELIST is not. Reloading must never widen what the model may call,
-    // so an existing selection is only ever intersected with what the server
-    // still advertises (a tool that vanished drops out, nothing is added). A node
-    // with no selection yet takes the whole catalogue, which is the same thing the
-    // plugin would have done with an empty list.
+    // Reloading must never widen what the model may call, so an existing
+    // selection is only intersected with what the server still advertises.
     data().functions = hadSelection
       ? catalogue.filter((f) => existing.some((e) => e.name === f.name))
       : catalogue.map((f) => ({ ...f }))

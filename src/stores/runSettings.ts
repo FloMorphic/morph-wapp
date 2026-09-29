@@ -14,20 +14,17 @@ import { readValue, writeValue } from '@/lib/localStore'
 export const DEFAULT_EXECUTE_TIMEOUT_SEC = 3 * 60 * 60
 /** Node-visit budget for one run — the guard against runaway loops. */
 export const DEFAULT_PROCESS_NODE_LIMIT = 500
-/** Fallback per-request timeout used for any http/nats call without its own. */
-export const DEFAULT_REQUEST_TIMEOUT_SEC = 5
 /** Whether a run halts at the first node error. The engine carries on by default. */
 export const DEFAULT_STOP_ON_ERROR = false
 /** The engine stores the node limit as a uint16, so it cannot exceed this. */
 export const MAX_PROCESS_NODE_LIMIT = 65535
 
+/** `svc_req_timeout` is deliberately absent — backend-owned, not a per-run choice. */
 export interface RunSettings {
   /** Process execute timeout, in seconds (`proc_timeout`). */
   executeTimeoutSec: number
   /** Max node visits before the run is stopped (`proc_node_limit`). */
   processNodeLimit: number
-  /** Fallback request timeout, in seconds (`svc_req_timeout`). */
-  requestTimeoutSec: number
   /** Halt the run at the first node error instead of carrying on (`stop_on_error`). */
   stopOnError: boolean
 }
@@ -50,15 +47,10 @@ export const useRunSettingsStore = defineStore('runSettings', () => {
   const processNodeLimit = ref<number>(
     posInt(readValue('runProcessNodeLimit', DEFAULT_PROCESS_NODE_LIMIT), DEFAULT_PROCESS_NODE_LIMIT),
   )
-  const requestTimeoutSec = ref<number>(
-    posInt(readValue('runRequestTimeoutSec', DEFAULT_REQUEST_TIMEOUT_SEC), DEFAULT_REQUEST_TIMEOUT_SEC),
-  )
-
   const stopOnError = ref<boolean>(bool(readValue('runStopOnError', DEFAULT_STOP_ON_ERROR), DEFAULT_STOP_ON_ERROR))
 
   watch(executeTimeoutSec, (v) => writeValue('runExecuteTimeoutSec', v))
   watch(processNodeLimit, (v) => writeValue('runProcessNodeLimit', v))
-  watch(requestTimeoutSec, (v) => writeValue('runRequestTimeoutSec', v))
   watch(stopOnError, (v) => writeValue('runStopOnError', v))
 
   /** True when every setting matches its engine default. */
@@ -66,7 +58,6 @@ export const useRunSettingsStore = defineStore('runSettings', () => {
     return (
       executeTimeoutSec.value === DEFAULT_EXECUTE_TIMEOUT_SEC &&
       processNodeLimit.value === DEFAULT_PROCESS_NODE_LIMIT &&
-      requestTimeoutSec.value === DEFAULT_REQUEST_TIMEOUT_SEC &&
       stopOnError.value === DEFAULT_STOP_ON_ERROR
     )
   }
@@ -75,7 +66,6 @@ export const useRunSettingsStore = defineStore('runSettings', () => {
   function reset(): void {
     executeTimeoutSec.value = DEFAULT_EXECUTE_TIMEOUT_SEC
     processNodeLimit.value = DEFAULT_PROCESS_NODE_LIMIT
-    requestTimeoutSec.value = DEFAULT_REQUEST_TIMEOUT_SEC
     stopOnError.value = DEFAULT_STOP_ON_ERROR
   }
 
@@ -87,7 +77,6 @@ export const useRunSettingsStore = defineStore('runSettings', () => {
         posInt(processNodeLimit.value, DEFAULT_PROCESS_NODE_LIMIT),
         MAX_PROCESS_NODE_LIMIT,
       ),
-      requestTimeoutSec: posInt(requestTimeoutSec.value, DEFAULT_REQUEST_TIMEOUT_SEC),
       stopOnError: bool(stopOnError.value, DEFAULT_STOP_ON_ERROR),
     }
   }
@@ -95,7 +84,6 @@ export const useRunSettingsStore = defineStore('runSettings', () => {
   return {
     executeTimeoutSec,
     processNodeLimit,
-    requestTimeoutSec,
     stopOnError,
     isDefault,
     reset,
