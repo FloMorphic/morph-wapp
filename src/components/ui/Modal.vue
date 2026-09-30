@@ -7,8 +7,12 @@ const props = withDefaults(
     open: boolean
     title: string
     subtitle?: string
-    /** Dialog width. 'md' (default) suits a form; 'lg' a two-column workspace. */
-    size?: 'md' | 'lg'
+    /**
+     * Dialog width. 'md' (default) suits a form; 'lg' a two-column workspace;
+     * 'xl' a reading surface — a document, a tree, JSON values that need room to
+     * stay legible without wrapping every line.
+     */
+    size?: 'md' | 'lg' | 'xl'
     /**
      * Allow dismissing by clicking the backdrop or pressing Escape. Default true.
      * Set false for dialogs holding unsaved input (e.g. a form with added fields)
@@ -41,7 +45,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       >
         <div
           class="card w-full"
-          :class="size === 'lg' ? 'max-w-3xl' : 'max-w-lg'"
+          :class="{ 'max-w-lg': size === 'md', 'max-w-3xl': size === 'lg', 'max-w-6xl': size === 'xl' }"
           style="box-shadow: var(--shadow-lg)"
           @click.stop
         >

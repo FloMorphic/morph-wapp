@@ -8,6 +8,7 @@ import { specForType, type BaseNodeData, type NodePort } from '@/data/nodeCatalo
 import { createId } from '@/lib/id'
 import { pluginColor } from '@/lib/pluginColor'
 import { INSTALLED_PLUGIN_ACTIONS } from '@/lib/nodeExtRefs'
+import { OPEN_NODE_SCOPE } from '@/lib/nodeScopeProbe'
 import { namespaceOf } from '@/lib/exportFlow'
 
 /**
@@ -248,6 +249,25 @@ function closePop() {
   openPop.value = null
 }
 
+// ---- Scope peek ------------------------------------------------------------
+// The canvas owns the dialog (a modal inside a Vue Flow node would ride the
+// canvas transform), so the node only hands over its identity and scope and lets
+// the canvas resolve it against the context this flow last ran with. `null` when
+// there is nothing to resolve against — no backend means no runs — and then the
+// button isn't offered at all.
+const openScope = inject(OPEN_NODE_SCOPE, null)
+const canPeekScope = computed(() => !!openScope && showBinding.value)
+
+function peekScope() {
+  openScope?.({
+    nodeId: props.id,
+    title: title.value,
+    type: props.type,
+    scope: String(props.data?.scope ?? ''),
+    key: String(props.data?.key ?? ''),
+  })
+}
+
 // ---- Live run state --------------------------------------------------------
 // What the followed process is doing to *this* node, resolved by the store from
 // the flow the canvas has open (a node id is only unique within its flow). Null
@@ -410,6 +430,19 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
           @click.stop="togglePop('scope')"
         >
           <Icon name="scope" :size="11" />
+        </button>
+        <!-- Peek: what this node's scope actually covers in the context the flow
+             last ran with — the shortcut that saves a trip to the context page. -->
+        <button
+          v-if="canPeekScope"
+          class="nodrag flex h-5 w-5 items-center justify-center rounded border opacity-0 transition-colors group-hover:opacity-100"
+          :style="{ color: 'var(--fg-subtle)', borderColor: 'var(--line-strong)' }"
+          :title="hasScope
+            ? `Show what ${data.scope} covers in the last run context`
+            : 'Show what this node sees in the last run context'"
+          @click.stop="peekScope"
+        >
+          <Icon name="eye" :size="11" />
         </button>
         </template>
       </div>

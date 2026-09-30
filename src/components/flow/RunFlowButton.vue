@@ -7,6 +7,7 @@ import { processesApi } from '@/api/processes'
 import { processStatusClass, formatProcessTime } from '@/lib/process'
 import { useFlowLogsStore } from '@/stores/flowLogs'
 import { useRunSettingsStore } from '@/stores/runSettings'
+import { useLastRunContextStore } from '@/stores/lastRunContext'
 import Button from '@/components/ui/Button.vue'
 import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -29,6 +30,7 @@ const props = defineProps<{ flowId?: string; dirty?: boolean }>()
 const router = useRouter()
 const logs = useFlowLogsStore()
 const runSettings = useRunSettingsStore()
+const lastRunContext = useLastRunContextStore()
 const remote = processesApi.isRemote()
 
 const open = ref(false)
@@ -130,6 +132,9 @@ async function run(context: ContextRecord) {
       settings: runSettings.payload(),
     })
     launched.value = rec
+    // The context just bound is the flow's last one now — drop the cached entry
+    // so a node's scope peek resolves against it (see stores/lastRunContext).
+    lastRunContext.invalidate(props.flowId)
     // Hand off to the log drawer: close the picker and surface the live log
     // stream for the run just launched (open the drawer if it was closed — a
     // no-op when already open, and it (re)connects either way).

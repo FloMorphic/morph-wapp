@@ -20,6 +20,9 @@ import {
 import type { VueFlowGraph } from '@/types/api'
 import type { NodeExtRef } from '@/lib/nodeSettings'
 import { fetchNodeExtRefs, fetchPluginActions, INSTALLED_PLUGIN_ACTIONS, type PluginActionEntry } from '@/lib/nodeExtRefs'
+import { OPEN_NODE_SCOPE, type NodeScopeProbe } from '@/lib/nodeScopeProbe'
+import NodeScopeDialog from './NodeScopeDialog.vue'
+import { processesApi } from '@/api/processes'
 import type { PlannedPatch } from '@/lib/aiGraph'
 import { namespaceOf, type PluginManifestEntry, type MissingPlugin } from '@/lib/exportFlow'
 import { layeredLayout } from '@/lib/graphLayout'
@@ -524,6 +527,24 @@ async function refreshInstalledActions(force = false): Promise<Set<string>> {
 }
 onMounted(() => void refreshInstalledActions())
 
+// ---- Node scope peek -------------------------------------------------------
+// One dialog for the whole canvas, opened by whichever node asked: it resolves
+// that node's scope JSONPath against the context this flow last ran with, so
+// "what does this node actually see" is answered on the canvas instead of on the
+// context page. Offered only against a backend — without one there are no runs,
+// hence no last context, and the nodes hide the button (see lib/nodeScopeProbe).
+const scopeProbe = ref<NodeScopeProbe | null>(null)
+const scopeOpen = ref(false)
+provide(
+  OPEN_NODE_SCOPE,
+  processesApi.isRemote()
+    ? (probe: NodeScopeProbe) => {
+        scopeProbe.value = probe
+        scopeOpen.value = true
+      }
+    : null,
+)
+
 // Past this many nodes the search is skipped and edges fall back to smoothstep:
 // the routing lattice grows with the node count, and a graph that large is past
 // the point where routed edges are worth the per-frame cost.
@@ -788,5 +809,9 @@ defineExpose({
     </VueFlow>
 
     <NodePalette @add="onPaletteAdd" />
+
+    <!-- Scope peek for whichever node asked for it (teleported to body by Modal,
+         so it is unaffected by the canvas transform). -->
+    <NodeScopeDialog :open="scopeOpen" :probe="scopeProbe" :flow-id="flowId" @close="scopeOpen = false" />
   </div>
 </template>

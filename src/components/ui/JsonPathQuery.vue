@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Icon from '@/components/ui/Icon.vue'
 import { queryJsonPath, JsonPathError, type PathMatch } from '@/lib/jsonpath'
 import { useNotificationsStore } from '@/stores/notifications'
+import { readValue, writeValue } from '@/lib/localStore'
 
 /**
  * A JSONPath probe over a context document. A designer types the same
@@ -15,11 +16,35 @@ import { useNotificationsStore } from '@/stores/notifications'
 const props = defineProps<{
   /** The parsed context (or header) to evaluate against; null while invalid. */
   root: unknown
+  /**
+   * Expression to start from — the scope of the node being inspected, when the
+   * probe is opened from the canvas. Editable from there on: the seed is a
+   * starting point for exploring, not a lock.
+   */
+  initialQuery?: string
+  /** Placeholder override, for hosts that want to name what they seeded. */
+  placeholder?: string
+  /**
+   * Give the results panel a dragged height instead of a fixed cap. For a host
+   * with room to spare (the node scope dialog) — a page that already scrolls
+   * (the context view) is better off with the cap, or the panel would push the
+   * document panels below the fold.
+   */
+  resizable?: boolean
 }>()
 
 const notifications = useNotificationsStore()
 
-const query = ref('')
+const query = ref(props.initialQuery ?? '')
+
+// Reseed when the host points the probe at another expression (e.g. the canvas
+// dialog switching to a different node) without remounting it.
+watch(
+  () => props.initialQuery,
+  (next) => {
+    query.value = next ?? ''
+  },
+)
 
 /** The literal template syntax, kept out of the mustache so the compiler
  * doesn't read its `{{` as a nested interpolation. */
@@ -71,6 +96,77 @@ const typeClass: Record<JsonType, string> = {
   object: 'text-violet-600 dark:text-violet-400',
 }
 
+// ---- Resizable results panel ----------------------------------------------
+// Same grip idiom as the settings drawer and the log drawer: drag to size,
+// clamped, and persisted so the height a designer settled on survives the next
+// dialog and the next session. Double-click the grip to go back to the default.
+const DEFAULT_HEIGHT = 340
+const MIN_HEIGHT = 140
+const HEIGHT_KEY = 'jsonPathResults.height'
+
+/** Leave room for the query bar and the dialog's own chrome. */
+function maxHeight(): number {
+  return Math.max(MIN_HEIGHT, window.innerHeight - 260)
+}
+
+function clampHeight(h: number): number {
+  return Math.min(maxHeight(), Math.max(MIN_HEIGHT, h))
+}
+
+function loadHeight(): number {
+  const saved = readValue<number>(HEIGHT_KEY, DEFAULT_HEIGHT)
+  return clampHeight(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_HEIGHT)
+}
+
+const panelHeight = ref(loadHeight())
+const resizing = ref(false)
+let startY = 0
+let startHeight = 0
+
+function onResizeMove(e: MouseEvent) {
+  // Grip sits under the panel, so dragging down grows it.
+  panelHeight.value = clampHeight(startHeight + (e.clientY - startY))
+}
+
+function stopResize() {
+  if (!resizing.value) return
+  resizing.value = false
+  window.removeEventListener('mousemove', onResizeMove)
+  window.removeEventListener('mouseup', stopResize)
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
+  writeValue(HEIGHT_KEY, panelHeight.value)
+}
+
+function startResize(e: MouseEvent) {
+  e.preventDefault()
+  resizing.value = true
+  startY = e.clientY
+  startHeight = panelHeight.value
+  window.addEventListener('mousemove', onResizeMove)
+  window.addEventListener('mouseup', stopResize)
+  // Suppress text selection / cursor flicker while dragging over the values.
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'ns-resize'
+}
+
+function resetHeight() {
+  panelHeight.value = clampHeight(DEFAULT_HEIGHT)
+  writeValue(HEIGHT_KEY, panelHeight.value)
+}
+
+// A window that shrank can leave the panel taller than the viewport it was sized
+// in, so re-clamp rather than trap the rest of the dialog below the fold.
+function onWindowResize() {
+  panelHeight.value = clampHeight(panelHeight.value)
+}
+window.addEventListener('resize', onWindowResize)
+
+onBeforeUnmount(() => {
+  stopResize()
+  window.removeEventListener('resize', onWindowResize)
+})
+
 /** Copy the whole result: the lone value when there's one match, else the
  * values as a JSON array — the shape the runtime would hand a node. */
 function copyResult() {
@@ -105,7 +201,7 @@ function copyAllPaths() {
         autocomplete="off"
         class="input min-w-0 flex-1 !pl-8 font-mono text-[13px]"
         :class="result.error ? '!border-danger' : ''"
-        placeholder="JSONPath — e.g. $.llm.messages[*].role  ·  $..author"
+        :placeholder="placeholder ?? 'JSONPath — e.g. $.llm.messages[*].role  ·  $..author'"
       />
       <span
         v-if="active && !result.error"
@@ -145,7 +241,12 @@ function copyAllPaths() {
         No match in this document — nothing here for a node to read at that path.
       </p>
 
-      <div v-else class="max-h-72 space-y-2 overflow-auto rounded-lg border bg-surface-2/40 p-2">
+      <div
+        v-else
+        class="space-y-2 overflow-auto rounded-lg border bg-surface-2/40 p-2"
+        :class="resizable ? '' : 'max-h-72'"
+        :style="resizable ? { height: `${panelHeight}px` } : undefined"
+      >
         <div
           v-for="(m, i) in result.matches"
           :key="i"
@@ -174,10 +275,25 @@ function copyAllPaths() {
             </button>
           </div>
           <pre
-            class="max-h-48 overflow-auto whitespace-pre-wrap break-words px-2.5 py-1.5 font-mono text-[12px] leading-relaxed"
-            :class="typeClass[typeOf(m.value)]"
+            class="overflow-auto whitespace-pre-wrap break-words px-2.5 py-1.5 font-mono text-[12px] leading-relaxed"
+            :class="[typeClass[typeOf(m.value)], resizable ? '' : 'max-h-48']"
           >{{ formatValue(m.value) }}</pre>
         </div>
+      </div>
+
+      <!-- Drag grip: sizes the panel above it. Only where the host has the room
+           to give (see the `resizable` prop). -->
+      <div
+        v-if="resizable && result.matches.length"
+        class="group flex h-3 cursor-ns-resize items-center justify-center"
+        title="Drag to resize · double-click to reset"
+        @mousedown="startResize"
+        @dblclick="resetHeight"
+      >
+        <span
+          class="h-1 w-16 rounded-full transition-colors"
+          :class="resizing ? 'bg-[var(--accent)]' : 'bg-[var(--line-strong)] group-hover:bg-[var(--accent)]/60'"
+        />
       </div>
     </template>
   </div>
