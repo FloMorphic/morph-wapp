@@ -778,11 +778,20 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       // nothing, and the default doubles as the explanation of what to write.
       prompt: DEFAULT_HITL_PROMPT,
       channel: 'direct',
+      // The Telegram binding exists as empty strings from the start so the
+      // settings editor can bind to it. Empty is meaningful for two of the three:
+      // default Connect connection, default bot on it. See lib/hitl.
+      telegramConnection: '',
+      telegramAlias: '',
+      telegramChatId: '',
     }),
     preview: (d) => {
       const mode = d.mode === 'continue' ? 'continue' : 'park'
       const opener = String(d.prompt ?? '').trim().split('\n')[0]
-      return `${mode} · ${opener || 'no prompt'}`
+      // The channel is only worth a word when it is not the in-app default —
+      // where the session is held changes who can answer it.
+      const via = d.channel === 'direct' || !d.channel ? '' : ` · ${String(d.channel)}`
+      return `${mode}${via} · ${opener || 'no prompt'}`
     },
   }),
 }

@@ -61,7 +61,20 @@ const answeredCount = computed(() => task.value?.questions.filter((q) => q.answe
 const isClosed = computed(() => task.value?.status === 'closed')
 // The bot is producing a turn (start / reply). Drives the input lock + indicator.
 const thinking = ref(false)
-const canConverse = computed(() => !!task.value && !isClosed.value)
+// A session held in a messenger is driven by the backend bridge, which is already
+// talking to the person; this panel is the record of it, not a second way in. So
+// the thread shows but the composer does not — two facilitators answering into one
+// transcript would make nonsense of it. Closing from here still works, and is
+// still what releases a parked flow.
+const isMessenger = computed(() => !!task.value?.channel && task.value.channel !== 'direct')
+const canConverse = computed(() => !!task.value && !isClosed.value && !isMessenger.value)
+/** Where a messenger session is actually happening, for the panel's banner. */
+const messengerWhere = computed(() => {
+  const t = task.value
+  if (!t || t.channel !== 'telegram') return ''
+  const chat = t.telegram?.chatId
+  return chat ? `Telegram chat ${chat}` : 'Telegram'
+})
 
 async function openTask(t: HumanTask) {
   await store.open(t.id)
@@ -147,6 +160,12 @@ function statusClass(s: HumanTaskStatus): string {
   }[s]
 }
 
+/** The channel chip on a card — shown only when the session is not the in-app
+ *  default, because that is when it tells you something: who can answer it. */
+function channelLabel(t: HumanTask): string {
+  return !t.channel || t.channel === 'direct' ? '' : t.channel
+}
+
 function progress(t: HumanTask): string {
   const done = t.questions.filter((q) => q.answer !== '').length
   return `${done}/${t.questions.length}`
@@ -227,6 +246,9 @@ function formatTime(ms: number): string {
           {{ t.questions.length }} question{{ t.questions.length === 1 ? '' : 's' }} · {{ progress(t) }} answered
         </p>
         <div class="mt-3 flex flex-wrap items-center gap-1.5">
+          <span v-if="channelLabel(t)" class="chip flex items-center gap-1 capitalize">
+            <Icon name="send" :size="11" />{{ channelLabel(t) }}
+          </span>
           <span v-if="t.messages.length" class="chip">{{ t.messages.length }} msg</span>
           <span v-if="t.flowId" class="chip font-mono">flow {{ t.flowId.slice(0, 8) }}</span>
           <span v-if="t.updatedAt" class="ml-auto text-[11px] text-fg-subtle">{{ formatTime(t.updatedAt) }}</span>
@@ -306,6 +328,22 @@ function formatTime(ms: number): string {
              the whole thread is saved on the task until it is closed. -->
         <section class="space-y-2">
           <h4 class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Conversation</h4>
+
+          <!-- Held elsewhere: say where, and say what ends it, so nobody waits
+               here for a reply that is being typed on a phone. -->
+          <p
+            v-if="isMessenger"
+            class="flex items-start gap-1.5 rounded-lg border bg-surface-2 px-3 py-2 text-[11.5px] leading-relaxed text-fg-muted"
+          >
+            <Icon name="send" :size="13" class="mt-0.5 shrink-0 text-accent" />
+            <span>
+              This session is held in {{ messengerWhere }}. The person answers there and every turn is mirrored below as
+              it happens. A chat has no buttons, so they have commands instead: <span class="font-mono">/done</span> ends
+              the session, <span class="font-mono">/status</span> and <span class="font-mono">/help</span> orient them.
+              You can also close the task here, which releases a parked workflow just the same.
+            </span>
+          </p>
+
           <div
             v-if="task.messages.length || thinking || liveStream"
             class="max-h-72 space-y-2 overflow-y-auto rounded-lg border bg-surface-2 p-3"
@@ -332,9 +370,14 @@ function formatTime(ms: number): string {
             </div>
           </div>
 
-          <!-- No thread yet: offer to open the session from the node's prompt. -->
+          <!-- No thread yet: offer to open the session from the node's prompt. On a
+               messenger task the bridge opens it instead, so this only waits. -->
           <div v-else class="rounded-lg border border-dashed bg-surface-2 p-4 text-center">
-            <p class="text-[12px] text-fg-subtle">
+            <p v-if="isMessenger" class="text-[12px] text-fg-subtle">
+              Waiting for the bot to open the conversation in {{ messengerWhere }}. It appears here as soon as the first
+              turn is delivered.
+            </p>
+            <p v-else class="text-[12px] text-fg-subtle">
               Start the session to have the assistant read the task and begin the conversation. It works out the
               questions with you; answer them, then close the task.
             </p>

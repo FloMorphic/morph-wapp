@@ -61,6 +61,54 @@ export const connectApi = {
    *  `authorizationUrl` is opened in a new tab for the user to approve. */
   startOAuth: (service: string, connectionId?: string): Promise<OcEnvelope> =>
     http.post<OcEnvelope>(gatewayPath('/api/oauth/authorizations', connectionId), { service }),
+
+  /**
+   * The accounts a connection's runtime token can act as, optionally narrowed to
+   * one provider (`'telegram'`).
+   *
+   * This is the execution surface's own view (`/v1/connections`) — the accounts
+   * an action call may name by `alias` — which is exactly what a node binding
+   * needs. The management listing (`/api/connections`) is a different, admin-only
+   * view and is not interchangeable, so this deliberately does not fall back to
+   * it: a node must only offer bots that a run will actually be able to use.
+   */
+  accounts: async (service?: string, connectionId?: string): Promise<OcAccount[]> => {
+    const raw = await connectApi.gatewayGet<OcEnvelope<OcAccount[]>>('/v1/connections', connectionId)
+    const list = ocUnwrap(raw)
+    const all = Array.isArray(list) ? list : []
+    return service ? all.filter((a) => a?.service === service) : all
+  },
+}
+
+/** One account the gateway holds for a provider, as `/v1/connections` reports it:
+ *  an OAuth account, an API-key connection, or an always-on no-auth provider.
+ *  `alias` is the handle an action call selects it by — the value a node binding
+ *  stores. Mirrors the backend's openconnector.Connection. */
+export interface OcAccount {
+  id: string
+  service: string
+  /** Gateway-reported health, e.g. 'active'. Shown next to a bot so a designer
+   *  can tell a working binding from a revoked one. */
+  status?: string
+  accountLabel?: string
+  alias?: string
+  authType?: string
+  isDefault?: boolean
+}
+
+/** The label to show for an account, falling back through alias then service —
+ *  the gateway does not always supply a friendly one. */
+export function ocAccountLabel(a: OcAccount): string {
+  return a.accountLabel?.trim() || a.alias?.trim() || a.service || a.id
+}
+
+/** Whether the gateway considers an account usable. Anything that is not an
+ *  explicit failure state counts as usable: builds differ on the vocabulary, and
+ *  refusing to offer a working bot because its status string is unfamiliar would
+ *  be worse than offering one that later errors. */
+export function ocAccountActive(a: OcAccount): boolean {
+  const s = (a.status ?? '').trim().toLowerCase()
+  return s !== 'expired' && s !== 'revoked' && s !== 'error' && s !== 'disconnected'
 }
 
 /** OpenConnector wraps every response as `{ success, message, data, meta }`.

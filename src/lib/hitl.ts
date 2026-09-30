@@ -68,8 +68,8 @@ export const HITL_CHANNELS: {
     id: 'telegram',
     label: 'Telegram',
     icon: 'send',
-    available: false,
-    hint: 'The session is delivered as a Telegram conversation (needs a bot integration).',
+    available: true,
+    hint: 'The same conversation, held in a Telegram chat: the bot opens it, the person answers on their phone, and /done releases the flow (/status and /help too, since a chat has no buttons). Every turn is still recorded on the task.',
   },
   {
     id: 'whatsapp',
@@ -80,8 +80,62 @@ export const HITL_CHANNELS: {
   },
 ]
 
+/**
+ * A Telegram session's delivery binding, as it lives on the node's `data`.
+ *
+ * FloMorphic holds no bot token. The bot is an account connected in
+ * OpenConnector — oomol's hosted gateway or a self-hosted one — reached through
+ * a stored Connect connection, so a Telegram node names three things rather than
+ * a credential: which connection, which connected bot on it, and which chat to
+ * talk to.
+ *
+ * They are stored FLAT (not as a nested object) because the backend ships them
+ * flat in the node's `op` payload, where the runtime resolves `{{$.path}}`
+ * variables — which is what lets `telegramChatId` be worked out by the flow
+ * rather than typed on the canvas.
+ */
+export interface HitlTelegramBinding {
+  /** Connect connection id, or '' for the default connection. */
+  telegramConnection: string
+  /** The connected bot's alias on that gateway, or '' for its default account. */
+  telegramAlias: string
+  /** The chat to hold the session in: a numeric chat id, an `@username`, or a
+   *  `{{$.path}}` the runtime resolves before the task is recorded. */
+  telegramChatId: string
+}
+
+/** The node-data keys a Telegram session's binding occupies. */
+export const HITL_TELEGRAM_KEYS = [
+  'telegramConnection',
+  'telegramAlias',
+  'telegramChatId',
+] as const
+
+/** Read the Telegram binding off a node's data, defaulting every field. */
+export function hitlTelegramBinding(data: BaseNodeData): HitlTelegramBinding {
+  return {
+    telegramConnection: String(data.telegramConnection ?? ''),
+    telegramAlias: String(data.telegramAlias ?? ''),
+    telegramChatId: String(data.telegramChatId ?? ''),
+  }
+}
+
+/**
+ * What is still missing before a Telegram session can be delivered, phrased for
+ * the designer. Only the chat is strictly required — an empty connection means
+ * the default Connect connection and an empty alias the gateway's default bot,
+ * both of which resolve at run time.
+ */
+export function hitlTelegramGap(data: BaseNodeData): string | null {
+  if (data.channel !== 'telegram') return null
+  if (!String(data.telegramChatId ?? '').trim()) {
+    return 'No recipient selected — the session has nowhere to be delivered.'
+  }
+  return null
+}
+
 /** The node-data keys this node owns beyond the universal ones. */
-export const HITL_DATA_KEYS = ['mode', 'prompt', 'channel'] as const
+export const HITL_DATA_KEYS = ['mode', 'prompt', 'channel', ...HITL_TELEGRAM_KEYS] as const
 
 /**
  * The prompt a fresh node starts with — the node's philosophy written out, so a
@@ -113,4 +167,10 @@ export function migrateHitlData(data: BaseNodeData): void {
   if (d.mode !== 'continue') d.mode = 'park'
   if (typeof d.prompt !== 'string') d.prompt = ''
   if (!HITL_CHANNELS.some((c) => c.id === d.channel)) d.channel = 'direct'
+  // The Telegram binding is always present as strings so the editor can bind to
+  // it without a v-model writing onto `undefined`. Empty is meaningful for two of
+  // the three: default connection, default bot.
+  for (const k of HITL_TELEGRAM_KEYS) {
+    if (typeof d[k] !== 'string') d[k] = ''
+  }
 }

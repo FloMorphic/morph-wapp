@@ -673,6 +673,77 @@ export interface HumanTaskMessage {
   at: number
 }
 
+/**
+ * Someone a Telegram HITL session can be sent to: one chat the bound bot is known
+ * to be able to reach.
+ *
+ * It exists because a Telegram bot cannot list its users — it only learns a chat
+ * exists when someone interacts with it, and that arrives once on an update stream
+ * that is consumed and expires. So the backend keeps a durable directory: the HITL
+ * bridge records every chat it hears from, and the discover action sweeps whatever
+ * is still pending into the same place. Scoped per (connection, alias).
+ */
+export interface TelegramRecipient {
+  id: string
+  connection: string
+  alias: string
+  /** What a node's binding stores and what Telegram is called with. */
+  chatId: string
+  /** private | group | supergroup | channel — whether this addresses a person or
+   *  a room. */
+  type: string
+  title?: string
+  username?: string
+  firstName?: string
+  lastName?: string
+  /** When the bot last heard from this chat. The picker's sort order, and the
+   *  honest answer to "is this still someone we can reach?". */
+  lastSeenAt: number
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * The bound bot's webhook status.
+ *
+ * It matters for one reason: a bot with a webhook set cannot be polled. Telegram
+ * treats webhook delivery and polling as mutually exclusive and returns nothing to
+ * a poller — no error. Since polling is how the Telegram channel hears from people,
+ * a webhook silently kills it, so an empty recipient sweep must be explained by
+ * this before it is blamed on nobody having messaged the bot.
+ */
+export interface TelegramWebhookInfo {
+  url: string
+  pendingUpdateCount: number
+  lastErrorMessage?: string
+}
+
+/** The bound bot's own profile. The handle is the part that matters at design
+ *  time: a bot cannot message a stranger, so the one instruction to pass on is
+ *  "message @thisbot first". */
+export interface TelegramBotProfile {
+  id: number
+  isBot: boolean
+  firstName: string
+  username?: string
+}
+
+/**
+ * A Telegram session's delivery binding, as the backend records it on the task.
+ *
+ * FloMorphic holds no bot token: the bot is an account connected in OpenConnector,
+ * reached through a stored Connect connection, so the binding names a connection,
+ * a bot alias and a chat. `cursor` / `opened` are the bridge's own state — the
+ * update id it has consumed, and whether the bot has spoken yet.
+ */
+export interface HumanTaskTelegram {
+  connection?: string
+  alias?: string
+  chatId?: string
+  cursor?: number
+  opened?: boolean
+}
+
 /** The outbound edge of the parked node, kept so the flow can resume from it. */
 export interface HumanTaskNext {
   flowId: string
@@ -692,8 +763,14 @@ export interface HumanTask {
   contextId: string
   /** How the node behaved when the run reached it — see lib/hitl's HitlMode. */
   mode?: 'park' | 'continue'
-  /** Where the session is held. Only `direct` is served today. */
+  /** Where the session is held. `direct` (the in-app chat) and `telegram` (the
+   *  same conversation in a Telegram chat, delivered by the backend bridge
+   *  through OpenConnector) are served end to end; `whatsapp` can be declared but
+   *  has no bridge yet and such a task waits in the app. */
   channel?: 'direct' | 'telegram' | 'whatsapp'
+  /** Set when `channel` is `telegram`: which bot delivers the session and where,
+   *  plus the bridge's own cursor over that bot's updates. */
+  telegram?: HumanTaskTelegram
   /** The conversation opener, ready to show. The node authors it with
    *  `{{$.path}}` variables and the runtime resolves them against the run's
    *  context before the svc handler records the task. */

@@ -1217,7 +1217,9 @@ export function buildDesignerPrompt(
     if (spec.kind === 'hitl') {
       lines.push(
         '`prompt` is the node: it tells the session what to establish with the person and may embed `{{$.path}}` context variables, which the runtime resolves before the task is recorded. Write it to read the run\'s history and work out what to ask — there is no static question list, because a flow reaches a human exactly when what to ask is not yet known.',
-        '`mode` is "park" (the run stops here and resumes once the session closes) or "continue" (record the task, carry on). `channel` is "direct" (only one supported today), "telegram" or "whatsapp".',
+        '`mode` is "park" (the run stops here and resumes once the session closes) or "continue" (record the task, carry on).',
+        '`channel` is where the conversation is held. "direct" is the in-app chat under Operate → Human Tasks. "telegram" holds the same conversation in a Telegram chat and needs a delivery binding: `telegramChatId` (required — a numeric chat id, an @username, or a `{{$.path}}` the runtime resolves), plus optional `telegramAlias` (the connected bot, default when empty) and `telegramConnection` (the Connect connection, default when empty). "whatsapp" can be declared but has no bridge yet, so such a task waits in the app like a "direct" one.',
+        'Either channel needs an LLM provider profile bound as `settingsId` — the facilitator IS a model, so without one the session cannot open. Do not invent an id: leave it out and say so in `notes` unless you were given one.',
       )
     }
   }

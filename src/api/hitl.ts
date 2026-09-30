@@ -1,9 +1,27 @@
-import type { HumanTask, HumanTaskMessage, HumanTaskStatus, Page, PaginationParams } from '@/types/api'
+import type {
+  HumanTask,
+  HumanTaskMessage,
+  HumanTaskStatus,
+  Page,
+  PaginationParams,
+  TelegramBotProfile,
+  TelegramRecipient,
+  TelegramWebhookInfo,
+} from '@/types/api'
 import { apiEnabled, http, list } from './client'
 import { readCollection, writeCollection } from '@/lib/localStore'
 import { createId, now } from '@/lib/id'
 import { nodeSettingsApi } from './nodeSettings'
 import { chat as llmChat, chatConfigFromSettings, type ChatMessage } from '@/lib/llmChat'
+
+/** What a recipient sweep comes back with: the directory, the bot's identity (so
+ *  the UI can name who people should message), and its webhook status — which is
+ *  what explains an empty sweep that no amount of messaging would fix. */
+export interface TelegramDiscovery {
+  bot: TelegramBotProfile
+  recipients: TelegramRecipient[]
+  webhook: TelegramWebhookInfo
+}
 
 /**
  * Human-in-the-Loop task repository.
@@ -95,7 +113,9 @@ async function localChatConfig(task: HumanTask) {
 
 // Frames the bot's role and guardrails so it stays a Human-in-the-Loop
 // facilitator (the node's prompt below is only the brief). Kept in step with the
-// backend copy (flomorphic-api api/hitl/chat.go hitlSystemPrompt).
+// backend copy (flomorphic-api hitl/session.go SystemPrompt). The backend appends
+// a messenger addendum to it for a session held in Telegram; local mode has no
+// messenger to deliver to (see localChannelGuard), so only this half is needed.
 const HITL_SYSTEM_PROMPT = `You are a Human-in-the-Loop assistant inside an automated workflow. The workflow paused because it could not settle something on its own and needs a person's input before it can continue. Your only job is to help that person reach the answers the workflow needs — nothing else.
 
 A brief follows describing what must be established and the context the workflow built up to this point. Work from it:
@@ -118,9 +138,22 @@ function localMessages(task: HumanTask, transientUser?: string): ChatMessage[] {
   return msgs
 }
 
+/** Local mode has no backend, so it has no messenger bridge either: a task on a
+ *  messenger channel can only have been recorded by a backend that is no longer
+ *  configured. Say so rather than running a second facilitator against a thread
+ *  whose replies are arriving somewhere this browser cannot see. */
+function localChannelGuard(task: HumanTask): void {
+  if (task.channel && task.channel !== 'direct') {
+    throw new Error(
+      `this session is held in ${task.channel} — it needs the backend bridge that delivers it, not local storage`,
+    )
+  }
+}
+
 async function localChat(id: string, text: string): Promise<HumanTask> {
   const before = localGet(id)
   if (before.status === 'closed') throw new Error('this task is closed')
+  localChannelGuard(before)
   const cfg = await localChatConfig(before)
   // Record the human turn first so it survives a model failure.
   const withHuman = localMutate(id, (t) => ({
@@ -137,6 +170,7 @@ async function localChat(id: string, text: string): Promise<HumanTask> {
 async function localStart(id: string): Promise<HumanTask> {
   const task = localGet(id)
   if (task.status === 'closed') throw new Error('this task is closed')
+  localChannelGuard(task)
   if (task.messages.length > 0) return task
   const cfg = await localChatConfig(task)
   const reply = await llmChat(cfg, localMessages(task, 'Begin the conversation with me.'))
@@ -202,6 +236,34 @@ export const hitlApi = {
   close(id: string): Promise<HumanTask> {
     if (apiEnabled()) return http.post<HumanTask>(`/hitl/id/${id}/close`, {})
     return Promise.resolve(localMutate(id, (t) => ({ ...t, status: 'closed', closedAt: now() })))
+  },
+
+  /**
+   * Telegram design-time lookups — who a bot can be asked to talk to.
+   *
+   * `recipients` reads the backend's durable directory and touches no gateway, so
+   * it answers instantly and keeps answering when OpenConnector is unreachable:
+   * editing a node should not depend on a live third party. `discoverRecipients`
+   * additionally sweeps the bot's pending updates into that directory and returns
+   * the bot's own identity. The sweep acknowledges nothing, so it is safe while a
+   * session is live on the same bot — which also means it can only see what has
+   * not been consumed yet, and finding nothing new is ordinary.
+   *
+   * Backend-only: the directory is written by the bridge that delivers these
+   * sessions, and local mode has neither.
+   */
+  recipients(connection = '', alias = ''): Promise<TelegramRecipient[]> {
+    if (!apiEnabled()) return Promise.resolve([])
+    const q = new URLSearchParams({ connection, alias })
+    return http.get<TelegramRecipient[]>(`/hitl/telegram/recipients?${q}`)
+  },
+
+  discoverRecipients(connection = '', alias = ''): Promise<TelegramDiscovery> {
+    return http.post<TelegramDiscovery>('/hitl/telegram/recipients/discover', { connection, alias })
+  },
+
+  forgetRecipient(id: string): Promise<{ id: string }> {
+    return http.delete<{ id: string }>(`/hitl/telegram/recipients/${encodeURIComponent(id)}`)
   },
 
   remove(id: string): Promise<void> {
