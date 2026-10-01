@@ -5,6 +5,16 @@ import { queryJsonPath, JsonPathError, type PathMatch } from '@/lib/jsonpath'
 import { useNotificationsStore } from '@/stores/notifications'
 import { readValue, writeValue } from '@/lib/localStore'
 
+/** A labelled expression the host offers as a one-click jump. */
+interface QueryShortcut {
+  /** What the button reads — short, since it sits in the query row. */
+  label: string
+  /** The expression the button puts in the input. */
+  query: string
+  /** Tooltip, where the label alone doesn't say what the jump means. */
+  hint?: string
+}
+
 /**
  * A JSONPath probe over a context document. A designer types the same
  * `{{$.path}}` expression a node carries in its template and sees, against a
@@ -31,6 +41,13 @@ const props = defineProps<{
    * document panels below the fold.
    */
   resizable?: boolean
+  /**
+   * One-click expressions to jump the probe to, rendered as tiny buttons beside
+   * the input. The host decides what is worth a button — the node scope dialog
+   * offers the node's own scope and that scope plus the node's result key, so
+   * reading what a node *writes* is a click rather than a retype.
+   */
+  shortcuts?: readonly QueryShortcut[]
 }>()
 
 const notifications = useNotificationsStore()
@@ -71,6 +88,12 @@ const result = computed<Result>(() => {
 })
 
 const active = computed(() => !!query.value.trim())
+
+/** A shortcut reads as pressed while the probe is sitting on its expression, so
+ *  the set works as a toggle between the expressions the host named. */
+function shortcutActive(s: QueryShortcut): boolean {
+  return query.value.trim() === s.query.trim()
+}
 
 type JsonType = 'string' | 'number' | 'boolean' | 'null' | 'array' | 'object'
 
@@ -192,23 +215,43 @@ function copyAllPaths() {
 
 <template>
   <div class="flex flex-col gap-1.5">
-    <div class="relative flex items-center">
-      <Icon name="search" :size="14" class="pointer-events-none absolute left-2.5 text-fg-subtle" />
-      <input
-        v-model="query"
-        spellcheck="false"
-        autocapitalize="off"
-        autocomplete="off"
-        class="input min-w-0 flex-1 !pl-8 font-mono text-[13px]"
-        :class="result.error ? '!border-danger' : ''"
-        :placeholder="placeholder ?? 'JSONPath — e.g. $.llm.messages[*].role  ·  $..author'"
-      />
-      <span
-        v-if="active && !result.error"
-        class="absolute right-2.5 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold text-fg-muted"
+    <div class="flex items-center gap-1.5">
+      <div class="relative flex min-w-0 flex-1 items-center">
+        <Icon name="search" :size="14" class="pointer-events-none absolute left-2.5 text-fg-subtle" />
+        <input
+          v-model="query"
+          spellcheck="false"
+          autocapitalize="off"
+          autocomplete="off"
+          class="input min-w-0 flex-1 !pl-8 font-mono text-[13px]"
+          :class="result.error ? '!border-danger' : ''"
+          :placeholder="placeholder ?? 'JSONPath — e.g. $.llm.messages[*].role  ·  $..author'"
+        />
+        <span
+          v-if="active && !result.error"
+          class="absolute right-2.5 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold text-fg-muted"
+        >
+          {{ result.matches.length }} match{{ result.matches.length === 1 ? '' : 'es' }}
+        </span>
+      </div>
+
+      <!-- Host-offered jumps, outside the input so the match badge keeps its
+           corner. Pressed state marks the one the probe is currently on. -->
+      <button
+        v-for="s in shortcuts ?? []"
+        :key="s.query"
+        type="button"
+        class="max-w-[9rem] shrink-0 truncate rounded-lg border px-2 py-[7px] font-mono text-[12px] transition-colors"
+        :class="
+          shortcutActive(s)
+            ? 'border-accent bg-accent-soft text-accent'
+            : 'border-[var(--line-strong)] text-fg-muted hover:border-accent hover:text-accent'
+        "
+        :title="s.hint ?? `Probe ${s.query}`"
+        @click="query = s.query"
       >
-        {{ result.matches.length }} match{{ result.matches.length === 1 ? '' : 'es' }}
-      </span>
+        {{ s.label }}
+      </button>
     </div>
 
     <p v-if="result.error" class="px-1 text-[12px] text-danger">{{ result.error }}</p>

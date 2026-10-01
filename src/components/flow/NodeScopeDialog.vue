@@ -111,6 +111,24 @@ const resultPath = computed(() => {
   return scope.value === '$' ? `$.${key}` : `${scope.value}.${key}`
 })
 
+/**
+ * The jumps the probe offers: the node's declared scope, and — when the node
+ * binds a key — that scope plus the key, i.e. where its own result lands. Two
+ * readings a designer flips between constantly ("what do I read" / "what did I
+ * write"), and retyping the second one by hand was the whole friction.
+ */
+const probeShortcuts = computed(() => {
+  const jumps = [{ label: scope.value, query: scope.value, hint: `Back to this node’s scope — ${scope.value}` }]
+  if (resultPath.value && resultPath.value !== scope.value) {
+    jumps.push({
+      label: `+ .${props.probe?.key?.trim()}`,
+      query: resultPath.value,
+      hint: `Probe where this node writes — ${resultPath.value}`,
+    })
+  }
+  return jumps
+})
+
 /** The context page for this document, opened in a tab of its own — the editor
  *  may be holding unsaved graph edits that a navigation would discard. */
 const contextHref = computed(() =>
@@ -233,6 +251,7 @@ const contextHref = computed(() =>
           :key="probe.nodeId"
           :root="document"
           :initial-query="scope"
+          :shortcuts="probeShortcuts"
           resizable
           placeholder="JSONPath — edit to explore around this node’s scope"
         />
