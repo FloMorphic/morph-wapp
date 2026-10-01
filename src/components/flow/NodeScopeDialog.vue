@@ -112,21 +112,26 @@ const resultPath = computed(() => {
 })
 
 /**
- * The jumps the probe offers: the node's declared scope, and — when the node
- * binds a key — that scope plus the key, i.e. where its own result lands. Two
- * readings a designer flips between constantly ("what do I read" / "what did I
- * write"), and retyping the second one by hand was the whole friction.
+ * The two readings a designer flips between constantly — what the node *reads*
+ * (its scope) and what it *writes* (that scope plus its key) — offered as a
+ * pair of jumps, since retyping the second by hand was the whole friction.
+ *
+ * Empty scope and empty key are not the same kind of empty: no scope still
+ * means something (`$`, the whole document), but no key means the node binds
+ * nothing — a flow-control node like Goto, or a result not named yet. There is
+ * then no second reading to flip to, and a lone chip that re-seeds the
+ * expression already in the input is noise, so the row stays empty.
  */
 const probeShortcuts = computed(() => {
-  const jumps = [{ label: scope.value, query: scope.value, hint: `Back to this node’s scope — ${scope.value}` }]
-  if (resultPath.value && resultPath.value !== scope.value) {
-    jumps.push({
+  if (!resultPath.value || resultPath.value === scope.value) return []
+  return [
+    { label: scope.value, query: scope.value, hint: `Back to this node’s scope — ${scope.value}` },
+    {
       label: `+ .${props.probe?.key?.trim()}`,
       query: resultPath.value,
       hint: `Probe where this node writes — ${resultPath.value}`,
-    })
-  }
-  return jumps
+    },
+  ]
 })
 
 /** The context page for this document, opened in a tab of its own — the editor
