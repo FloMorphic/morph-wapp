@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { emptyInstall, useExtensionsStore, type PluginStatus } from '@/stores/extensions'
 import { useNotificationsStore } from '@/stores/notifications'
@@ -72,6 +72,43 @@ type Handoff =
   | { kind: 'env'; name: string; pluginId: string; env: string; envFile: string }
 const handoff = ref<Handoff | null>(null)
 const handoffLoading = ref(false)
+
+/** Which shell the pasted one-liner is for. Guessed from the browser the operator
+ *  is on — the plugin usually runs on that same machine — and remembered, because
+ *  someone who installs one plugin from Windows will install the next one there
+ *  too. `posix` is the bash pair at the top level of InstallInfo; `windows` is the
+ *  PowerShell pair under `.windows`. */
+type InstallPlatform = 'posix' | 'windows'
+const PLATFORM_KEY = 'flomorphic.installPlatform'
+function guessPlatform(): InstallPlatform {
+  try {
+    const stored = localStorage.getItem(PLATFORM_KEY)
+    if (stored === 'posix' || stored === 'windows') return stored
+  } catch {
+    // Private mode or blocked site data: fall through to the guess.
+  }
+  const ua = navigator.userAgent || ''
+  return /Windows/i.test(ua) ? 'windows' : 'posix'
+}
+const platform = ref<InstallPlatform>(guessPlatform())
+watch(platform, (p) => {
+  try {
+    localStorage.setItem(PLATFORM_KEY, p)
+  } catch {
+    // Remembering is a convenience, never a requirement.
+  }
+})
+
+/** The variant the user is looking at. Falls back to the bash one when the
+ *  backend sent no Windows half (an older API, or a row with no source repo). */
+const variant = computed(() => {
+  const info = handoff.value?.kind === 'install' ? handoff.value.info : null
+  if (!info) return null
+  if (platform.value === 'windows' && info.windows) return info.windows
+  return { command: info.command, scriptUrl: info.scriptUrl, script: info.script, control: info.control ?? '', controlFile: info.controlFile ?? '' }
+})
+const variantScriptName = computed(() => (platform.value === 'windows' && handoff.value?.kind === 'install' && handoff.value.info.windows ? 'install.ps1' : 'install.sh'))
+const variantShell = computed(() => (platform.value === 'windows' ? 'PowerShell' : 'a terminal'))
 
 const ICON_CHOICES = ['plugin', 'zap', 'spaces', 'resources', 'shield', 'sparkles', 'memory', 'table', 'node-cast', 'node-code']
 const RUNTIMES: { value: InstallRuntime; label: string; hint: string }[] = [
@@ -208,9 +245,15 @@ function withReachableUrl(info: InstallInfo): InstallInfo {
   if (!base) return info
   try {
     const apiBase = new URL(base, window.location.origin).href.replace(/\/$/, '')
-    const path = new URL(info.scriptUrl)
-    const scriptUrl = apiBase + path.pathname + path.search
-    return { ...info, scriptUrl, command: info.command.replace(info.scriptUrl, scriptUrl) }
+    const repoint = <T extends { scriptUrl: string; command: string }>(v: T): T => {
+      const path = new URL(v.scriptUrl)
+      const scriptUrl = apiBase + path.pathname + path.search
+      return { ...v, scriptUrl, command: v.command.replace(v.scriptUrl, scriptUrl) }
+    }
+    // Both variants carry their own URL, and a Windows user behind the same proxy
+    // needs the same correction.
+    const fixed = repoint(info)
+    return info.windows ? { ...fixed, windows: repoint(info.windows) } : fixed
   } catch {
     return info
   }
@@ -531,14 +574,40 @@ const modalTitle = computed(() => {
           <code class="truncate font-mono text-[12px] text-fg">{{ handoff.pluginId }}</code>
         </div>
 
-        <div>
+        <!-- Which shell the one-liner is for. The plugin is a process the user
+             runs, so Windows gets a real PowerShell pair rather than WSL. -->
+        <div v-if="handoff.info.windows" class="flex items-center gap-1 rounded-lg border bg-surface-2 p-1" role="tablist">
+          <button
+            v-for="opt in [
+              { id: 'posix', label: 'Linux / macOS', icons: ['linux', 'apple'] },
+              { id: 'windows', label: 'Windows', icons: ['windows'] },
+            ]"
+            :key="opt.id"
+            type="button"
+            role="tab"
+            :aria-selected="platform === opt.id"
+            class="flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-1 text-[12px] font-medium transition"
+            :class="platform === opt.id ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg'"
+            @click="platform = opt.id as 'posix' | 'windows'"
+          >
+            <span class="flex shrink-0 items-center gap-1">
+              <Icon v-for="ic in opt.icons" :key="ic" :name="ic" :size="14" />
+            </span>
+            {{ opt.label }}
+          </button>
+        </div>
+
+        <div v-if="variant">
           <p class="mb-1.5 text-[13px] text-fg-muted">
-            Run this on the machine that should host the plugin. It clones the repo into
+            Run this in {{ variantShell }} on the machine that should host the plugin. It clones the repo into
             <code class="font-mono text-xs text-fg">{{ handoff.info.dir }}</code
             >, writes <code class="font-mono text-xs text-fg">{{ handoff.info.envFile }}</code
             >, builds it and starts it.
+            <template v-if="platform === 'windows'">
+              Needs git plus whatever the plugin builds with (Go, Node or Docker) — no WSL.
+            </template>
           </p>
-          <CopyBlock label="One-line install" :content="handoff.info.command" secret max-height="7rem" />
+          <CopyBlock label="One-line install" :content="variant.command" secret max-height="7rem" />
         </div>
 
         <CopyBlock
@@ -549,12 +618,26 @@ const modalTitle = computed(() => {
           max-height="9rem"
         />
 
-        <details class="rounded-lg border" style="border-color: var(--line-strong)">
+        <details v-if="variant" class="rounded-lg border" style="border-color: var(--line-strong)">
           <summary class="cursor-pointer px-3 py-2 text-[12px] font-medium text-fg-muted">
             Read the script before running it
           </summary>
-          <div class="px-3 pb-3">
-            <CopyBlock label="install.sh" :content="handoff.info.script" filename="install.sh" max-height="20rem" />
+          <div class="space-y-3 px-3 pb-3">
+            <CopyBlock
+              :label="variantScriptName"
+              :content="variant.script"
+              :filename="variantScriptName"
+              max-height="20rem"
+            />
+            <!-- The lifecycle helper the installer drops next to the plugin. It
+                 carries no credential, so it is shown plainly. -->
+            <CopyBlock
+              v-if="variant.control"
+              :label="variant.controlFile"
+              :content="variant.control"
+              :filename="variant.controlFile"
+              max-height="14rem"
+            />
           </div>
         </details>
 

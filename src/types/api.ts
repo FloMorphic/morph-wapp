@@ -275,9 +275,25 @@ export interface PluginEnvResponse {
   pluginId: string
 }
 
+/** One platform's way to get a plugin running: the one-liner to paste, the script
+ * it fetches, and the lifecycle helper that script drops next to the plugin.
+ * `command`/`script` are secret-bearing; `control` is not. */
+export interface InstallVariant {
+  command: string
+  scriptUrl: string
+  script: string
+  control: string
+  controlFile: string
+}
+
 /** GET /extension/id/:id/install — everything needed to install and start a
  * plugin from source: the one-liner to paste, the script it pipes into bash,
- * and the env that script writes. Secret-bearing (the env holds the cred). */
+ * and the env that script writes. Secret-bearing (the env holds the cred).
+ *
+ * The top-level fields are the POSIX (bash) ones; `windows` is the same offer as
+ * a PowerShell pair. A plugin is a process the user runs — go build, npm start or
+ * docker — so on Windows that is native PowerShell, not WSL. The dotenv is the
+ * same either way. */
 export interface InstallInfo {
   /** `curl -fsSL <scriptUrl> | bash -s -- <dir>` */
   command: string
@@ -287,6 +303,11 @@ export interface InstallInfo {
   envFile: string
   dir: string
   pluginId: string
+  /** The lifecycle script the installer writes beside the plugin. */
+  control?: string
+  controlFile?: string
+  /** The PowerShell equivalent; absent when there is no source to install from. */
+  windows?: InstallVariant
 }
 
 /** How broad a minted plugin credential is: `multi` grants an open account

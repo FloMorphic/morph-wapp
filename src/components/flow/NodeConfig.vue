@@ -11,7 +11,7 @@ import PromptImporter from '@/components/flow/PromptImporter.vue'
 import PromptExpander from '@/components/flow/PromptExpander.vue'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
-import { EXCEPTION_TAG, handlerName, jevOptionTag, jevQuestionRoutes } from '@/data/nodeCatalog'
+import { EXCEPTION_TAG, handlerName, decisionOptionTag, decisionQuestionRoutes } from '@/data/nodeCatalog'
 import { normalizeJsReturn } from '@/lib/jsNodeCode'
 import {
   toPluginForm,
@@ -33,8 +33,9 @@ import type { FlowRecord, McpTool } from '@/types/api'
  *            output handlers — each handler renders as an outbound port.
  *   llm    → prompt template + bound functions — each function renders as an
  *            outbound port the model can route through.
- *   jev    → state template + typed questions — every option of a routed
- *            question renders as an outbound port Jev's top answer fires.
+ *   ai-decision → subject template + injected evidence + typed questions —
+ *            every option of a routed question renders as an outbound port the
+ *            model's top answer fires.
  *
  * It edits the selected node's reactive `data` in place; the canvas (FlowNode)
  * re-derives its output ports from `data.handlers` / `data.functions` /
@@ -51,7 +52,9 @@ function data(): Record<string, unknown> {
 const type = computed(() => props.node.type)
 const isCode = computed(() => ['js', 'opa', 'rule'].includes(type.value))
 const isLlm = computed(() => type.value === 'llm')
-const isJev = computed(() => type.value === 'jev')
+// The node's kind was `jev` before it covered other System One models; a
+// saved flow keeps the old type, so both open this editor.
+const isDecision = computed(() => type.value === 'ai-decision' || type.value === 'jev')
 const isMcp = computed(() => type.value === 'mcp')
 const isGoto = computed(() => type.value === 'goto')
 const isUntil = computed(() => type.value === 'until')
@@ -735,104 +738,168 @@ function removeHttpQuery(i: number) {
   httpQuery().splice(i, 1)
 }
 
-// ---- Jev: state template + typed questions -----------------------------------
-// The node evaluates `body.state` against `questions` on Jev (TypeSafe's System
-// One decider). Each question is typed — choice / score / noul — and declares
-// the answers it may return as `options` rows: the same {name, description}
-// shape as an LLM bound function, for the same reason. `name` is the option's
-// identity and, prefixed by the question id, its outbound-port route tag
-// (`category.billing`); `description` is what the model reads to decide whether
-// the state matches it. A routed question (`route`, default on) turns every
-// option into a port; `route` off keeps its answer as data only. The compiler
-// ships `questions` next to `body` (see the api's jevQuestions), dropping the
-// row ids.
-type JevType = 'choice' | 'score' | 'noul'
-const JEV_TYPES: { value: JevType; label: string; hint: string }[] = [
+// ---- AI Decision: subject + evidence + typed questions -----------------------
+// The node evaluates `body.state` against `questions` on a System One decision
+// model (hosted Jev or local Laya — the settings profile decides which). Each
+// question is typed — choice / score / noul — and declares the answers it may
+// return as `options` rows: the same {name, description} shape as an LLM bound
+// function, for the same reason. `name` is the option's identity and, prefixed
+// by the question id, its outbound-port route tag (`category.billing`);
+// `description` is what the model reads to decide whether the state matches it.
+// A routed question (`route`, default on) turns every option into a port;
+// `route` off keeps its answer as data only. The compiler ships `questions` and
+// `evidence` next to `body` (see the api's decisionQuestions /
+// decisionEvidence), dropping the row ids.
+type DecisionType = 'choice' | 'score' | 'noul'
+const DECISION_TYPES: { value: DecisionType; label: string; hint: string }[] = [
   { value: 'choice', label: 'Choice', hint: 'pick one of the options (1–255)' },
   { value: 'score', label: 'Score', hint: 'place on ordered levels, lowest first (2–10)' },
   { value: 'noul', label: 'Yes / No', hint: 'is the statement true?' },
 ]
-interface JevOption {
+interface DecisionOption {
   id: string
   name: string
   description: string
 }
-interface JevQuestion {
+/** One named value a structured question cites by backtick (`policy`). The
+ *  compiler folds these and `instructions` into the API's object form — the
+ *  question in one field, each reference under its own name — which is how a
+ *  question carries the data it needs without that data going into the state. */
+interface DecisionReference {
   id: string
-  type: JevType
+  name: string
+  value: string
+}
+interface DecisionQuestion {
+  id: string
+  type: DecisionType
   instructions: string
+  references: DecisionReference[]
   route: boolean
   min_confidence: number
-  options: JevOption[]
+  options: DecisionOption[]
+}
+/** One chunk of reference material the decision rests on. `source` is its
+ *  provenance (a file, a URL, a row id) and doubles as the handle a question
+ *  cites; `text` is the chunk. Both are templates. */
+interface DecisionEvidence {
+  id: string
+  source: string
+  text: string
 }
 /** The node's `body` object, created on first edit. */
-function jevBody(): Record<string, unknown> {
+function decisionBody(): Record<string, unknown> {
   if (!data().body || typeof data().body !== 'object') data().body = {}
   return data().body as Record<string, unknown>
 }
-const jevState = computed<string>({
-  get: () => (jevBody().state as string) || '',
+const decisionState = computed<string>({
+  get: () => (decisionBody().state as string) || '',
   set: (v) => {
-    jevBody().state = v
+    decisionBody().state = v
   },
 })
 /** The question rows, normalised on read: a row written by the AI designer or
  *  an import may omit `route` (meaning on) or `min_confidence` (off), and a
- *  checkbox bound to `undefined` would show the opposite of what runs. */
-function jevQuestions(): JevQuestion[] {
+ *  checkbox bound to `undefined` would show the opposite of what runs. An
+ *  imported row may also carry `instructions` as the API's object form, which
+ *  this editor's textarea cannot hold — it is split back into the question text
+ *  and its reference rows so the drawer shows all of it. */
+function decisionQuestions(): DecisionQuestion[] {
   if (!Array.isArray(data().questions)) data().questions = []
-  const rows = data().questions as JevQuestion[]
+  const rows = data().questions as DecisionQuestion[]
   for (const q of rows) {
     if (q.route === undefined) q.route = true
     if (typeof q.min_confidence !== 'number') q.min_confidence = 0
     if (!q.type) q.type = 'choice'
+    if (q.instructions && typeof q.instructions === 'object') splitStructuredInstructions(q)
+    if (!Array.isArray(q.references)) q.references = []
   }
   return rows
 }
+/** Unpack the API's structured instructions into the two halves the drawer
+ *  edits: the `question` field becomes the question text, every other field a
+ *  named reference row. The compiler puts them back together. */
+function splitStructuredInstructions(q: DecisionQuestion) {
+  const obj = q.instructions as unknown as Record<string, unknown>
+  const stamp = Date.now()
+  const refs: DecisionReference[] = []
+  let i = 0
+  for (const [name, value] of Object.entries(obj)) {
+    if (name === 'question') continue
+    refs.push({ id: `ref-${stamp}-${i++}`, name, value: String(value ?? '') })
+  }
+  q.instructions = String(obj.question ?? '')
+  q.references = [...(Array.isArray(q.references) ? q.references : []), ...refs]
+}
 /** The two fixed rows of a yes/no question — only their descriptions are edited. */
-function noulOptions(): JevOption[] {
+function noulOptions(): DecisionOption[] {
   const stamp = Date.now()
   return [
     { id: `opt-${stamp}-yes`, name: 'yes', description: '' },
     { id: `opt-${stamp}-no`, name: 'no', description: '' },
   ]
 }
-function addJevQuestion() {
-  jevQuestions().push({
+function addDecisionQuestion() {
+  decisionQuestions().push({
     id: '',
     type: 'choice',
     instructions: '',
+    references: [],
     route: true,
     min_confidence: 0,
     options: [],
   })
 }
-function removeJevQuestion(i: number) {
-  jevQuestions().splice(i, 1)
+function removeDecisionQuestion(i: number) {
+  decisionQuestions().splice(i, 1)
 }
 /** Keep the option rows shaped for the type: a yes/no question has exactly the
  *  two fixed rows, so switching to it replaces whatever was there; switching
  *  away from it starts the free-form list empty. */
-function onJevTypeChange(q: JevQuestion) {
+function onDecisionTypeChange(q: DecisionQuestion) {
   if (q.type === 'noul') q.options = noulOptions()
   else if (q.options.some((o) => o.name === 'yes' || o.name === 'no') && q.options.length === 2) q.options = []
 }
-function jevOptions(q: JevQuestion): JevOption[] {
+function decisionOptions(q: DecisionQuestion): DecisionOption[] {
   if (!Array.isArray(q.options)) q.options = []
   if (q.type === 'noul' && q.options.length !== 2) q.options = noulOptions()
   return q.options
 }
-function addJevOption(q: JevQuestion) {
-  jevOptions(q).push({ id: `opt-${Date.now()}`, name: '', description: '' })
+function addDecisionOption(q: DecisionQuestion) {
+  decisionOptions(q).push({ id: `opt-${Date.now()}`, name: '', description: '' })
 }
-function removeJevOption(q: JevQuestion, i: number) {
-  jevOptions(q).splice(i, 1)
+function removeDecisionOption(q: DecisionQuestion, i: number) {
+  decisionOptions(q).splice(i, 1)
 }
+/** The evidence rows, created on first edit. Order matters: a question cites a
+ *  chunk by index (`evidence[0].text`), so a row is never silently reordered. */
+function decisionEvidence(): DecisionEvidence[] {
+  if (!Array.isArray(data().evidence)) data().evidence = []
+  return data().evidence as DecisionEvidence[]
+}
+function addDecisionEvidence() {
+  decisionEvidence().push({ id: `ev-${Date.now()}`, source: '', text: '' })
+}
+function removeDecisionEvidence(i: number) {
+  decisionEvidence().splice(i, 1)
+}
+/** The reference rows of one question, created on first edit. */
+function decisionReferences(q: DecisionQuestion): DecisionReference[] {
+  if (!Array.isArray(q.references)) q.references = []
+  return q.references
+}
+function addDecisionReference(q: DecisionQuestion) {
+  decisionReferences(q).push({ id: `ref-${Date.now()}`, name: '', value: '' })
+}
+function removeDecisionReference(q: DecisionQuestion, i: number) {
+  decisionReferences(q).splice(i, 1)
+}
+
 /** Sum of ports the node currently derives — to explain the exception port. */
-const jevRoutedOptions = computed(() =>
-  jevQuestions()
-    .filter((q) => jevQuestionRoutes(q as unknown as Record<string, unknown>))
-    .reduce((n, q) => n + jevOptions(q).length, 0),
+const decisionRoutedOptions = computed(() =>
+  decisionQuestions()
+    .filter((q) => decisionQuestionRoutes(q as unknown as Record<string, unknown>))
+    .reduce((n, q) => n + decisionOptions(q).length, 0),
 )
 
 // ---- Code (logic_rule) -----------------------------------------------------
@@ -1776,33 +1843,87 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
       </div>
     </template>
 
-    <!-- ================= Jev ================= -->
-    <template v-else-if="isJev">
-      <!-- State: what Jev evaluates. -->
+    <!-- ================= AI Decision ================= -->
+    <template v-else-if="isDecision">
+      <!-- State: the subject the model decides on. -->
       <div class="space-y-1 rounded-lg border p-2">
         <div class="flex items-center justify-between">
           <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
             State
-            <span class="ml-1 font-normal normal-case">— the content to evaluate</span>
+            <span class="ml-1 font-normal normal-case">— the subject to evaluate</span>
           </span>
           <div class="flex items-center gap-3">
-            <PromptExpander v-model="jevState" label="State" />
-            <PromptImporter v-model="jevState" label="State" />
+            <PromptExpander v-model="decisionState" label="State" />
+            <PromptImporter v-model="decisionState" label="State" />
           </div>
         </div>
         <textarea
-          v-model="jevState"
+          v-model="decisionState"
           rows="4"
           spellcheck="false"
           class="input resize-none font-mono text-xs leading-relaxed"
           placeholder="Customer: {{$.ticket.customer}}&#10;Message: {{$.ticket.text}}"
         />
         <p class="text-[11px] leading-relaxed text-fg-subtle">
-          Jev reads this block once and answers every question below against it. Keep it to what
-          the questions need — accuracy falls as it fills with unrelated content. May embed
+          The model reads this block once and answers every question below against it. Keep it to
+          what the questions need — accuracy falls as it fills with unrelated content. May embed
           <code v-pre>{{$.path}}</code> context vars; a template that is exactly one
-          <code v-pre>{{$.object}}</code> token sends that JSON value as-is. The API key and model
-          come from the Settings profile above.
+          <code v-pre>{{$.object}}</code> token sends that JSON value as-is. The endpoint, key and
+          model come from the Settings profile above.
+        </p>
+      </div>
+
+      <!-- Evidence: the reference material the decision rests on. The service
+           takes no evidence parameter of its own, so these rows are folded into
+           the state the node sends. -->
+      <div class="space-y-1.5 border-t pt-3">
+        <div class="flex items-center justify-between">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+            Evidence
+            <span class="ml-1 font-normal normal-case text-fg-subtle">— optional chunks the decision rests on</span>
+          </label>
+          <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addDecisionEvidence">
+            <Icon name="plus" :size="13" /> Add
+          </button>
+        </div>
+
+        <div v-for="(e, ei) in decisionEvidence()" :key="e.id" class="space-y-1 rounded-lg border border-dashed p-2">
+          <div class="flex items-center gap-2">
+            <input
+              v-model="e.source"
+              class="input w-40 font-mono text-xs"
+              placeholder="source (e.g. contract.pdf)"
+              title="Where the chunk came from — a file, a URL, a row id. Travels with the chunk, so an answer can record what decided it."
+            />
+            <code v-if="e.text" class="truncate text-[10px] text-fg-subtle" title="How a question cites this chunk">
+              evidence[{{ ei }}].text
+            </code>
+            <button
+              class="ml-auto shrink-0 rounded-lg p-1 text-fg-subtle hover:bg-danger-soft hover:text-danger"
+              @click="removeDecisionEvidence(ei)"
+            >
+              <Icon name="x" :size="14" />
+            </button>
+          </div>
+          <textarea
+            v-model="e.text"
+            rows="2"
+            spellcheck="false"
+            class="input w-full resize-none font-mono text-xs leading-relaxed"
+            placeholder="text — the chunk itself, e.g. {{$.retrieved.clause}}"
+          />
+        </div>
+
+        <p v-if="decisionEvidence().length === 0" class="text-[11px] leading-relaxed text-fg-subtle">
+          No evidence — the model decides on the state alone. Add rows to inject retrieved chunks
+          (RAG): each <code>text</code> is a template, so point them at a retriever upstream.
+        </p>
+        <p v-else class="text-[11px] leading-relaxed text-fg-subtle">
+          The state is sent as <code v-pre>{ case: &lt;state&gt;, evidence: [&#8230;] }</code>, so a
+          question can cite either part by backticked path — <code>`case.problem`</code>,
+          <code>`evidence[0].text`</code>. Retrieve and filter first: state and questions share one
+          context budget (~64k tokens) and accuracy falls as it fills with material the questions
+          do not use.
         </p>
       </div>
 
@@ -1813,16 +1934,16 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
             Questions
             <span class="ml-1 font-normal normal-case text-fg-subtle">— each option of a routed question is an outbound port</span>
           </label>
-          <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addJevQuestion">
+          <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addDecisionQuestion">
             <Icon name="plus" :size="13" /> Add
           </button>
         </div>
 
-        <div v-for="(q, qi) in jevQuestions()" :key="qi" class="space-y-1.5 rounded-lg border p-2">
+        <div v-for="(q, qi) in decisionQuestions()" :key="qi" class="space-y-1.5 rounded-lg border p-2">
           <div class="flex items-center gap-2">
             <input v-model="q.id" class="input w-32 font-mono text-xs" placeholder="id (e.g. category)" />
-            <select v-model="q.type" class="input w-28 text-xs" title="Question type" @change="onJevTypeChange(q)">
-              <option v-for="t in JEV_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+            <select v-model="q.type" class="input w-28 text-xs" title="Question type" @change="onDecisionTypeChange(q)">
+              <option v-for="t in DECISION_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
             </select>
             <label
               class="flex items-center gap-1 text-[11px] text-fg-subtle"
@@ -1833,7 +1954,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
             </label>
             <button
               class="ml-auto shrink-0 rounded-lg p-1.5 text-fg-subtle hover:bg-danger-soft hover:text-danger"
-              @click="removeJevQuestion(qi)"
+              @click="removeDecisionQuestion(qi)"
             >
               <Icon name="x" :size="15" />
             </button>
@@ -1842,10 +1963,10 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
             v-model="q.instructions"
             rows="2"
             class="input w-full text-xs"
-            placeholder="instructions — the question Jev evaluates the state against (required)"
+            placeholder="instructions — the question the model evaluates the state against (required)"
           />
-          <div class="flex items-center gap-2" :title="JEV_TYPES.find((t) => t.value === q.type)?.hint">
-            <span class="text-[11px] text-fg-subtle">{{ JEV_TYPES.find((t) => t.value === q.type)?.hint }}</span>
+          <div class="flex items-center gap-2" :title="DECISION_TYPES.find((t) => t.value === q.type)?.hint">
+            <span class="text-[11px] text-fg-subtle">{{ DECISION_TYPES.find((t) => t.value === q.type)?.hint }}</span>
             <label
               v-if="q.route"
               class="ml-auto flex items-center gap-1 text-[11px] text-fg-subtle"
@@ -1863,6 +1984,44 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
             </label>
           </div>
 
+          <!-- References: data the question carries itself, cited by backtick.
+               The compiler folds these and the instructions above into the
+               API's structured instructions form. -->
+          <div class="space-y-1 border-t border-dashed pt-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+                References
+                <span class="ml-1 font-normal normal-case">— data this question cites by `name`</span>
+              </span>
+              <button class="flex items-center gap-1 text-[12px] text-accent hover:underline" @click="addDecisionReference(q)">
+                <Icon name="plus" :size="12" /> Add
+              </button>
+            </div>
+            <div v-for="(r, ri) in decisionReferences(q)" :key="r.id" class="flex items-center gap-2">
+              <input
+                v-model="r.name"
+                class="input w-28 font-mono text-xs"
+                placeholder="name"
+                title="The backtick handle the instructions cite — e.g. `policy`. Cannot be `question`."
+              />
+              <input
+                v-model="r.value"
+                class="input flex-1 font-mono text-xs"
+                placeholder="value — e.g. {{$.kb.policy}}"
+              />
+              <button
+                class="shrink-0 rounded-lg p-1 text-fg-subtle hover:bg-danger-soft hover:text-danger"
+                @click="removeDecisionReference(q, ri)"
+              >
+                <Icon name="x" :size="14" />
+              </button>
+            </div>
+            <p v-if="decisionReferences(q).length > 0" class="text-[11px] leading-relaxed text-fg-subtle">
+              Cite each in the instructions by backticked name (<code>`policy`</code>). Use this for
+              data only this question needs — evidence above is shared by all of them.
+            </p>
+          </div>
+
           <!-- Options → the question's declared answers (ports when routed) -->
           <div class="space-y-1.5 border-t pt-2">
             <div class="flex items-center justify-between">
@@ -1875,13 +2034,13 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
               <button
                 v-if="q.type !== 'noul'"
                 class="flex items-center gap-1 text-[12px] text-accent hover:underline"
-                @click="addJevOption(q)"
+                @click="addDecisionOption(q)"
               >
                 <Icon name="plus" :size="12" /> Add
               </button>
             </div>
 
-            <div v-for="(o, oi) in jevOptions(q)" :key="o.id" class="space-y-1 rounded-lg border border-dashed p-2">
+            <div v-for="(o, oi) in decisionOptions(q)" :key="o.id" class="space-y-1 rounded-lg border border-dashed p-2">
               <div class="flex items-center gap-2">
                 <input
                   v-model="o.name"
@@ -1890,12 +2049,12 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
                   :readonly="q.type === 'noul'"
                 />
                 <code v-if="q.route && q.id && o.name" class="truncate text-[10px] text-fg-subtle" title="Route tag on edges leaving this port">
-                  {{ jevOptionTag(q.id, o.name) }}
+                  {{ decisionOptionTag(q.id, o.name) }}
                 </code>
                 <button
                   v-if="q.type !== 'noul'"
                   class="ml-auto shrink-0 rounded-lg p-1 text-fg-subtle hover:bg-danger-soft hover:text-danger"
-                  @click="removeJevOption(q, oi)"
+                  @click="removeDecisionOption(q, oi)"
                 >
                   <Icon name="x" :size="14" />
                 </button>
@@ -1907,24 +2066,24 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
               />
             </div>
 
-            <p v-if="jevOptions(q).length === 0" class="text-[11px] text-fg-subtle">
+            <p v-if="decisionOptions(q).length === 0" class="text-[11px] text-fg-subtle">
               {{ q.type === 'score' ? 'No levels — add 2 to 10, lowest first.' : 'No options — add the answers this question may return.' }}
             </p>
           </div>
         </div>
 
-        <p v-if="jevQuestions().length === 0" class="text-[11px] text-fg-subtle">
-          No questions — add one and its options become the output ports Jev routes through.
+        <p v-if="decisionQuestions().length === 0" class="text-[11px] text-fg-subtle">
+          No questions — add one and its options become the output ports the model routes through.
         </p>
         <p v-else class="text-[11px] leading-relaxed text-fg-subtle">
-          Jev returns a calibrated probability for <strong>every</strong> option and fires the top
+          The model returns a calibrated probability for <strong>every</strong> option and fires the top
           answer's port (<code>question.option</code>). It cannot answer outside the options and
           cannot decline — when nothing fits it still picks one, so declare an <code>other</code>
           option where the state may not fit. The full distribution lands on this node's output under
           <code>{{ '$.' + (String(data().key || '') || 'decision') + '.answers' }}</code>, so a Rule
           node after it can apply a threshold visibly.
         </p>
-        <p v-if="jevRoutedOptions" class="text-[11px] leading-relaxed text-fg-subtle">
+        <p v-if="decisionRoutedOptions" class="text-[11px] leading-relaxed text-fg-subtle">
           Routing replaces the node's plain output with these ports, so it also grows an
           <strong>exception</strong> port: the plugin routes there on an API error, a missing
           answer, or a confidence below the floor you set, so the flow continues into whatever you

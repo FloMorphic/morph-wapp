@@ -46,7 +46,7 @@ export type NodeKind =
   | 'vecstore'
   | 'promissall'
   | 'llm'
-  | 'jev'
+  | 'ai-decision'
   | 'mcp'
   | 'rule'
   | 'js'
@@ -142,7 +142,7 @@ export interface NodeSpec {
   /** Inflowenger primitive(s) this node compiles down to (display label). */
   primitives: string
   /**
-   * Lowers to a Plugin primitive (llm / jev / mcp / cast). Plugin nodes take their
+   * Lowers to a Plugin primitive (llm / ai-decision / mcp / cast). Plugin nodes take their
    * runtime config from a settings profile, so the drawer shows the profile
    * picker only for these (see {@link usesSettingsProfile} in lib/nodeSettings).
    */
@@ -195,21 +195,22 @@ export function handlerName(h: Record<string, unknown>): string {
 }
 
 /**
- * The route tag of one Jev option: the question id and the option name joined
- * with a dot (`category.billing`). Prefixed by the question so two questions
- * that both declare `high` never share a tag. The jev plugin fires exactly this
- * string for the question's top answer, and the api's jevPorts mirrors it.
+ * The route tag of one AI Decision option: the question id and the option name
+ * joined with a dot (`category.billing`). Prefixed by the question so two
+ * questions that both declare `high` never share a tag. The ai-decision plugin
+ * fires exactly this string for the question's top answer, and the api's
+ * decisionPorts mirrors it.
  */
-export function jevOptionTag(questionId: unknown, optionName: unknown): string {
+export function decisionOptionTag(questionId: unknown, optionName: unknown): string {
   return `${String(questionId ?? '').trim()}.${String(optionName ?? '').trim()}`
 }
 
 /**
- * Whether a Jev question derives ports. `route` defaults ON — a question is a
- * decision unless the drawer turned it into data only — matching the plugin's
- * reading of an absent flag.
+ * Whether an AI Decision question derives ports. `route` defaults ON — a
+ * question is a decision unless the drawer turned it into data only — matching
+ * the plugin's reading of an absent flag.
  */
-export function jevQuestionRoutes(q: Record<string, unknown>): boolean {
+export function decisionQuestionRoutes(q: Record<string, unknown>): boolean {
   return q.route !== false
 }
 
@@ -357,39 +358,49 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       ]
     },
   }),
-  jev: spec({
-    kind: 'jev',
-    type: 'jev',
-    label: 'Jev',
-    icon: 'node-jev',
+  'ai-decision': spec({
+    kind: 'ai-decision',
+    type: 'ai-decision',
+    label: 'AI Decision',
+    icon: 'node-ai-decision',
     color: '#0d9488',
     group: 'ai',
     tagline: 'Decide fast among declared options',
     description:
-      'Evaluate a block of state against typed questions on Jev (TypeSafe\'s System One decider). Each question declares the answers it may return — choice options, score levels or yes/no — and Jev returns a calibrated probability over every one of them in a single fast call, never free text. Every option of a routed question is an output port; the top answer\'s port fires. API key from a settings profile; `body.state` is the state template. Compiles to a Plugin node.',
+      'Evaluate a block of state — and any evidence you inject — against typed questions on a System One decision model: TypeSafe\'s hosted Jev, or a local Laya, whichever the settings profile points at (both serve the same POST /v1/systemone protocol). Each question declares the answers it may return — choice options, score levels or yes/no — and the model returns a calibrated probability over every one of them in a single fast call, never free text. Every option of a routed question is an output port; the top answer\'s port fires. `body.state` is the subject template, `evidence` the supporting chunks. Compiles to a Plugin node.',
     primitives: 'Plugin',
     plugin: true,
     defaults: () => ({
-      title: 'Jev',
+      title: 'AI Decision',
       key: 'decision',
       scope: '$',
-      subject_prefix: 'jev',
+      subject_prefix: 'ai-decision',
       idle_min: 5,
       request: 'run',
-      // The state template — the content Jev evaluates. May embed {{$.path}}
-      // context vars; a template that is exactly one token sends that JSON
-      // value as-is. Sent to the plugin as body.state.
+      // The state template — the subject the model decides ON. May embed
+      // {{$.path}} context vars; a template that is exactly one token sends
+      // that JSON value as-is. Sent to the plugin as body.state.
       body: { state: '' },
-      // [{ id, type, instructions, route, min_confidence, options: [{ id, name,
-      // description }] }] — each routed question's options render as output
-      // ports (see ports()). `options` rows are the same shape as an LLM
-      // function: `name` is the port's identity (tag = `<question id>.<name>`),
-      // `description` is what the model reads.
+      // [{ id, source, text }] — the reference material the decision rests on,
+      // the retrieval side of a RAG decision. `text` and `source` are both
+      // templates. The service takes no evidence parameter of its own, so the
+      // plugin folds these rows into the state it sends: { case: <state>,
+      // evidence: [...] }, which a question cites by backticked path
+      // (`case.problem`, `evidence[0].text`). No row ⇒ the state is sent
+      // exactly as it was before evidence existed.
+      evidence: [],
+      // [{ id, type, instructions, references, route, min_confidence, options:
+      // [{ id, name, description }] }] — each routed question's options render
+      // as output ports (see ports()). `options` rows are the same shape as an
+      // LLM function: `name` is the port's identity (tag = `<question
+      // id>.<name>`), `description` is what the model reads. `references` are
+      // named rows the question cites by backtick; the compiler assembles them
+      // and `instructions` into the API's structured form.
       questions: [],
     }),
     preview: (d) => {
       const qs = asRows(d.questions)
-      const routed = qs.filter(jevQuestionRoutes).length
+      const routed = qs.filter(decisionQuestionRoutes).length
       if (qs.length === 0) return 'no questions'
       return `${qs.length} question${qs.length === 1 ? '' : 's'} · ${routed} routed`
     },
@@ -397,7 +408,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     // as stacked cards under the node body, one right-side handle each.
     portLayout: 'stack',
     // Every option of every routed question is a port whose tag is
-    // `<question id>.<option name>` — the jev plugin fires that exact string for
+    // `<question id>.<option name>` — the ai-decision plugin fires that exact string for
     // the question's top answer, so the edge off this port carries it (see
     // portTags / WorkflowCanvas) or the branch never runs. The port's label is
     // the option name, the question id is shown as its description prefix so a
@@ -410,12 +421,12 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     ports: (d) => {
       const out: NodePort[] = []
       asRows(d.questions).forEach((q, qi) => {
-        if (!jevQuestionRoutes(q)) return
+        if (!decisionQuestionRoutes(q)) return
         const qid = String(q.id ?? '').trim()
         if (!qid) return
         asRows(q.options).forEach((o, oi) => {
           const name = String(o.name ?? '').trim()
-          const tag = name ? jevOptionTag(qid, name) : ''
+          const tag = name ? decisionOptionTag(qid, name) : ''
           const desc = String(o.description ?? '').trim()
           out.push({
             id: String(o.id ?? '').trim() || tag || `q${qi}-opt${oi}`,
@@ -798,7 +809,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
 
 export const PALETTE_GROUPS: { id: PaletteGroupId; label: string; kinds: NodeKind[] }[] = [
   { id: 'flow', label: 'Flow', kinds: ['startNode', 'promissall', 'until', 'goto'] },
-  { id: 'ai', label: 'AI & Logic', kinds: ['llm', 'jev', 'mcp', 'rule', 'js', 'opa'] },
+  { id: 'ai', label: 'AI & Logic', kinds: ['llm', 'ai-decision', 'mcp', 'rule', 'js', 'opa'] },
   { id: 'stores', label: 'Stores', kinds: ['docstore', 'vecstore', 'cast'] },
   { id: 'integrations', label: 'Integrations', kinds: ['http'] },
   { id: 'human', label: 'Human', kinds: ['hitl'] },
@@ -809,8 +820,19 @@ export const NODE_LIST: NodeSpec[] = Object.values(NODE_SPECS)
 /** The node a fresh workflow starts with. */
 export const DEFAULT_START_KIND: NodeKind = 'startNode'
 
+/**
+ * Node types that were renamed, mapped to what they are called now. A saved
+ * flow keeps the type it was drawn with, so without this its nodes would resolve
+ * to no spec at all and lose their ports, icon and drawer.
+ */
+const LEGACY_TYPES: Record<string, NodeKind> = {
+  // Called `jev` while it only spoke to TypeSafe's Jev; the protocol it speaks
+  // is served by other models too (see the ai-decision spec).
+  jev: 'ai-decision',
+}
+
 export function specForType(type: string): NodeSpec | undefined {
-  return NODE_SPECS[type as NodeKind]
+  return NODE_SPECS[type as NodeKind] ?? NODE_SPECS[LEGACY_TYPES[type]]
 }
 
 /**

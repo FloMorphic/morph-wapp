@@ -256,21 +256,26 @@ const httpSchema: SettingsSchema = {
 }
 
 /**
- * Jev node — mirrors the jev plugin's `JevSettings` struct (the `body.settings`
- * contract its `run` action reads; see the backend jevSettingsBody projection).
- * Jev is one endpoint and one bearer key, so the profile is just that: the key,
- * the model alias and an optional base URL for a proxy or a private deployment.
+ * AI Decision node — mirrors the ai-decision plugin's `DecisionSettings` struct
+ * (the `body.settings` contract its `run` action reads; see the backend
+ * decisionSettingsBody projection).
+ *
+ * The profile is what decides WHICH System One model answers, since Jev and
+ * Laya serve the same POST /v1/systemone protocol: leave the URL empty for the
+ * hosted service (key required, model optional), or point it at a local Laya
+ * (model required, key usually not needed at all).
  */
-const jevSchema: SettingsSchema = {
-  summary: 'TypeSafe API config the Jev node ships per request (its body.settings contract).',
+const decisionSchema: SettingsSchema = {
+  summary:
+    'The System One endpoint the AI Decision node ships per request (its body.settings contract) — hosted Jev, or a local Laya.',
   fields: [
     {
       key: 'access_token',
       label: 'API key',
       type: 'password',
-      required: true,
+      required: false,
       placeholder: 'TypeSafe API key',
-      help: 'Sent as a bearer token to the System One endpoint.',
+      help: 'Sent as a bearer token. Required for the hosted endpoint; leave empty for a local model (Laya) that has no key.',
     },
     {
       key: 'model',
@@ -278,14 +283,14 @@ const jevSchema: SettingsSchema = {
       type: 'text',
       default: 'jev-latest',
       placeholder: 'jev-latest',
-      help: 'Model id. "jev-latest" tracks the current release; a vendor-prefixed pinned id such as "typesafe/jev-1.13" keeps a live flow on one decider.',
+      help: 'Model id. "jev-latest" tracks the hosted release; a pinned id such as "typesafe/jev-1.13" keeps a live flow on one model. Required when Base URL names its own endpoint — a local server does not know the hosted aliases.',
     },
     {
       key: 'url',
       label: 'Base URL',
       type: 'text',
       placeholder: 'https://thejevai.com',
-      help: 'Optional — only for a proxy or a private deployment. The node appends /v1/systemone.',
+      help: 'Optional — the hosted service by default. Point it at a local Laya server, a proxy or a private deployment; the node appends /v1/systemone.',
     },
     {
       key: 'timeout_seconds',
@@ -294,7 +299,7 @@ const jevSchema: SettingsSchema = {
       default: 30,
       min: 0,
       step: 1,
-      help: 'Per-call timeout. Jev answers in well under a second; this is a safety net.',
+      help: 'Per-call timeout. A System One model answers in well under a second; this is a safety net.',
     },
   ],
 }
@@ -303,7 +308,10 @@ export const SETTINGS_SCHEMAS: Record<string, SettingsSchema> = {
   llm: llmSchema,
   mcp: mcpSchema,
   http: httpSchema,
-  jev: jevSchema,
+  'ai-decision': decisionSchema,
+  // The node's former kind: a settings profile saved against it must keep
+  // resolving to the same schema.
+  jev: decisionSchema,
   hitl: hitlSchema,
 }
 
