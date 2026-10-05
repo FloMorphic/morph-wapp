@@ -301,6 +301,18 @@ const decisionSchema: SettingsSchema = {
       step: 1,
       help: 'Per-call timeout. A System One model answers in well under a second; this is a safety net.',
     },
+    {
+      // No `default` here, or every save would freeze today's number into the
+      // stored profile — the plugin's fallback is shown as the placeholder
+      // instead, the same way the LLM and HTTP profiles do it.
+      key: 'max_retries',
+      label: 'Retries',
+      type: 'number',
+      min: 0,
+      step: 1,
+      placeholder: '2',
+      help: 'Further attempts after a failed call, and only on the two statuses the service asks callers to back off on (429 rate limit, 529 overloaded) — never a validation error or a bad key. The node waits for whatever Retry-After asks, or backs off exponentially, capped at 8s. Leave empty for the default (2); enter 0 to decide once and route _exception if that fails.',
+    },
   ],
 }
 
