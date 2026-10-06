@@ -283,14 +283,14 @@ const decisionSchema: SettingsSchema = {
       type: 'text',
       default: 'jev-latest',
       placeholder: 'jev-latest',
-      help: 'Model id. "jev-latest" tracks the hosted release; a pinned id such as "typesafe/jev-1.13" keeps a live flow on one model. Required when Base URL names its own endpoint — a local server does not know the hosted aliases.',
+      help: 'Model id. "jev-latest" tracks TypeSafe\'s current release; pin one ("jev-1.13.0") to keep a live flow on one model, since the service may echo the alias back rather than the version it used. Required when Base URL names its own endpoint — a local server or an aggregator does not know TypeSafe\'s aliases, and an aggregator wants a vendor-prefixed id like "typesafe/jev-1.13" or "convaiinnovations/laya".',
     },
     {
       key: 'url',
       label: 'Base URL',
       type: 'text',
-      placeholder: 'https://thejevai.com',
-      help: 'Optional — the hosted service by default. Point it at a local Laya server, a proxy or a private deployment; the node appends /v1/systemone.',
+      placeholder: 'https://api.typesafe.ai',
+      help: 'Optional — TypeSafe\'s own API by default (key from console.typesafe.ai). Point it at a local Laya server, a private deployment, or a third-party aggregator such as thejevai.com that fronts several deciders behind one key. Keys are NOT interchangeable between hosts, and an aggregator needs its own vendor-prefixed model id. The node appends /v1/systemone.',
     },
     {
       key: 'timeout_seconds',
