@@ -739,8 +739,9 @@ function removeHttpQuery(i: number) {
 }
 
 // ---- AI Decision: subject + evidence + typed questions -----------------------
-// The node evaluates `body.state` against `questions` on a System One decision
-// model (hosted Jev or local Laya — the settings profile decides which). Each
+// The node evaluates `body.state` against `questions` on a decision model — the
+// settings profile decides both which protocol (System One or the Decisions
+// API) and which service on it answers; neither changes anything here. Each
 // question is typed — choice / score / noul — and declares the answers it may
 // return as `options` rows: the same {name, description} shape as an LLM bound
 // function, for the same reason. `name` is the option's identity and, prefixed
@@ -1970,7 +1971,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
             <label
               v-if="q.route"
               class="ml-auto flex items-center gap-1 text-[11px] text-fg-subtle"
-              title="Optional floor on the top answer's calibrated confidence. Below it the node routes _exception instead of the answer's port. 0 = off."
+              title="Optional floor on the top answer's reported confidence — a measure of how decisive the distribution is, not of how often it is right, so re-tune it when you switch the profile to another service. Below it the node routes _exception instead of the answer's port. 0 = off."
             >
               min confidence
               <input
@@ -2076,7 +2077,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           No questions — add one and its options become the output ports the model routes through.
         </p>
         <p v-else class="text-[11px] leading-relaxed text-fg-subtle">
-          The model returns a calibrated probability for <strong>every</strong> option and fires the top
+          The model returns a probability for <strong>every</strong> option and fires the top
           answer's port (<code>question.option</code>). It cannot answer outside the options and
           cannot decline — when nothing fits it still picks one, so declare an <code>other</code>
           option where the state may not fit. The full distribution lands on this node's output under

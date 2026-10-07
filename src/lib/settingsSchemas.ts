@@ -260,37 +260,65 @@ const httpSchema: SettingsSchema = {
  * (the `body.settings` contract its `run` action reads; see the backend
  * decisionSettingsBody projection).
  *
- * The profile is what decides WHICH System One model answers, since Jev and
- * Laya serve the same POST /v1/systemone protocol: leave the URL empty for the
- * hosted service (key required, model optional), or point it at a local Laya
- * (model required, key usually not needed at all).
+ * The profile decides TWO things, which is why `provider` leads the form:
+ *
+ * 1. Which wire protocol the node speaks. The decision-model space settled into
+ *    two — `systemone` (POST /v1/systemone: TypeSafe's Jev, Laya, Ollama's
+ *    nimble) and `decisions` (POST /v1/decisions: OpenAI's Decisions API, and
+ *    gateways implementing its shape).
+ * 2. Which service on that protocol answers — hosted, local, or a gateway —
+ *    which is what `url` and `model` select.
+ *
+ * Nothing downstream differs: the questions, the options and the
+ * `<question>.<option>` port tags are identical either way, so switching a
+ * profile re-points a flow without touching its canvas wiring.
+ *
+ * `provider` names the PROTOCOL, not the vendor, because each shape already
+ * carries several vendors — a gateway can serve TypeSafe's Jev over OpenAI's
+ * protocol. One node, one schema, two kinds of profile.
  */
 const decisionSchema: SettingsSchema = {
   summary:
-    'The System One endpoint the AI Decision node ships per request (its body.settings contract) — hosted Jev, or a local Laya.',
+    'The decision endpoint the AI Decision node ships per request (its body.settings contract) — System One (Jev, Laya, Ollama nimble) or the Decisions API (OpenAI gpt-6-luna).',
   fields: [
+    {
+      key: 'provider',
+      label: 'Protocol',
+      type: 'select',
+      required: true,
+      default: 'systemone',
+      options: [
+        { value: 'systemone', label: 'System One — TypeSafe Jev, Laya, Ollama nimble' },
+        { value: 'decisions', label: 'Decisions API — OpenAI gpt-6-luna, or a gateway' },
+      ],
+      help: 'The wire protocol, not the vendor — each one is served by several. "System One" posts /v1/systemone (hosted Jev by default, or a local Laya / Ollama nimble via Base URL). "Decisions API" posts /v1/decisions (OpenAI by default; Vercel\'s AI Gateway implements the same shape and serves Jev over it too). The questions, options and ports are identical either way, so switching this re-points a flow without redrawing it.',
+    },
     {
       key: 'access_token',
       label: 'API key',
       type: 'password',
       required: false,
-      placeholder: 'TypeSafe API key',
-      help: 'Sent as a bearer token. Required for the hosted endpoint; leave empty for a local model (Laya) that has no key.',
+      placeholder: 'TypeSafe / OpenAI API key',
+      help: 'Sent as a bearer token. Required for a hosted endpoint; leave empty for a local model (Laya, Ollama nimble) that has no key. Keys are NOT interchangeable between hosts — a TypeSafe key will not authenticate against OpenAI, an aggregator, or a gateway.',
     },
     {
+      // No `default` here: the right model id depends on the protocol selected
+      // above, and a seeded default would freeze one protocol's id into a
+      // profile that later switches to the other. The plugin's own per-protocol
+      // fallback is shown as the placeholder instead, the same way `max_retries`
+      // does it.
       key: 'model',
       label: 'Model',
       type: 'text',
-      default: 'jev-latest',
-      placeholder: 'jev-latest',
-      help: 'Model id. "jev-latest" tracks TypeSafe\'s current release; pin one ("jev-1.13.0") to keep a live flow on one model, since the service may echo the alias back rather than the version it used. Required when Base URL names its own endpoint — a local server or an aggregator does not know TypeSafe\'s aliases, and an aggregator wants a vendor-prefixed id like "typesafe/jev-1.13" or "convaiinnovations/laya".',
+      placeholder: 'jev-latest  ·  gpt-6-luna',
+      help: 'Leave empty to take the protocol\'s default on its own host: "jev-latest" for System One, "gpt-6-luna" for the Decisions API (the only model it serves in public beta). Pin a version ("jev-1.13.0") to keep a live flow on one model. REQUIRED whenever Base URL names its own endpoint — a local server does not know TypeSafe\'s aliases, and a gateway slugs the same model its own way ("typesafe/jev-1.13", "openai/gpt-6-luna-decisions").',
     },
     {
       key: 'url',
       label: 'Base URL',
       type: 'text',
-      placeholder: 'https://api.typesafe.ai',
-      help: 'Optional — TypeSafe\'s own API by default (key from console.typesafe.ai). Point it at a local Laya server, a private deployment, or a third-party aggregator such as thejevai.com that fronts several deciders behind one key. Keys are NOT interchangeable between hosts, and an aggregator needs its own vendor-prefixed model id. The node appends /v1/systemone.',
+      placeholder: 'https://api.typesafe.ai  ·  https://api.openai.com',
+      help: 'Optional — the protocol\'s own host by default (api.typesafe.ai for System One, api.openai.com for the Decisions API). Point it at a local Laya or Ollama (http://localhost:11434), a private deployment, or a gateway that fronts several deciders behind one key (thejevai.com, Vercel AI Gateway). The node appends the protocol\'s path, so give the base only. Naming a URL makes Model required.',
     },
     {
       key: 'timeout_seconds',
@@ -299,7 +327,7 @@ const decisionSchema: SettingsSchema = {
       default: 30,
       min: 0,
       step: 1,
-      help: 'Per-call timeout. A System One model answers in well under a second; this is a safety net.',
+      help: 'Per-call timeout. A decision model answers in well under a second; this is a safety net.',
     },
     {
       // No `default` here, or every save would freeze today's number into the
@@ -311,7 +339,7 @@ const decisionSchema: SettingsSchema = {
       min: 0,
       step: 1,
       placeholder: '2',
-      help: 'Further attempts after a failed call, and only on the two statuses the service asks callers to back off on (429 rate limit, 529 overloaded) — never a validation error or a bad key. The node waits for whatever Retry-After asks, or backs off exponentially, capped at 8s. Leave empty for the default (2); enter 0 to decide once and route _exception if that fails.',
+      help: 'Further attempts after a failed call, and only on the statuses the protocol asks callers to back off on — 429 and 529 for System One, 429 and any 5xx for the Decisions API. Never a validation error or a bad key. The node waits for whatever Retry-After asks, or backs off exponentially, capped at 8s. Leave empty for the default (2); enter 0 to decide once and route _exception if that fails.',
     },
   ],
 }

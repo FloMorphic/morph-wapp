@@ -367,7 +367,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     group: 'ai',
     tagline: 'Decide fast among declared options',
     description:
-      'Evaluate a block of state — and any evidence you inject — against typed questions on a System One decision model: TypeSafe\'s hosted Jev, or a local Laya, whichever the settings profile points at (both serve the same POST /v1/systemone protocol). Each question declares the answers it may return — choice options, score levels or yes/no — and the model returns a calibrated probability over every one of them in a single fast call, never free text. Every option of a routed question is an output port; the top answer\'s port fires. `body.state` is the subject template, `evidence` the supporting chunks. Compiles to a Plugin node.',
+      'Evaluate a block of state — and any evidence you inject — against typed questions on a decision model, whichever one the settings profile points at. Two wire protocols serve these models and the node speaks both, selected by the profile: System One (POST /v1/systemone — TypeSafe\'s hosted Jev, a local Laya, Ollama\'s nimble) and the Decisions API (POST /v1/decisions — OpenAI\'s gpt-6-luna, or a gateway). The questions, options and ports are identical either way, so switching the profile re-points a flow without redrawing it. Each question declares the answers it may return — choice options, score levels or yes/no — and the model returns a probability over every one of them in a single fast call, never free text. Every option of a routed question is an output port; the top answer\'s port fires. `body.state` is the subject template, `evidence` the supporting chunks. Compiles to a Plugin node.',
     primitives: 'Plugin',
     plugin: true,
     defaults: () => ({
