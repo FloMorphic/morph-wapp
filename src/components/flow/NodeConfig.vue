@@ -2078,18 +2078,28 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
         </p>
         <p v-else class="text-[11px] leading-relaxed text-fg-subtle">
           The model returns a probability for <strong>every</strong> option and fires the top
-          answer's port (<code>question.option</code>). It cannot answer outside the options and
-          cannot decline — when nothing fits it still picks one, so declare an <code>other</code>
-          option where the state may not fit. The full distribution lands on this node's output under
+          answer's port (<code>question.option</code>). It cannot answer outside the options you
+          declare. On <strong>System One</strong> it also cannot decline — when nothing fits it
+          still picks one, so declare an <code>other</code> option where the state may not fit. The
+          <strong>Decisions API</strong> may instead <strong>refuse</strong> one question and answer
+          the rest, which <code>other</code> cannot prevent: that question has no answer, so a
+          routed one takes the exception port below, while one with <strong>route</strong> off lets
+          the run finish and is listed under
+          <code>{{ '$.' + (String(data().key || '') || 'decision') + '.refused' }}</code>.
+          The full distribution lands on this node's output under
           <code>{{ '$.' + (String(data().key || '') || 'decision') + '.answers' }}</code>, so a Rule
           node after it can apply a threshold visibly.
         </p>
         <p v-if="decisionRoutedOptions" class="text-[11px] leading-relaxed text-fg-subtle">
           Routing replaces the node's plain output with these ports, so it also grows an
-          <strong>exception</strong> port: the plugin routes there on an API error, a missing
-          answer, or a confidence below the floor you set, so the flow continues into whatever you
-          wire to it instead of stopping. Edges leaving it always carry the
-          <code>{{ EXCEPTION_TAG }}</code> tag.
+          <strong>exception</strong> port: the plugin routes there on an API error the profile's
+          retries did not fix (a 429, an overload, a 5xx), a missing answer, an answer naming an
+          option you did not declare, a <strong>routed</strong> question the model refused
+          (Decisions API only), or a confidence below the floor you set. It is
+          <strong>all or nothing</strong> — when the exception port fires, no option port does,
+          even for questions that answered fine, and the answers collected so far travel with it,
+          so the flow continues into whatever you wire there instead of stopping. Edges leaving it
+          always carry the <code>{{ EXCEPTION_TAG }}</code> tag.
         </p>
       </div>
     </template>
