@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { GraphNode } from '@vue-flow/core'
 import Icon from '@/components/ui/Icon.vue'
+import ClampText from '@/components/ui/ClampText.vue'
 import NodeSettingsSelector from '@/components/flow/NodeSettingsSelector.vue'
 import NodeConfig from '@/components/flow/NodeConfig.vue'
 import NodeStoreField from '@/components/flow/NodeStoreField.vue'
@@ -333,7 +334,11 @@ onBeforeUnmount(stopResize)
     </div>
 
     <div class="flex-1 space-y-4 overflow-y-auto p-4">
-      <p class="text-xs leading-relaxed text-fg-muted">
+      <!-- The node's description can run long (the AI Decision kind is ~150
+           words); clamp it to a few lines with a "Show more" toggle so it never
+           pushes the config below the fold. Keyed by node so switching nodes
+           re-measures and starts collapsed. -->
+      <ClampText :key="node.id" :lines="5" content-class="text-xs leading-relaxed text-fg-muted">
         <template v-for="(part, i) in descriptionParts" :key="i">
           <a
             v-if="part.url"
@@ -344,7 +349,7 @@ onBeforeUnmount(stopResize)
           >{{ part.text }}</a>
           <template v-else>{{ part.text }}</template>
         </template>
-      </p>
+      </ClampText>
 
       <!-- Identity strip: compact rows for title / key / scope. These are also
            editable inline on the node itself. `scope` carries a hint because a
