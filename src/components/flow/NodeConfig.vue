@@ -1475,6 +1475,16 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           plugin-side and fixed — edges leaving it always carry the
           <code>{{ EXCEPTION_TAG }}</code> tag.
         </p>
+        <p v-if="functions().length" class="text-[11px] leading-relaxed text-fg-subtle">
+          One of those is a <strong>decision</strong>, not a failure: when the model answers with
+          prose instead of calling any of your functions, the node worked — that is an ordinary
+          turn, and this branch is drawn for it. It does not mark the node failed, and
+          <strong>Stop on error</strong> does not stop the run at it. A provider error, or the model
+          calling a function you did not bind, <em>are</em> failures: those mark the node failed, so
+          Stop on error still ends the run there. Either way <code>code</code>,
+          <code>error</code> and the whole conversation land on the node's output for the branch to
+          read.
+        </p>
       </div>
     </template>
 
@@ -2100,6 +2110,16 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           even for questions that answered fine, and the answers collected so far travel with it,
           so the flow continues into whatever you wire there instead of stopping. Edges leaving it
           always carry the <code>{{ EXCEPTION_TAG }}</code> tag.
+        </p>
+        <p v-if="decisionRoutedOptions" class="text-[11px] leading-relaxed text-fg-subtle">
+          Two of those are <strong>decisions</strong>, not failures: a <strong>refusal</strong> and a
+          confidence below your floor both mean the node worked and concluded that the exception
+          branch is where the flow goes. They do not mark the node failed, and
+          <strong>Stop on error</strong> does not stop the run at them — otherwise the floor you set
+          would defeat itself, cutting the very branch you drew for it. The other three (an API
+          error, a missing answer, an undeclared option) are the model or the service failing to
+          deliver: those mark the node failed, so Stop on error still ends the run there. Either way
+          <code>code</code> and <code>error</code> land on the node's output for the branch to read.
         </p>
       </div>
     </template>
