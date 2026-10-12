@@ -76,6 +76,13 @@ const frame = computed(() => props.run.progress)
 const wait = computed(() => props.run.wait)
 const fanout = computed(() => props.run.fanout)
 const stopped = computed(() => props.run.stopped)
+// A branch cut because the plugin was never up is not the run's stop_on_error
+// setting doing its job — it happens whatever that setting says, and it is fixed
+// by starting the plugin. Saying so on the badge is the difference between the
+// reader looking at their flow and looking at their plugin.
+const stoppedLabel = computed(() =>
+  stopped.value?.reason === 'plugin_never_started' ? 'Plugin not running' : 'Branch stopped',
+)
 const errorText = computed(() => props.run.error || props.run.lastError || '')
 
 /** The band is for detail; with none of it, the badge says enough on its own. */
@@ -169,10 +176,10 @@ const showBand = computed(
     <p
       v-if="stopped"
       class="flex items-center gap-1 truncate text-[9.5px] font-semibold text-danger"
-      :title="`Branch stopped — ${stopped.cause} (${stopped.pruned} edge${stopped.pruned === 1 ? '' : 's'} pruned)`"
+      :title="`${stoppedLabel} — ${stopped.cause} (${stopped.pruned} edge${stopped.pruned === 1 ? '' : 's'} pruned)`"
     >
       <Icon name="alert-triangle" :size="10" class="shrink-0" />
-      <span class="truncate">Branch stopped · {{ stopped.pruned }} pruned</span>
+      <span class="truncate">{{ stoppedLabel }} · {{ stopped.pruned }} pruned</span>
     </p>
 
     <p

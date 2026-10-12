@@ -11,6 +11,7 @@ import {
   type NodeEnterDetail,
   type NodeExitDetail,
   type NodeRef,
+  type PluginNeverStartedFields,
   type ProcEvent,
   type ProcFinishDetail,
   type ProcStartDetail,
@@ -88,8 +89,17 @@ export interface NodeRun extends NodeRef {
   errors: { node: number; system: number }
   /** The last error message recorded against the node, whatever its kind. */
   lastError?: string
-  /** Set when `stop_on_error` cut the branch here — nothing continues past it. */
-  stopped?: { pruned: number; cause: string }
+  /**
+   * Set when the branch was cut here — nothing continues past this node.
+   *
+   * `reason` says which cut it was, because the reader's next move differs.
+   * `stop_on_error` is the run's setting acting on a node that did not deliver.
+   * `plugin_never_started` is a plugin node whose plugin was not up to receive
+   * the job: it happens whatever `stop_on_error` says, since a plugin node routes
+   * by the tags its plugin announces and one that never ran announced nothing —
+   * and it is fixed by starting the plugin, not by the flow's author.
+   */
+  stopped?: { pruned: number; cause: string; reason: 'stop_on_error' | 'plugin_never_started' }
   /** Last time anything about this node changed — drives the "most recent" pick. */
   at: number
 }
@@ -490,7 +500,27 @@ function applyLog(run: RunState, event: ProcEvent, ref?: NodeRef): void {
     case 'stop.on.error': {
       if (!node) break
       const fields = detail as unknown as StopOnErrorFields
-      node.stopped = { pruned: Number(fields.pruned) || 0, cause: fields.cause ?? '' }
+      node.stopped = {
+        pruned: Number(fields.pruned) || 0,
+        cause: fields.cause ?? '',
+        reason: 'stop_on_error',
+      }
+      node.at = event.ts
+      break
+    }
+    case 'plugin.never.started': {
+      if (!node) break
+      // Same shape as the cut above and a different cause: the plugin was not
+      // running, so it never selected a route. Without this the node would read
+      // as having simply ended, and a run with stop_on_error off — the only one
+      // that fanned out — would show no reason at all for the branch going no
+      // further.
+      const fields = detail as unknown as PluginNeverStartedFields
+      node.stopped = {
+        pruned: Number(fields.pruned) || 0,
+        cause: fields.cause ?? '',
+        reason: 'plugin_never_started',
+      }
       node.at = event.ts
       break
     }
