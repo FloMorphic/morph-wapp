@@ -344,15 +344,25 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     // and the designer's handling branch continues from there. Unbound (no
     // functions) the node keeps its single untagged handle, which already takes
     // every outcome, so there is nothing to fall back from.
+    //
+    // A row with no `name` yet is NOT a port. Its name is the route tag, so
+    // without one the port would carry no tags — and an edge with no tag is
+    // never selected by a next-filter, which means a branch the designer wired
+    // there could never run. The compiler already takes this view
+    // (flomorphic-api `boundFunctions` drops nameless rows), and the plugin
+    // infers its ports from what the compiler sent, so counting them here was
+    // the one place the three disagreed: a node whose only function row was
+    // unnamed showed an exception port the plugin did not believe it had, and an
+    // exception there reported a failure and routed nowhere.
     ports: (d) => {
-      const fns = asRows(d.functions)
+      const fns = asRows(d.functions).filter((f) => String(f.name ?? '').trim() !== '')
       if (fns.length === 0) return []
       return [
         ...fns.map((f, i) => ({
           id: String(f.id ?? f.name ?? `fn${i}`),
           label: String(f.title ?? '').trim() || String(f.name ?? '').trim() || `fn${i + 1}`,
           description: String(f.description ?? '').trim() || undefined,
-          tags: [String(f.name ?? '').trim()].filter(Boolean),
+          tags: [String(f.name ?? '').trim()],
         })),
         exceptionPort(),
       ]
@@ -426,13 +436,22 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
         if (!qid) return
         asRows(q.options).forEach((o, oi) => {
           const name = String(o.name ?? '').trim()
-          const tag = name ? decisionOptionTag(qid, name) : ''
+          // An option with no name yet is not a port: the name is half the route
+          // tag, and an edge with no tag is never selected by a next-filter, so
+          // a branch wired there could never run. The compiler drops these rows
+          // for the same reason (`decisionQuestions`: "an option without a name
+          // is skipped — it has no port to route on anyway"), and the plugin
+          // decides whether it has an exception port from what the compiler
+          // sent, so counting them here made the canvas promise a port the
+          // plugin did not believe in.
+          if (!name) return
+          const tag = decisionOptionTag(qid, name)
           const desc = String(o.description ?? '').trim()
           out.push({
             id: String(o.id ?? '').trim() || tag || `q${qi}-opt${oi}`,
-            label: name || `option ${oi + 1}`,
+            label: name,
             description: desc ? `${qid} · ${desc}` : qid,
-            tags: tag ? [tag] : [],
+            tags: [tag],
           })
         })
       })
