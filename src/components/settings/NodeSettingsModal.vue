@@ -5,12 +5,12 @@ import { nodeSettingsApi } from '@/api/nodeSettings'
 import { nodeUniqLabel } from '@/lib/nodeSettings'
 import { settingsSchemaFor, type SettingsField } from '@/lib/settingsSchemas'
 import { fetchOpenRouterModels, type OpenRouterModel } from '@/lib/openrouter'
-import { fetchPluginRegistrations, pluginRegistration, type PluginRegistration } from '@/lib/nodeExtRefs'
+import { pluginRegistration, type PluginRegistration } from '@/lib/nodeExtRefs'
+import { settingsBuckets, type SettingsBucket } from '@/lib/settingsBuckets'
 import { fetchPluginIntro } from '@/lib/pluginSettings'
 import { toPluginForm, withSchemaDefaults } from '@/lib/pluginForm'
 import { copyProfileJson, readProfileJson } from '@/lib/profileClipboard'
 import { useNotificationsStore } from '@/stores/notifications'
-import { NODE_LIST } from '@/data/nodeCatalog'
 import Modal from '@/components/ui/Modal.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -146,20 +146,15 @@ watch(pluginForm, (doc) => {
 // plugin. The `plugin` spec itself is excluded — it is the shell every imported
 // action shares, not a bucket of its own.
 
-const targets = ref<{ value: string; label: string; nodeType: string }[]>([])
+const targets = ref<SettingsBucket[]>([])
 
 async function loadTargets() {
-  const builtins = NODE_LIST.filter((s) => s.plugin && s.type !== 'plugin').map((s) => ({
-    value: s.type,
-    label: s.label,
-    nodeType: s.type,
-  }))
-  const plugins = (await fetchPluginRegistrations()).map((p) => ({
-    value: `ext:${p.pluginId}`,
-    label: `Plugin · ${p.name}`,
-    nodeType: 'plugin',
-  }))
-  targets.value = [...builtins, ...plugins]
+  targets.value = await settingsBuckets()
+}
+
+/** A plugin's entry says so: its name alone could be read as a builtin's. */
+function targetLabel(t: SettingsBucket): string {
+  return t.pluginId ? `Plugin · ${t.label}` : t.label
 }
 
 const subtitle = computed(() => {
@@ -170,7 +165,7 @@ const subtitle = computed(() => {
 
 function onPickTarget(value: string) {
   form.nodeUniqId = value
-  form.nodeType = targets.value.find((t) => t.value === value)?.nodeType ?? value
+  form.nodeType = targets.value.find((t) => t.nodeUniqId === value)?.nodeType ?? value
   void loadPluginForm()
 }
 
@@ -450,7 +445,7 @@ async function submit() {
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Node</label>
         <select class="input" :value="form.nodeUniqId" @change="onPickTarget(($event.target as HTMLSelectElement).value)">
           <option value="">Choose a node or plugin…</option>
-          <option v-for="t in targets" :key="t.value" :value="t.value">{{ t.label }}</option>
+          <option v-for="t in targets" :key="t.nodeUniqId" :value="t.nodeUniqId">{{ targetLabel(t) }}</option>
         </select>
         <p class="text-[11px] text-fg-subtle">
           The profile is shared by every instance of that node — for a plugin, by every node it contributes.

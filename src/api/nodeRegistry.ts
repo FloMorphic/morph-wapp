@@ -37,6 +37,11 @@ import { createId, now } from '@/lib/id'
 
 const LOCAL_KEY = 'node_registry'
 
+/** The list endpoint's ceiling (morph-api clamps `per_page` to 100), and how
+ *  many pages {@link nodeRegistryApi.listAll} will walk before it stops. */
+const REGISTRY_PER_PAGE = 100
+const REGISTRY_MAX_PAGES = 20
+
 export interface RegistryListParams extends PaginationParams {
   /** Scope to one origin: 'builtin' (admin panel) or 'extension' (portal). */
   kind?: ExtensionKind
@@ -142,6 +147,25 @@ export const nodeRegistryApi = {
   list(params?: RegistryListParams): Promise<Page<ExtensionRecord>> {
     if (apiEnabled()) return list<ExtensionRecord>('/extension', params as Record<string, unknown>)
     return Promise.resolve(localList(params))
+  },
+
+  /**
+   * Every row of a kind, paged through to the end.
+   *
+   * The palette, the Extensions portal and the settings buckets all need the
+   * *whole* registry, not a page of it — a plugin whose row falls off the end
+   * simply disappears from them. Asking for a big `per_page` is not enough:
+   * morph-api clamps it to 100 (models.maxPerPage), so an install with a few
+   * multi-action plugins already overflows one page. So we walk the pages.
+   */
+  async listAll(params?: Omit<RegistryListParams, 'page' | 'per_page'>): Promise<ExtensionRecord[]> {
+    const rows: ExtensionRecord[] = []
+    for (let page = 1; page <= REGISTRY_MAX_PAGES; page++) {
+      const res = await this.list({ ...params, page, per_page: REGISTRY_PER_PAGE })
+      rows.push(...res.list)
+      if (!res.list.length || page >= res.total_pages) break
+    }
+    return rows
   },
 
   get(id: string): Promise<ExtensionRecord> {

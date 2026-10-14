@@ -65,8 +65,7 @@ export const useExtensionsStore = defineStore('extensions', () => {
     loading.value = true
     error.value = null
     try {
-      const page = await nodeRegistryApi.list({ kind: 'extension', per_page: 200 })
-      all.value = page.list
+      all.value = await nodeRegistryApi.listAll({ kind: 'extension' })
       // Drop probe results for rows that are gone, keep the rest so a refresh
       // doesn't blank the status column.
       const live: Record<string, PluginState> = {}

@@ -41,9 +41,9 @@ export function fetchNodeExtRefs(force = false): Promise<NodeExtRefMap | null> {
 }
 
 async function load(): Promise<NodeExtRefMap | null> {
-  const page = await nodeRegistryApi.list({ kind: 'builtin', per_page: 100 })
+  const rows = await nodeRegistryApi.listAll({ kind: 'builtin' })
   const map: NodeExtRefMap = {}
-  for (const row of page.list) {
+  for (const row of rows) {
     if (specForType(row.type)) map[row.type] = { extensionId: row.id, pluginId: row.pluginId || undefined }
   }
   return Object.keys(map).length ? map : null
@@ -87,6 +87,10 @@ export interface PluginRegistration {
   extensionId: string
   pluginId: string
   name: string
+  /** The icon the registration row carries (an MDI name, or a local one), so a
+   *  plugin reads as itself wherever it is listed outside the palette — e.g. the
+   *  Node Settings page's bucket badges. Empty ⇒ the generic plug glyph. */
+  icon?: string
   /** The plugin's git source, when this install registered one with a repository
    *  — carried into an export's plugin manifest so a target install can name a
    *  repo for a plugin it is missing (see lib/exportFlow). */
@@ -118,13 +122,14 @@ export async function pluginRegistration(pluginId: string): Promise<PluginRegist
 }
 
 async function loadRegistrations(): Promise<PluginRegistration[]> {
-  const page = await nodeRegistryApi.list({ kind: 'extension', per_page: 200 })
-  return page.list
+  const rows = await nodeRegistryApi.listAll({ kind: 'extension' })
+  return rows
     .filter((row) => !row.action && row.pluginId)
     .map((row) => ({
       extensionId: row.id,
       pluginId: row.pluginId,
       name: row.name,
+      icon: row.icon?.name || undefined,
       repo: row.install?.repo?.trim() || undefined,
       ref: row.install?.ref?.trim() || undefined,
       subdir: row.install?.subdir?.trim() || undefined,
@@ -148,14 +153,14 @@ export function fetchPluginActions(force = false): Promise<PluginActionEntry[]> 
 }
 
 async function loadActions(): Promise<PluginActionEntry[]> {
-  const page = await nodeRegistryApi.list({ kind: 'extension', per_page: 200 })
+  const rows = await nodeRegistryApi.listAll({ kind: 'extension' })
   // A row with an `action` is one method of a plugin; the rest are the plugins'
   // own registration rows, which name them.
   const pluginNames = new Map<string, string>()
-  for (const row of page.list) {
+  for (const row of rows) {
     if (!row.action && row.pluginId) pluginNames.set(row.pluginId, row.name)
   }
-  return page.list
+  return rows
     .filter((row) => row.action && row.pluginId)
     .map((row) => {
       const className = (typeof row.tags?.class === 'string' ? row.tags.class : '').trim()
