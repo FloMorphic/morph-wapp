@@ -122,6 +122,25 @@ VITE_API_BASE_URL=http://localhost:9000   # your flomorphic-api base URL
 When set, the header shows **Connected** and workflow list/read/save/delete go through the API
 (`/flow`, `/flow/id/:id`), with `Run` enabled against the process endpoints (`/ps`).
 
+### Choosing the backend's database
+
+**Settings → Database** shows which database `flomorphic-api` persists to, and moves it to
+another one without a restart. SQLite is the default and needs no server; a deployment that
+outgrows a single node pastes a postgres URI here instead of editing the API's environment and
+redeploying.
+
+The flow is **Test** then **Switch**, because the two questions differ: a test probes the
+candidate (reachable? writable? vector memory available?) and creates nothing in it, so probing a
+mistyped URI leaves no trace. A switch repoints the API's live store — and **copies no data**: the
+app then shows whatever the target database already holds, with its schema created and the builtin
+palette seeded as on any first run. Moving existing rows is a separate step.
+
+The selection is saved on the API host and survives its restarts; *Reset to backend default* goes
+back to the API's own `DB_DRIVER` / `DB_SOURCE`. Vector indexes stay in sqlite-vec whichever driver
+is live, and a deployment may keep further entities (typically the credential-bearing ones) in that
+same sqlite file — the panel shows both. See the API's README for `DB_VECTOR_SOURCE` and
+`DB_LOCAL_TABLES`.
+
 ### In Docker
 
 ```sh
@@ -153,6 +172,7 @@ src/
 ├── components/
 │   ├── flow/       # Canvas, palette, node inspector, generic FlowNode
 │   ├── layout/     # Header, sidebar, theme toggle, app shell
+│   ├── settings/   # Node settings modal, plugin onboarding, database panel
 │   └── ui/         # Icon, Button, PageShell, EmptyState, …
 ├── data/           # nodeCatalog.ts — the FloMorphic node model
 ├── lib/            # icons, id, localStorage helpers

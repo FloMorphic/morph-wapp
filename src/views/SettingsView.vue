@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import PageShell from '@/components/ui/PageShell.vue'
 import Button from '@/components/ui/Button.vue'
 import Icon from '@/components/ui/Icon.vue'
+import DatabasePanel from '@/components/settings/DatabasePanel.vue'
 import { useUiStore, type ThemePreference } from '@/stores/ui'
 import { flowsApi } from '@/api/flows'
 import { nodeRegistryApi } from '@/api/nodeRegistry'
@@ -169,6 +170,9 @@ function clearLocal() {
           <code class="max-w-[50%] truncate font-mono text-xs text-fg-muted">{{ apiBase || 'no backend configured' }}</code>
         </div>
       </section>
+
+      <!-- Database (the backend's persistence) -->
+      <DatabasePanel />
 
       <!-- Engine resources (inflow dispatch pool) -->
       <section class="card p-5">

@@ -983,3 +983,73 @@ export interface AddInflowResourceInput {
   /** "Use just this one" — tag the resource so all dispatch pins to it. */
   pin?: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Database selection (`/database`)
+//
+// Which database the backend persists to, and moving it to another one. SQLite
+// is the default and is enough for a single-node install; a deployment that
+// outgrows it points the backend at postgres from the settings panel instead of
+// editing the environment and redeploying. Mirrors models/database.go.
+// ---------------------------------------------------------------------------
+
+/** A database to test or switch to. For `sqlite` the source is a file path, for
+ *  `postgres` a connection URI (postgres://user:pass@host:5432/db) or a libpq
+ *  key/value DSN. A blank driver means the default, sqlite. */
+export interface DatabaseTarget {
+  driver: string
+  source: string
+}
+
+/** GET /database — the whole settings view of persistence: which database is
+ *  live, where that selection came from, whether it is answering, and what else
+ *  could be selected. */
+export interface DatabaseState {
+  driver: string
+  /** The live source with any password masked — credentials are write-only, so
+   *  switching to the same server again means retyping the URI. */
+  source: string
+  /** "panel" when the live selection was saved from here, "env" when it came
+   *  from the backend's DB_DRIVER/DB_SOURCE. */
+  origin: 'panel' | 'env' | string
+  /** When the panel selection was saved (epoch ms); absent for "env". */
+  updatedAt?: number
+  /** The backends this build of the API can open. */
+  drivers: string[]
+  /** False when the instance cannot be repointed at run time (the endpoints
+   *  then only report). */
+  switchable: boolean
+  connected: boolean
+  latencyMs: number
+  /** Why the live database is not answering, when it is not. */
+  error?: string
+  /** The sqlite file holding the vector indexes. Vector memory is sqlite-vec on
+   *  every backend, so this stays a file path even on postgres; empty means
+   *  vector memory is switched off. */
+  vectorSource?: string
+  /** Entities a non-sqlite deployment still serves from that sqlite file
+   *  (the backend's DB_LOCAL_TABLES) — typically the credential-bearing ones. */
+  localEntities?: string[]
+  /** Every value `localEntities` accepts, for this panel to label. */
+  entityKeys?: string[]
+  /** Where a panel selection is persisted on the backend's disk. */
+  configFile?: string
+}
+
+/** POST /database/test — what a probe of a candidate database found. A probe
+ *  never creates application tables, so a failed test leaves the target
+ *  untouched. `ok: false` is a complete answer, not a failed request. */
+export interface DatabaseProbe {
+  ok: boolean
+  error?: string
+  driver: string
+  /** What answered ("PostgreSQL 16.2", a sqlite file). */
+  server?: string
+  /** Whether this connection may actually create objects — a read-only replica
+   *  opens fine and then fails on the first save. */
+  writable: boolean
+  /** Whether vector memory will work after switching. */
+  vector: boolean
+  /** Human-readable findings to show verbatim. */
+  notes?: string[]
+}
