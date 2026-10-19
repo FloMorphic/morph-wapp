@@ -20,6 +20,15 @@ function onSearch() {
   searchTimer = setTimeout(() => store.setSearch(searchInput.value), 250)
 }
 
+// Tag filter: clicking a flow's tag narrows the list to that label (match ANY,
+// filtered by the backend so paging stays right), clicking it again drops it.
+// The whole filter is one chip row with a Clear, so getting back to the full
+// list is always one click away.
+function onTag(tag: string, e: Event) {
+  e.stopPropagation()
+  void store.toggleTag(tag)
+}
+
 function open(w: FlowRecord) {
   router.push({ name: 'workflow-edit', params: { id: w.id } })
 }
@@ -63,7 +72,25 @@ function formatDate(ts?: number): string {
         </span>
         <input v-model="searchInput" class="input pl-9" placeholder="Search workflows…" @input="onSearch" />
       </div>
-      <span class="text-xs text-fg-subtle">{{ store.isRemote ? 'morph-api' : 'local storage' }}</span>
+      <!-- Active tag filter. Absent when nothing is filtered, which is the
+           default: the unfiltered list is what every caller gets. -->
+      <div v-if="store.tagFilter.length" class="flex min-w-0 flex-wrap items-center gap-1.5">
+        <Icon name="tag" :size="14" class="shrink-0 text-fg-subtle" />
+        <button
+          v-for="t in store.tagFilter"
+          :key="t"
+          class="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent"
+          title="Remove this label from the filter"
+          @click="store.toggleTag(t)"
+        >
+          {{ t }}
+          <Icon name="x" :size="11" />
+        </button>
+        <button class="text-xs text-fg-subtle underline-offset-2 hover:underline" @click="store.setTagFilter([])">
+          Clear
+        </button>
+      </div>
+      <span class="ml-auto text-xs text-fg-subtle">{{ store.isRemote ? 'morph-api' : 'local storage' }}</span>
     </div>
 
     <div v-if="store.loading" class="py-16 text-center text-sm text-fg-muted">Loading workflows…</div>
@@ -72,6 +99,16 @@ function formatDate(ts?: number): string {
       <p class="text-sm text-danger">{{ store.error }}</p>
       <Button class="mt-4" icon="refresh" @click="store.refresh()">Retry</Button>
     </div>
+
+    <!-- An empty filtered list is not an empty install: offer the way back. -->
+    <EmptyState
+      v-else-if="store.items.length === 0 && store.tagFilter.length"
+      icon="tag"
+      title="No workflow carries these labels"
+      :description="`Nothing matches ${store.tagFilter.join(', ')}. Clear the filter to see every workflow.`"
+    >
+      <Button icon="x" @click="store.setTagFilter([])">Clear the filter</Button>
+    </EmptyState>
 
     <EmptyState
       v-else-if="store.items.length === 0"
@@ -111,6 +148,24 @@ function formatDate(ts?: number): string {
           </div>
         </div>
         <h3 class="mt-3 truncate font-semibold text-fg">{{ w.title || 'Untitled workflow' }}</h3>
+        <!-- The flow's labels, each a filter. What a consumer of this install
+             narrows its own flow picker by, so they are worth seeing here. -->
+        <div v-if="w.tags?.length" class="mt-2 flex flex-wrap gap-1">
+          <span
+            v-for="t in w.tags"
+            :key="t"
+            class="rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors"
+            :class="
+              store.tagFilter.includes(t)
+                ? 'bg-accent text-accent-fg'
+                : 'bg-surface-2 text-fg-muted hover:bg-accent-soft hover:text-accent'
+            "
+            :title="store.tagFilter.includes(t) ? `Stop filtering by ${t}` : `Show only workflows labelled ${t}`"
+            @click="onTag(t, $event)"
+          >
+            {{ t }}
+          </span>
+        </div>
         <div class="mt-1 flex items-center gap-3 text-xs text-fg-subtle">
           <span>{{ nodeCount(w) }} node{{ nodeCount(w) === 1 ? '' : 's' }}</span>
           <span>·</span>

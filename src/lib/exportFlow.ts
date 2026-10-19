@@ -100,6 +100,10 @@ export interface WorkflowExport extends AiGraphPatch {
     exportedAt: string
   }
   title: string
+  /** The flow's labels, when it has any. They travel with the design so a flow
+   *  exported from a labelled canvas keeps them wherever it lands, and the tag
+   *  filter works on the target install without anyone relabelling by hand. */
+  tags?: string[]
   /** The imported plugins this flow uses, when it uses any — the import dialog
    *  diffs these against what the target has installed (see parseWorkflowFile). */
   plugins?: PluginManifestEntry[]
@@ -115,19 +119,26 @@ export function buildWorkflowExport(
   title: string,
   graph: VueFlowGraph,
   available: AvailablePlugin[] = [],
+  tags: string[] = [],
 ): WorkflowExport {
   const plugins = pluginManifest(graph, available)
   return {
     flomorphic: { kind: 'workflow', version: WORKFLOW_FILE_VERSION, exportedAt: new Date().toISOString() },
     title: title.trim() || 'Untitled workflow',
+    ...(tags.length ? { tags } : {}),
     ...(plugins.length ? { plugins } : {}),
     ...graphToPatch(graph),
   }
 }
 
 /** Pretty-printed on purpose: the file is meant to be read, diffed and pasted into a chat. */
-export function workflowExportJson(title: string, graph: VueFlowGraph, available: AvailablePlugin[] = []): string {
-  return `${JSON.stringify(buildWorkflowExport(title, graph, available), null, 2)}\n`
+export function workflowExportJson(
+  title: string,
+  graph: VueFlowGraph,
+  available: AvailablePlugin[] = [],
+  tags: string[] = [],
+): string {
+  return `${JSON.stringify(buildWorkflowExport(title, graph, available, tags), null, 2)}\n`
 }
 
 /**
@@ -179,6 +190,8 @@ export interface WorkflowFile {
   error: string | null
   /** The workflow's own name, when the file carries a header. */
   title?: string
+  /** The labels the file carries, when it has any. */
+  tags?: string[]
   /** Set when the header claims a format newer than this app writes. */
   newerVersion?: number
   /** The imported plugins the file declares it depends on, when it carries a
@@ -218,18 +231,21 @@ export function parseWorkflowFile(text: string): WorkflowFile {
     patch,
     error: null,
     title: header.title,
+    tags: header.tags,
     newerVersion: header.version && header.version > WORKFLOW_FILE_VERSION ? header.version : undefined,
     plugins: header.plugins,
   }
 }
 
 /** The envelope fields around the patch, when the document has them. */
-function readHeader(text: string): { title?: string; version?: number; plugins?: PluginManifestEntry[] } {
+function readHeader(text: string): { title?: string; tags?: string[]; version?: number; plugins?: PluginManifestEntry[] } {
   try {
     const raw = JSON.parse(text) as Record<string, unknown>
     const meta = (raw?.flomorphic ?? {}) as Record<string, unknown>
+    const tags = Array.isArray(raw?.tags) ? raw.tags.filter((t): t is string => typeof t === 'string') : undefined
     return {
       title: typeof raw?.title === 'string' && raw.title.trim() ? raw.title.trim() : undefined,
+      tags: tags?.length ? tags : undefined,
       version: typeof meta.version === 'number' ? meta.version : undefined,
       plugins: readManifest(raw?.plugins),
     }

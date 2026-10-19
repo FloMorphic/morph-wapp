@@ -23,6 +23,7 @@ import { downloadFile, fileBase, workflowExportJson, type AvailablePlugin, type 
 import { fetchPluginRegistrations } from '@/lib/nodeExtRefs'
 import { nodeUniqId, usesSettingsProfile } from '@/lib/nodeSettings'
 import { nodeSettingsApi } from '@/api/nodeSettings'
+import { normalizeTags } from '@/api/flows'
 import type { NodeSetting } from '@/types/api'
 
 const props = defineProps<{ id?: string }>()
@@ -48,6 +49,11 @@ const UNTITLED = 'Untitled workflow'
 const isUnnamed = (t: string) => !t.trim() || t.trim() === UNTITLED
 
 const title = ref(UNTITLED)
+// The flow's labels, edited as free text and normalized on save. They are what
+// a consumer of this install filters its flow picker by (SurfStat narrows "run
+// a flow on this row" to the framework that installed the flow), so they are
+// part of the design, not metadata hidden in a side panel.
+const tagsText = ref('')
 const currentId = ref<string | undefined>(props.id)
 const dirty = ref(false)
 const saving = ref(false)
@@ -60,6 +66,7 @@ async function init() {
     try {
       const record = await store.get(props.id)
       title.value = record.title || UNTITLED
+      tagsText.value = (record.tags ?? []).join(', ')
       currentId.value = record.id
       canvas.value?.loadGraph(record.view_flow ?? { nodes: [], edges: [] })
     } catch (err) {
@@ -67,6 +74,7 @@ async function init() {
     }
   } else {
     title.value = UNTITLED
+    tagsText.value = ''
     currentId.value = undefined
     canvas.value?.loadGraph({ nodes: [], edges: [] }, true)
   }
@@ -140,20 +148,22 @@ async function onImport({
   patch,
   mode,
   title: fileTitle,
+  tags: fileTags,
   plugins,
 }: {
   patch: AiGraphPatch
   mode: 'add' | 'replace'
   title?: string
+  tags?: string[]
   plugins?: PluginManifestEntry[]
 }) {
   if (mode === 'replace') {
     canvas.value?.loadGraph({ nodes: [], edges: [] })
     await nextTick()
-    return applyImport(planPatch(patch, null), mode, fileTitle, plugins)
+    return applyImport(planPatch(patch, null), mode, fileTitle, fileTags, plugins)
   }
   const existing = currentGraph()
-  return applyImport(planPatch(offsetPatch(patch, existing), existing), mode, fileTitle, plugins)
+  return applyImport(planPatch(offsetPatch(patch, existing), existing), mode, fileTitle, fileTags, plugins)
 }
 
 /**
@@ -192,11 +202,16 @@ async function applyImport(
   planned: PlannedPatch,
   mode: 'add' | 'replace',
   fileTitle?: string,
+  fileTags?: string[],
   plugins?: PluginManifestEntry[],
 ) {
   await resolveImportedProfiles(planned)
   await canvas.value?.applyPatch(planned, plugins)
   if (mode === 'replace' && fileTitle && isUnnamed(title.value)) title.value = fileTitle
+  // The file's labels are adopted only when this flow has none of its own, for
+  // the same reason as the title: an import must not relabel a flow behind the
+  // author's back. They still need a Save to be committed.
+  if (fileTags?.length && !tagsText.value.trim()) tagsText.value = normalizeTags(fileTags).join(', ')
   dirty.value = true
   notifications.notify({
     level: 'success',
@@ -225,7 +240,9 @@ async function exportJson() {
     subdir: r.subdir,
   }))
   downloadFile(
-    new Blob([workflowExportJson(title.value, graph, available)], { type: 'application/json' }),
+    new Blob([workflowExportJson(title.value, graph, available, normalizeTags(tagsText.value.split(',')))], {
+      type: 'application/json',
+    }),
     `${fileBase(title.value)}.flow.json`,
   )
   notifications.notify({
@@ -265,7 +282,13 @@ async function save() {
   // before the guard is armed looks like an external edit.
   lastSelfSaveAt = Date.now()
   try {
-    const record = await store.save({ id: currentId.value, title: title.value.trim() || UNTITLED, view_flow: graph })
+    const record = await store.save({
+      id: currentId.value,
+      title: title.value.trim() || UNTITLED,
+      view_flow: graph,
+      tags: normalizeTags(tagsText.value.split(',')),
+    })
+    tagsText.value = (record.tags ?? []).join(', ')
     lastSelfSaveAt = Date.now()
     dirty.value = false
     // The log drawer names nodes/edges by resolving ids against the saved graph;
@@ -301,6 +324,22 @@ async function save() {
         placeholder="Workflow name"
         @input="dirty = true"
       />
+
+      <!-- Tags: free text, comma-separated, normalized on save (the saved form
+           is read back into the field). A flow's labels are how another system
+           narrows a flow list to the ones it cares about. -->
+      <label
+        class="hidden min-w-0 max-w-[13rem] flex-1 items-center gap-1.5 rounded-lg border border-transparent px-2 py-1.5 text-fg-subtle hover:border-line focus-within:border-accent sm:flex"
+        title="Labels for this flow, comma-separated — what a flow list can be filtered by (e.g. a compliance framework's name)"
+      >
+        <Icon name="tag" :size="15" class="shrink-0" />
+        <input
+          v-model="tagsText"
+          class="min-w-0 flex-1 bg-transparent text-xs text-fg outline-none"
+          placeholder="tags, comma separated"
+          @input="dirty = true"
+        />
+      </label>
 
       <span v-if="dirty" class="text-[11px] text-fg-subtle">Unsaved changes</span>
 

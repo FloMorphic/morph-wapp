@@ -35,12 +35,22 @@ const props = defineProps<{
   resolveGraph: () => VueFlowGraph
 }>()
 const emit = defineEmits<{
-  (e: 'apply', payload: { patch: AiGraphPatch; mode: 'add' | 'replace'; title?: string; plugins?: PluginManifestEntry[] }): void
+  (
+    e: 'apply',
+    payload: {
+      patch: AiGraphPatch
+      mode: 'add' | 'replace'
+      title?: string
+      tags?: string[]
+      plugins?: PluginManifestEntry[]
+    },
+  ): void
 }>()
 
 const open = ref(false)
 const fileName = ref('')
 const fileTitle = ref<string | undefined>(undefined)
+const fileTags = ref<string[] | undefined>(undefined)
 const patch = ref<AiGraphPatch | null>(null)
 const error = ref<string | null>(null)
 const newerVersion = ref<number | undefined>(undefined)
@@ -76,6 +86,7 @@ function reset() {
   patch.value = null
   error.value = null
   newerVersion.value = undefined
+  fileTags.value = undefined
   filePlugins.value = []
   dragging.value = false
   if (input.value) input.value.value = ''
@@ -90,6 +101,7 @@ async function readFile(file: File | undefined | null) {
     patch.value = parsed.patch
     error.value = parsed.error
     fileTitle.value = parsed.title
+    fileTags.value = parsed.tags
     newerVersion.value = parsed.newerVersion
     filePlugins.value = parsed.plugins ?? []
   } catch (err) {
@@ -146,7 +158,7 @@ const missingPlugins = computed<PluginManifestEntry[]>(() => {
 
 function apply(mode: 'add' | 'replace') {
   if (!patch.value || !canApply.value) return
-  emit('apply', { patch: patch.value, mode, title: fileTitle.value, plugins: filePlugins.value })
+  emit('apply', { patch: patch.value, mode, title: fileTitle.value, tags: fileTags.value, plugins: filePlugins.value })
   open.value = false
   reset()
 }

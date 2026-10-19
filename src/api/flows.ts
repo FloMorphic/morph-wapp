@@ -15,6 +15,10 @@ export interface SaveFlowInput {
   id?: string
   title: string
   view_flow: VueFlowGraph
+  /** The flow's labels. Omit (undefined) and the backend keeps whatever is
+   *  stored — a save that knows nothing about tags must not strip the ones a
+   *  package stamped on the flow; `[]` clears them. */
+  tags?: string[]
 }
 
 // ---- Local backend ----------------------------------------------------------
@@ -22,7 +26,13 @@ export interface SaveFlowInput {
 function localList(params?: PaginationParams): Page<FlowRecord> {
   const all = readCollection<FlowRecord>(LOCAL_KEY).sort((a, b) => b.updatedAt - a.updatedAt)
   const search = params?.search?.toLowerCase()
-  const filtered = search ? all.filter((f) => f.title.toLowerCase().includes(search)) : all
+  const wanted = normalizeTags(params?.tags?.split(','))
+  const filtered = all.filter(
+    (f) =>
+      (!search || f.title.toLowerCase().includes(search)) &&
+      // Match ANY, the same contract as the backend's tag predicate.
+      (wanted.length === 0 || (f.tags ?? []).some((t) => wanted.includes(t))),
+  )
   const perPage = params?.per_page ?? 12
   const page = Math.max(1, params?.page ?? 1)
   const start = (page - 1) * perPage
@@ -48,7 +58,14 @@ function localSave(input: SaveFlowInput): FlowRecord {
   if (input.id) {
     const idx = all.findIndex((f) => f.id === input.id)
     if (idx >= 0) {
-      const updated: FlowRecord = { ...all[idx], title: input.title, view_flow: input.view_flow, updatedAt: ts }
+      const updated: FlowRecord = {
+        ...all[idx],
+        title: input.title,
+        view_flow: input.view_flow,
+        // undefined keeps the stored tags, like the backend's upsert.
+        tags: input.tags === undefined ? all[idx].tags : normalizeTags(input.tags),
+        updatedAt: ts,
+      }
       all[idx] = updated
       writeCollection(LOCAL_KEY, all)
       return updated
@@ -58,6 +75,7 @@ function localSave(input: SaveFlowInput): FlowRecord {
     id: input.id ?? createId('flow'),
     title: input.title,
     view_flow: input.view_flow,
+    tags: normalizeTags(input.tags),
     createdAt: ts,
     updatedAt: ts,
   }
@@ -109,4 +127,40 @@ export const flowsApi = {
     localRemove(id)
     return Promise.resolve()
   },
+
+  /**
+   * Relabel a saved flow without resending its graph (`PUT /flow/id/:id/tags`).
+   * `mode: 'merge'` adds to what the flow already carries; the default replaces
+   * the list, and an empty list clears it.
+   */
+  setTags(id: string, tags: string[], mode: 'set' | 'merge' = 'set'): Promise<{ id: string; tags: string[] }> {
+    if (apiEnabled()) return http.put<{ id: string; tags: string[] }>(`/flow/id/${id}/tags`, { tags, mode })
+    const rec = localGet(id)
+    const next = mode === 'merge' ? [...(rec.tags ?? []), ...tags] : tags
+    const saved = localSave({ id, title: rec.title, view_flow: rec.view_flow, tags: next })
+    return Promise.resolve({ id, tags: saved.tags ?? [] })
+  },
+}
+
+/**
+ * The backend's models.NormalizeTags, for the local (no-backend) path and for
+ * the tag inputs: trimmed, lower-cased, inner whitespace to a dash, commas and
+ * quotes dropped (they would break the delimited filter), de-duplicated.
+ * Exported so a tag editor shows the operator the tag they will actually get.
+ */
+export function normalizeTags(tags?: string[]): string[] {
+  const out: string[] = []
+  for (const raw of tags ?? []) {
+    const t = raw
+      .toLowerCase()
+      .replace(/[,"]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 64)
+    if (t && !out.includes(t)) out.push(t)
+    if (out.length === 32) break
+  }
+  return out
 }

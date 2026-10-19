@@ -29,6 +29,10 @@ export interface PaginationParams {
   page?: number
   per_page?: number
   search?: string
+  /** Comma-separated match-ANY label filter (`/flow?tags=`). A row is kept when
+   *  it carries at least one of them; empty or absent is the unfiltered list.
+   *  Only the flow list honours it today. */
+  tags?: string
 }
 
 /* ---- Vue Flow graph (the `view_flow` field, matches compilers/vueFlow) ---- */
@@ -63,6 +67,12 @@ export interface VueFlowGraph {
 export interface FlowRecord {
   id: string
   title: string
+  /** Free-form labels for grouping and filtering the flow list — what a
+   *  consumer of this install (SurfStat's "run a flow on this row" picker above
+   *  all) narrows by, so an operator sees the handful of flows their compliance
+   *  framework installed rather than every flow on the canvas. Normalized by
+   *  the backend: lower-case, de-duplicated, no commas. */
+  tags?: string[]
   createdAt: number
   updatedAt: number
   view_flow: VueFlowGraph

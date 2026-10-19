@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { FlowRecord, VueFlowGraph } from '@/types/api'
-import { flowsApi, type SaveFlowInput } from '@/api/flows'
+import { flowsApi, normalizeTags, type SaveFlowInput } from '@/api/flows'
 
 /**
  * Workflow list state (the Workflows index page). The editor loads/saves single
@@ -12,6 +12,9 @@ export const useWorkflowsStore = defineStore('workflows', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
   const search = ref('')
+  /** Active match-ANY tag filter. Empty is the whole list, so clearing the
+   *  filter is just emptying this. */
+  const tagFilter = ref<string[]>([])
 
   const page = ref(1)
   const totalPages = ref(1)
@@ -31,7 +34,12 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     loading.value = true
     error.value = null
     try {
-      const res = await flowsApi.list({ page: target, per_page: perPage.value, search: search.value })
+      const res = await flowsApi.list({
+        page: target,
+        per_page: perPage.value,
+        search: search.value,
+        tags: tagFilter.value.join(',') || undefined,
+      })
       items.value = res.list
       page.value = res.page
       totalPages.value = res.total_pages
@@ -87,6 +95,19 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     await refresh()
   }
 
+  /** Replace the tag filter and reload from page 1. An empty list clears it. */
+  async function setTagFilter(tags: string[]): Promise<void> {
+    tagFilter.value = normalizeTags(tags)
+    await refresh()
+  }
+
+  /** Add or remove one tag from the filter (a click on a tag chip). */
+  async function toggleTag(tag: string): Promise<void> {
+    const [t] = normalizeTags([tag])
+    if (!t) return
+    await setTagFilter(tagFilter.value.includes(t) ? tagFilter.value.filter((x) => x !== t) : [...tagFilter.value, t])
+  }
+
   async function remove(id: string): Promise<void> {
     await flowsApi.remove(id)
     // Stepping back a page if we just deleted the last row on it.
@@ -98,6 +119,12 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     return flowsApi.save(input)
   }
 
+  /** Relabel a flow in place (no graph round-trip) and refresh the page. */
+  async function setTags(id: string, tags: string[]): Promise<void> {
+    await flowsApi.setTags(id, normalizeTags(tags))
+    await fetchPage(page.value)
+  }
+
   function get(id: string): Promise<FlowRecord> {
     return flowsApi.get(id)
   }
@@ -107,6 +134,7 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     loading,
     error,
     search,
+    tagFilter,
     isRemote,
     page,
     total,
@@ -120,8 +148,11 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     next,
     prev,
     setSearch,
+    setTagFilter,
+    toggleTag,
     remove,
     save,
+    setTags,
     get,
     ingestFlowChanged,
   }
