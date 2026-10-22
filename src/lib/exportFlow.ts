@@ -32,7 +32,7 @@
  */
 
 import { graphToPatch, parseAiGraph, type AiGraphPatch } from '@/lib/aiGraph'
-import type { VueFlowGraph } from '@/types/api'
+import type { FlowPreferences, VueFlowGraph } from '@/types/api'
 
 /** Bumped only if the header's shape changes — the patch versions with the catalog. */
 export const WORKFLOW_FILE_VERSION = 1
@@ -107,6 +107,12 @@ export interface WorkflowExport extends AiGraphPatch {
   /** The imported plugins this flow uses, when it uses any — the import dialog
    *  diffs these against what the target has installed (see parseWorkflowFile). */
   plugins?: PluginManifestEntry[]
+  /** The flow's entry form, when it declares one. Like the tags it travels with
+   *  the design: the input a flow asks for is part of what the flow IS, so a
+   *  flow installed elsewhere asks for it there too. It carries no
+   *  install-local identity — a document and a context path — so there is
+   *  nothing to re-stamp on the way in. */
+  preferences?: FlowPreferences
 }
 
 /**
@@ -120,12 +126,18 @@ export function buildWorkflowExport(
   graph: VueFlowGraph,
   available: AvailablePlugin[] = [],
   tags: string[] = [],
+  preferences?: FlowPreferences,
 ): WorkflowExport {
   const plugins = pluginManifest(graph, available)
+  const entry = preferences?.entry?.form?.schema
   return {
     flomorphic: { kind: 'workflow', version: WORKFLOW_FILE_VERSION, exportedAt: new Date().toISOString() },
     title: title.trim() || 'Untitled workflow',
     ...(tags.length ? { tags } : {}),
+    // Only a preferences object that declares something is written: an empty
+    // one would read on the far side as "this flow asks for nothing", which is
+    // the same as not writing it, with more noise.
+    ...(entry && Object.keys(entry).length ? { preferences } : {}),
     ...(plugins.length ? { plugins } : {}),
     ...graphToPatch(graph),
   }
@@ -137,8 +149,9 @@ export function workflowExportJson(
   graph: VueFlowGraph,
   available: AvailablePlugin[] = [],
   tags: string[] = [],
+  preferences?: FlowPreferences,
 ): string {
-  return `${JSON.stringify(buildWorkflowExport(title, graph, available, tags), null, 2)}\n`
+  return `${JSON.stringify(buildWorkflowExport(title, graph, available, tags, preferences), null, 2)}\n`
 }
 
 /**
@@ -197,6 +210,9 @@ export interface WorkflowFile {
   /** The imported plugins the file declares it depends on, when it carries a
    *  manifest — the source the import dialog names a missing plugin's repo from. */
   plugins?: PluginManifestEntry[]
+  /** The entry form the file carries, when it declares one — the input the
+   *  imported flow asks for before it runs. */
+  preferences?: FlowPreferences
 }
 
 /**
@@ -234,6 +250,8 @@ export function parseWorkflowFile(text: string): WorkflowFile {
     tags: header.tags,
     newerVersion: header.version && header.version > WORKFLOW_FILE_VERSION ? header.version : undefined,
     plugins: header.plugins,
+    // The patch parser already vetted it (a file is a third party too).
+    preferences: patch.preferences,
   }
 }
 

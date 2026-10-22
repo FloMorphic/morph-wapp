@@ -8,7 +8,7 @@ import PatchReview from './PatchReview.vue'
 import { planPatch, type AiGraphPatch } from '@/lib/aiGraph'
 import { parseWorkflowFile, referencedActions, namespaceOf, type PluginManifestEntry } from '@/lib/exportFlow'
 import { fetchPluginActions } from '@/lib/nodeExtRefs'
-import type { VueFlowGraph } from '@/types/api'
+import type { FlowPreferences, VueFlowGraph } from '@/types/api'
 
 /**
  * "Import" — the other end of Export: a workflow file back onto the canvas.
@@ -43,6 +43,8 @@ const emit = defineEmits<{
       title?: string
       tags?: string[]
       plugins?: PluginManifestEntry[]
+      /** The entry form the file declares, when it carries one. */
+      preferences?: FlowPreferences
     },
   ): void
 }>()
@@ -55,6 +57,7 @@ const patch = ref<AiGraphPatch | null>(null)
 const error = ref<string | null>(null)
 const newerVersion = ref<number | undefined>(undefined)
 const filePlugins = ref<PluginManifestEntry[]>([])
+const filePrefs = ref<FlowPreferences | undefined>(undefined)
 const dragging = ref(false)
 const input = ref<HTMLInputElement | null>(null)
 
@@ -102,6 +105,7 @@ async function readFile(file: File | undefined | null) {
     error.value = parsed.error
     fileTitle.value = parsed.title
     fileTags.value = parsed.tags
+    filePrefs.value = parsed.preferences
     newerVersion.value = parsed.newerVersion
     filePlugins.value = parsed.plugins ?? []
   } catch (err) {
@@ -158,7 +162,14 @@ const missingPlugins = computed<PluginManifestEntry[]>(() => {
 
 function apply(mode: 'add' | 'replace') {
   if (!patch.value || !canApply.value) return
-  emit('apply', { patch: patch.value, mode, title: fileTitle.value, tags: fileTags.value, plugins: filePlugins.value })
+  emit('apply', {
+    patch: patch.value,
+    mode,
+    title: fileTitle.value,
+    tags: fileTags.value,
+    plugins: filePlugins.value,
+    preferences: filePrefs.value,
+  })
   open.value = false
   reset()
 }

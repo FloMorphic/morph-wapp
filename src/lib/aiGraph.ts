@@ -36,6 +36,7 @@ import {
   decisionQuestionRoutes,
 } from '@/data/nodeCatalog'
 import { jsonrepair } from 'jsonrepair'
+import type { FlowPreferences } from '@/types/api'
 
 import { createId } from '@/lib/id'
 import { layeredLayout } from '@/lib/graphLayout'
@@ -81,6 +82,11 @@ export interface AiGraphPatch {
   edges?: AiEdgeSpec[]
   /** Free-text remarks from the assistant (assumptions, what to fill in). */
   notes?: string[]
+  /** The flow's entry form, when the design declares one — the input the flow
+   *  asks for before it runs, instead of a JS node that seeds the context. It
+   *  is not part of the graph, so it rides alongside the nodes all the way to
+   *  the editor, which saves it on the flow (see FlowEntryButton). */
+  preferences?: FlowPreferences
 }
 
 /* -------------------------------------------------------------- planned form */
@@ -120,6 +126,9 @@ export interface PlannedPatch {
   edges: PlannedEdge[]
   problems: PatchProblem[]
   notes: string[]
+  /** Passed through from the patch — the planner has nothing to do with it, but
+   *  whoever applies the patch has to land it on the flow. */
+  preferences?: FlowPreferences
 }
 
 export const hasErrors = (p: PlannedPatch): boolean => p.problems.some((x) => x.level === 'error')
@@ -177,10 +186,27 @@ export function parseAiGraph(raw: string): ParseResult {
       nodes: obj.nodes.filter((n) => n && typeof n === 'object') as AiNodeSpec[],
       edges: Array.isArray(obj.edges) ? (obj.edges.filter((e) => e && typeof e === 'object') as AiEdgeSpec[]) : [],
       notes: Array.isArray(obj.notes) ? obj.notes.map(String) : [],
+      preferences: readPreferences(obj.preferences),
     },
     error: null,
     repaired,
   }
+}
+
+/**
+ * The `preferences` field of a patch, kept only when it actually declares an
+ * entry document. A model is a third party here: anything else — a string, an
+ * entry with no form — reads as "no preferences" rather than being passed on
+ * for the backend to reject.
+ */
+function readPreferences(value: unknown): FlowPreferences | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const entry = (value as Record<string, unknown>).entry
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return undefined
+  const form = (entry as Record<string, unknown>).form
+  const schema = form && typeof form === 'object' ? (form as Record<string, unknown>).schema : undefined
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema) || !Object.keys(schema).length) return undefined
+  return value as FlowPreferences
 }
 
 /**
@@ -363,7 +389,7 @@ export function planPatch(patch: AiGraphPatch, existing?: VueFlowGraph | null): 
 
   layout(planned, edges, existingNodes)
 
-  return { nodes: planned, edges, problems, notes: patch.notes ?? [] }
+  return { nodes: planned, edges, problems, notes: patch.notes ?? [], preferences: patch.preferences }
 }
 
 /**
@@ -1062,6 +1088,15 @@ export function buildDesignerPrompt(
         ],
         edges: [{ from: 'local-name', to: 'other-ref', port: 'escalate', note: 'when the model calls escalate' }],
         notes: ['anything the designer must fill in by hand'],
+        preferences: {
+          entry: {
+            title: 'Order to review',
+            form: { schema: { type: 'object', properties: { orderId: { type: 'string' } }, required: ['orderId'] } },
+            target: '$._entry',
+            prefill: 'default',
+            required: true,
+          },
+        },
       },
       null,
       2,
@@ -1071,6 +1106,19 @@ export function buildDesignerPrompt(
     '- `ref` is a short local name you invent; `edges` refer to nodes by `ref`. Real canvas ids are assigned on import.',
     '- Every node carries `title` (label), `key` (where its output is written into the Context) and `scope` (the JSONPath slice it reads/writes, usually `$`).',
     '- `key` names the node\'s output inside its scope, and naming one is usually right — it is how a later node addresses this result (`{{$.summary}}`, `_get("$.summary")`). Leaving `key` empty is the deliberate alternative: the node commits AT its scope, so an object result is merged into the Context at that point (with `scope: "$"`, its fields land at the top level) — good for a node that contributes fields to a shared record rather than a result of its own. A non-object result from a key-less node has nowhere to go and lands under `unknow`, so give any node that emits a plain value a `key`.',
+    '',
+    '## The input a flow asks for: `preferences.entry`',
+    'A flow that needs data it cannot fetch itself — the order to review, the threshold to apply, the recipient — declares an ENTRY FORM instead of a node that invents it. It is optional: omit `preferences` when the flow needs nothing.',
+    '',
+    '- `form.schema` is EITHER a JSON Schema (fields, types, defaults, enums, `required`) OR a plain JSON object of the values to seed. The first gets a full form; the second is the quick way to hand a flow a fixed shape. A document counts as a schema when it declares `$schema` or a non-empty `properties`.',
+    '- `form.ui` is an optional JSON Forms UI schema (layout, widgets) for a schema form.',
+    '- `target` is the ONE context location the answers are written to — `$._entry` by default. A plain member path (`$`, `$._entry`, `$.input.order`); missing objects along it are created and nothing else in the Context is touched. Array, wildcard and filter paths are refused.',
+    '- `prefill` is `default` (start the fields at the document\'s own defaults) or `live` (start them at whatever already sits at `target` in the context this run goes against).',
+    '- `required: true` refuses a launch that supplies nothing and finds nothing at the target.',
+    '',
+    '**Declare an entry instead of seeding the Context with a `js` node.** The pattern of wiring a `js` node after the start node whose only job is to `return {…}` a fixed shape is exactly what this replaces: the data arrives validated, before the first node runs, from whoever launched the flow. Downstream nodes read it like anything else — `{{$._entry.orderId}}`, `_get("$._entry.orderId")`. Keep a `js` node for data the flow must *derive*, not for data it must be *given*.',
+    '',
+    '**Treat the entry as input that may not arrive.** Filling the form is the launcher\'s choice: a run can start with no values at all (a trigger, a schedule, an agent), a field with no default comes through absent, and a cleared field comes through null or empty. If the flow genuinely cannot proceed without a field, put a `js` node right after the start node that CHECKS it — read `_get("$._entry")`, supply the fallback or route to a branch that reports it — and have the rest of the graph depend on that node\'s output rather than on the raw entry. `required: true` refuses an empty launch, but it does not make any individual field non-null.',
     '',
     '## Scope — and the loop it hides',
     '`scope` is a full JSONPath: dotted paths, wildcards, expressions and filter queries all work.',

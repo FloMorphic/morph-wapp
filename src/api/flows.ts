@@ -1,6 +1,15 @@
-import type { CompiledFlow, FlowRecord, Page, PaginationParams, VueFlowGraph } from '@/types/api'
+import type {
+  CompiledFlow,
+  FlowEntryView,
+  FlowPreferences,
+  FlowRecord,
+  Page,
+  PaginationParams,
+  VueFlowGraph,
+} from '@/types/api'
 import { apiEnabled, http, list } from './client'
 import { readCollection, writeCollection } from '@/lib/localStore'
+import { resolveEntryViewLocally } from '@/lib/flowEntry'
 import { createId, now } from '@/lib/id'
 
 /**
@@ -19,6 +28,10 @@ export interface SaveFlowInput {
    *  stored — a save that knows nothing about tags must not strip the ones a
    *  package stamped on the flow; `[]` clears them. */
   tags?: string[]
+  /** The flow's preferences (its entry form). Same contract as the tags: omit
+   *  and the stored ones are kept, which is why a canvas save — which knows
+   *  nothing about the form — never has to send it. `{}` clears them. */
+  preferences?: FlowPreferences
 }
 
 // ---- Local backend ----------------------------------------------------------
@@ -64,6 +77,7 @@ function localSave(input: SaveFlowInput): FlowRecord {
         view_flow: input.view_flow,
         // undefined keeps the stored tags, like the backend's upsert.
         tags: input.tags === undefined ? all[idx].tags : normalizeTags(input.tags),
+        preferences: input.preferences === undefined ? all[idx].preferences : normalizePreferences(input.preferences),
         updatedAt: ts,
       }
       all[idx] = updated
@@ -76,6 +90,7 @@ function localSave(input: SaveFlowInput): FlowRecord {
     title: input.title,
     view_flow: input.view_flow,
     tags: normalizeTags(input.tags),
+    preferences: normalizePreferences(input.preferences),
     createdAt: ts,
     updatedAt: ts,
   }
@@ -129,6 +144,53 @@ export const flowsApi = {
   },
 
   /**
+   * The flow's preferences — its entry form — read and written on their own
+   * (`GET/PUT /flow/id/:id/preferences`).
+   *
+   * Their own route for the same reason the tags have one: a form is edited by
+   * a dialog that has no business re-sending (and possibly stale-overwriting) a
+   * 35 KB view_flow to change a schema.
+   */
+  getPreferences(id: string): Promise<FlowPreferences> {
+    if (apiEnabled()) {
+      return http
+        .get<{ id: string; preferences: FlowPreferences }>(`/flow/id/${id}/preferences`)
+        .then((r) => r.preferences ?? {})
+    }
+    return Promise.resolve(localGet(id).preferences ?? {})
+  },
+
+  /** Set (or, with `{}`, clear) a flow's preferences without touching its graph. */
+  setPreferences(id: string, preferences: FlowPreferences): Promise<FlowPreferences> {
+    if (apiEnabled()) {
+      return http
+        .put<{ id: string; preferences: FlowPreferences }>(`/flow/id/${id}/preferences`, { preferences })
+        .then((r) => r.preferences ?? {})
+    }
+    const rec = localGet(id)
+    const saved = localSave({ id, title: rec.title, view_flow: rec.view_flow, preferences })
+    return Promise.resolve(saved.preferences ?? {})
+  },
+
+  /**
+   * The entry form resolved for one launch (`GET /flow/id/:id/entry`): the
+   * declared form, the context path its answers land at, and the values the
+   * fields should start at.
+   *
+   * The backend resolves it because "what should the fields start at" depends
+   * on the entry's prefill mode and on the context the run will go against —
+   * the launcher, an agent over MCP and an installer must all get the same
+   * answer. Local mode resolves what it can itself (see resolveEntryViewLocally).
+   */
+  getEntry(id: string, contextId?: string): Promise<FlowEntryView> {
+    if (apiEnabled()) {
+      const q = contextId ? `?contextId=${encodeURIComponent(contextId)}` : ''
+      return http.get<FlowEntryView>(`/flow/id/${id}/entry${q}`)
+    }
+    return Promise.resolve(resolveEntryViewLocally(localGet(id).preferences?.entry))
+  },
+
+  /**
    * Relabel a saved flow without resending its graph (`PUT /flow/id/:id/tags`).
    * `mode: 'merge'` adds to what the flow already carries; the default replaces
    * the list, and an empty list clears it.
@@ -140,6 +202,17 @@ export const flowsApi = {
     const saved = localSave({ id, title: rec.title, view_flow: rec.view_flow, tags: next })
     return Promise.resolve({ id, tags: saved.tags ?? [] })
   },
+}
+
+/**
+ * The backend's models.FlowPreferences.Normalize, for the local (no-backend)
+ * path: an entry that describes no fields is no entry at all, so clearing the
+ * schema in the editor and sending no entry leave the same stored state.
+ */
+function normalizePreferences(prefs?: FlowPreferences): FlowPreferences | undefined {
+  const schema = prefs?.entry?.form?.schema
+  if (!schema || !Object.keys(schema).length) return undefined
+  return prefs
 }
 
 /**

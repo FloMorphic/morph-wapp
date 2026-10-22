@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { ContextRecord, Process } from '@/types/api'
+import type { ContextRecord, FlowEntryView, Process } from '@/types/api'
 import { contextsApi } from '@/api/contexts'
+import { flowsApi } from '@/api/flows'
 import { processesApi } from '@/api/processes'
 import { processStatusClass, formatProcessTime } from '@/lib/process'
 import { useFlowLogsStore } from '@/stores/flowLogs'
@@ -12,6 +13,7 @@ import Button from '@/components/ui/Button.vue'
 import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
 import Modal from '@/components/ui/Modal.vue'
+import FlowEntryForm from '@/components/flow/FlowEntryForm.vue'
 
 /**
  * "Run" affordance for the workflow editor toolbar. Every run binds a workflow to
@@ -55,6 +57,20 @@ const creating = ref(false)
 const runningId = ref<string | null>(null)
 const launched = ref<Process | null>(null)
 
+// ---- The flow's entry form (step two, when it declares one) ----------------
+/** The flow's entry form as the backend resolves it; null while unknown, and
+ *  `entry: null` for a flow that asks for nothing. */
+const entryView = ref<FlowEntryView | null>(null)
+/** The context chosen and waiting on the form — what makes this the form step. */
+const pendingContext = ref<ContextRecord | null>(null)
+const entryValues = ref<Record<string, unknown>>({})
+const entryLoading = ref(false)
+
+/** Whether this flow asks for input before it runs. */
+const hasEntry = computed(() => !!entryView.value?.entry)
+/** The form step is open: a context is chosen and its form is being filled. */
+const onEntryStep = computed(() => !!pendingContext.value)
+
 const canRun = computed(() => remote && !!props.flowId)
 
 /** Contexts already used on this flow (recent runs), newest-used first. */
@@ -76,6 +92,22 @@ const otherContexts = computed(() => {
   const seen = new Set(recentIds.value)
   return contexts.value.filter((c) => !seen.has(c.id))
 })
+
+/**
+ * Learn whether this flow declares an entry form. Read once when the picker
+ * opens (without a context, so it costs nothing for the common flow that
+ * declares none); the per-context resolve happens when one is chosen.
+ */
+async function loadEntry() {
+  if (!props.flowId) return
+  try {
+    entryView.value = await flowsApi.getEntry(props.flowId)
+  } catch {
+    // A flow we cannot ask about is launched the way it always was — an entry
+    // form is an addition to the picker, never a gate in front of it.
+    entryView.value = null
+  }
+}
 
 async function load() {
   if (!canRun.value) return
@@ -113,7 +145,17 @@ function openPicker() {
   launched.value = null
   error.value = null
   newTitle.value = ''
+  pendingContext.value = null
+  entryValues.value = {}
   load()
+  loadEntry()
+}
+
+/** Back to the context list, dropping what was typed into the form. */
+function cancelEntry() {
+  pendingContext.value = null
+  entryValues.value = {}
+  error.value = null
 }
 
 function onSearch() {
@@ -121,7 +163,32 @@ function onSearch() {
   searchTimer = setTimeout(load, 250)
 }
 
-async function run(context: ContextRecord) {
+/**
+ * A context was chosen. For a flow with no entry form that is the launch; for
+ * one with a form it opens the form step, resolved against this context (so a
+ * `live` prefill starts the fields at what it already holds).
+ */
+async function pick(context: ContextRecord) {
+  if (!props.flowId || runningId.value) return
+  if (!hasEntry.value) {
+    await run(context)
+    return
+  }
+  pendingContext.value = context
+  error.value = null
+  entryLoading.value = true
+  try {
+    const view = await flowsApi.getEntry(props.flowId, context.id)
+    entryView.value = view
+    entryValues.value = { ...view.values }
+  } catch (err) {
+    error.value = (err as Error).message
+  } finally {
+    entryLoading.value = false
+  }
+}
+
+async function run(context: ContextRecord, entry?: Record<string, unknown>) {
   if (!props.flowId || runningId.value) return
   runningId.value = context.id
   error.value = null
@@ -129,9 +196,11 @@ async function run(context: ContextRecord) {
     const rec = await processesApi.start({
       flowId: props.flowId,
       contextId: context.id,
+      entry,
       settings: runSettings.payload(),
     })
     launched.value = rec
+    pendingContext.value = null
     // The context just bound is the flow's last one now — drop the cached entry
     // so a node's scope peek resolves against it (see stores/lastRunContext).
     lastRunContext.invalidate(props.flowId)
@@ -149,6 +218,14 @@ async function run(context: ContextRecord) {
   }
 }
 
+/** Launch with the filled form — the backend validates the values against the
+ *  flow's own schema and seeds them at the entry's target before dispatching. */
+async function runWithEntry() {
+  const context = pendingContext.value
+  if (!context) return
+  await run(context, entryValues.value)
+}
+
 async function createAndRun() {
   const title = newTitle.value.trim()
   if (!title || creating.value) return
@@ -159,7 +236,7 @@ async function createAndRun() {
     const rec = await contextsApi.save({ title, context: '{}' })
     newTitle.value = ''
     contexts.value = [rec, ...contexts.value]
-    await run(rec)
+    await pick(rec)
   } catch (err) {
     error.value = (err as Error).message
   } finally {
@@ -212,7 +289,49 @@ function summary(c: ContextRecord): string {
       subtitle="Pick the context to bind this run to, or create one."
       @close="open = false"
     >
-      <div class="space-y-4">
+      <!-- Step two: the flow's entry form, for the context just chosen. The
+           values go up with the launch; the backend validates them against the
+           flow's own schema and seeds them at the entry's target. -->
+      <div v-if="onEntryStep && entryView?.entry" class="space-y-4">
+        <div class="flex items-start gap-3 rounded-lg border px-3 py-2.5">
+          <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+            <Icon name="context" :size="16" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-[13px] font-medium text-fg">{{ pendingContext?.title }}</p>
+            <p class="text-[11px] text-fg-subtle">
+              Seeded at <span class="font-mono">{{ entryView.target }}</span>
+              <template v-if="entryView.source === 'context'"> · prefilled from this context</template>
+              <template v-else-if="entryView.prefill === 'live'"> · nothing there yet, showing defaults</template>
+            </p>
+          </div>
+          <button type="button" class="shrink-0 text-[12px] text-fg-muted hover:text-fg hover:underline" @click="cancelEntry">
+            Change context
+          </button>
+        </div>
+
+        <div class="space-y-2">
+          <p v-if="entryView.entry.title" class="text-[13px] font-semibold text-fg">{{ entryView.entry.title }}</p>
+          <p v-if="entryView.entry.description" class="text-[12px] leading-relaxed text-fg-subtle">
+            {{ entryView.entry.description }}
+          </p>
+          <div v-if="entryLoading" class="py-6 text-center text-[13px] text-fg-subtle">Loading the form…</div>
+          <div v-else class="max-h-[45vh] overflow-y-auto pr-0.5">
+            <FlowEntryForm v-model="entryValues" :entry="entryView.entry" />
+          </div>
+        </div>
+
+        <p v-if="error" class="whitespace-pre-line text-sm text-danger">{{ error }}</p>
+
+        <div class="flex items-center justify-end gap-2">
+          <Button variant="ghost" @click="cancelEntry">Back</Button>
+          <Button variant="primary" icon="play" :disabled="!!runningId || entryLoading" @click="runWithEntry">
+            {{ runningId ? 'Running…' : 'Run' }}
+          </Button>
+        </div>
+      </div>
+
+      <div v-else class="space-y-4">
         <p v-if="dirty" class="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-[12px] text-amber-600 dark:text-amber-400">
           <Icon name="alert-triangle" :size="14" />
           Unsaved changes — the run uses the last saved version of this flow.
@@ -347,7 +466,7 @@ function summary(c: ContextRecord): string {
               :disabled="!newTitle.trim() || creating || !!runningId"
               @click="createAndRun"
             >
-              {{ creating ? 'Creating…' : 'Create & run' }}
+              {{ creating ? 'Creating…' : hasEntry ? 'Create & next' : 'Create & run' }}
             </Button>
           </div>
         </div>
@@ -406,10 +525,10 @@ function summary(c: ContextRecord): string {
                   :variant="c.id === defaultId ? 'primary' : 'outline'"
                   icon="play"
                   :disabled="!!runningId"
-                  :title="`Run against ${c.title}`"
-                  @click="run(c)"
+                  :title="hasEntry ? `Fill this flow's form and run against ${c.title}` : `Run against ${c.title}`"
+                  @click="pick(c)"
                 >
-                  {{ runningId === c.id ? 'Running…' : 'Run' }}
+                  {{ runningId === c.id ? 'Running…' : hasEntry ? 'Next' : 'Run' }}
                 </Button>
               </div>
             </div>
@@ -434,10 +553,10 @@ function summary(c: ContextRecord): string {
                 <Button
                   icon="play"
                   :disabled="!!runningId"
-                  :title="`Run against ${c.title}`"
-                  @click="run(c)"
+                  :title="hasEntry ? `Fill this flow's form and run against ${c.title}` : `Run against ${c.title}`"
+                  @click="pick(c)"
                 >
-                  {{ runningId === c.id ? 'Running…' : 'Run' }}
+                  {{ runningId === c.id ? 'Running…' : hasEntry ? 'Next' : 'Run' }}
                 </Button>
               </div>
             </div>

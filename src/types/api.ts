@@ -73,9 +73,59 @@ export interface FlowRecord {
    *  framework installed rather than every flow on the canvas. Normalized by
    *  the backend: lower-case, de-duplicated, no commas. */
   tags?: string[]
+  /** Flow-level, non-graph choices — today the entry form the flow asks to have
+   *  filled in before it runs. Absent for a flow that asks for nothing. */
+  preferences?: FlowPreferences
   createdAt: number
   updatedAt: number
   view_flow: VueFlowGraph
+}
+
+/** A flow's preferences. One field today; an object so the next flow-level
+ *  preference does not change the shape again. */
+export interface FlowPreferences {
+  entry?: FlowEntryForm
+}
+
+/**
+ * The input a flow asks for before it runs.
+ *
+ * It replaces the pattern every non-trivial flow grew by hand — a JS node after
+ * the start node whose only job was to put a fixed shape into the context. Here
+ * it is declared once: a form any launcher renders, and a seed the backend
+ * validates and writes itself.
+ */
+export interface FlowEntryForm {
+  title?: string
+  description?: string
+  /**
+   * The entry document. `schema` is written in either of two ways and
+   * {@link isSchemaDocument} tells them apart: a JSON Schema (rendered by the
+   * plugin form-builder, with its controls, defaults and validation) or a plain
+   * JSON object of the values to seed (rendered as a flat key/value table and
+   * seeded as written). `ui` is an optional JSON Forms UI schema for the first.
+   */
+  form: { schema?: Record<string, unknown>; ui?: Record<string, unknown> }
+  /** The ONE context location the answers are written to — `$._entry` by
+   *  default. A plain member path; nothing else in the context is touched. */
+  target?: string
+  /** What the fields start at: the schema's own defaults, or whatever already
+   *  sits at `target` in the context this run goes against. */
+  prefill?: 'default' | 'live'
+  /** Refuses a launch that supplies nothing and finds nothing at the target. */
+  required?: boolean
+}
+
+/** GET /flow/id/:id/entry — the entry form resolved for one launch. `entry` is
+ *  null for a flow that declares none, which is a launcher's cue to run it the
+ *  way it always did. */
+export interface FlowEntryView {
+  entry: FlowEntryForm | null
+  target: string
+  prefill: 'default' | 'live'
+  values: Record<string, unknown>
+  /** Where `values` came from: the schema alone, the live context, or neither. */
+  source: 'default' | 'context' | 'none'
 }
 
 /** GET /flow/id/:id/compile — the inflow compiler's output for a saved flow: the
@@ -527,6 +577,10 @@ export interface StartProcessInput {
   contextId: string
   startNodeId?: string
   meta?: Record<string, unknown>
+  /** Values for the flow's entry form (see {@link FlowEntryView}). The backend
+   *  validates them against the flow's own schema and seeds them into the one
+   *  context location the entry names before dispatching the run. */
+  entry?: Record<string, unknown>
   scheduledAt?: number
   /** Engine run settings (proc timeout, node-traversal limit, fallback request
    * timeout). Omitted or zero fields keep the engine defaults, so only what the

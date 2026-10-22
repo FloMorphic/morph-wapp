@@ -12,6 +12,7 @@ import RunFlowButton from '@/components/flow/RunFlowButton.vue'
 import AiNodeImporter from '@/components/flow/AiNodeImporter.vue'
 import AiConnectButton from '@/components/flow/AiConnectButton.vue'
 import WorkflowImporter from '@/components/flow/WorkflowImporter.vue'
+import FlowEntryButton from '@/components/flow/FlowEntryButton.vue'
 import ToolButton from '@/components/ui/ToolButton.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { useWorkflowsStore } from '@/stores/workflows'
@@ -24,7 +25,7 @@ import { fetchPluginRegistrations } from '@/lib/nodeExtRefs'
 import { nodeUniqId, usesSettingsProfile } from '@/lib/nodeSettings'
 import { nodeSettingsApi } from '@/api/nodeSettings'
 import { normalizeTags } from '@/api/flows'
-import type { NodeSetting } from '@/types/api'
+import type { FlowPreferences, NodeSetting } from '@/types/api'
 
 const props = defineProps<{ id?: string }>()
 const router = useRouter()
@@ -54,6 +55,18 @@ const title = ref(UNTITLED)
 // a flow on this row" to the framework that installed the flow), so they are
 // part of the design, not metadata hidden in a side panel.
 const tagsText = ref('')
+/**
+ * The flow's preferences — its entry form.
+ *
+ * `preferences` is what the flow carries (loaded with the record, replaced when
+ * the Entry dialog saves its own route); `prefsPending` is set ONLY when
+ * something on this canvas brought a form with it — an imported file, an AI
+ * design — and is what a Save sends. Everything else sends nothing, and the
+ * backend keeps what is stored: a graph save must never be able to drop the
+ * form a flow needs, the same contract the tags have.
+ */
+const preferences = ref<FlowPreferences | undefined>(undefined)
+const prefsPending = ref<FlowPreferences | undefined>(undefined)
 const currentId = ref<string | undefined>(props.id)
 const dirty = ref(false)
 const saving = ref(false)
@@ -67,6 +80,8 @@ async function init() {
       const record = await store.get(props.id)
       title.value = record.title || UNTITLED
       tagsText.value = (record.tags ?? []).join(', ')
+      preferences.value = record.preferences
+      prefsPending.value = undefined
       currentId.value = record.id
       canvas.value?.loadGraph(record.view_flow ?? { nodes: [], edges: [] })
     } catch (err) {
@@ -75,6 +90,8 @@ async function init() {
   } else {
     title.value = UNTITLED
     tagsText.value = ''
+    preferences.value = undefined
+    prefsPending.value = undefined
     currentId.value = undefined
     canvas.value?.loadGraph({ nodes: [], edges: [] }, true)
   }
@@ -127,7 +144,22 @@ function currentGraph() {
 /** Drop an AI-designed subgraph in. Unsaved like any other edit, so Save commits it. */
 async function onAiPatch(patch: PlannedPatch) {
   await canvas.value?.applyPatch(patch)
+  adoptPreferences(patch.preferences)
   notifications.notify({ level: 'success', title: 'AI nodes added', message: `${summarize(patch)} — review and save.` })
+}
+
+/**
+ * Take on an entry form a patch or a file brought with it — but only when this
+ * flow has none of its own, for the same reason an import does not rename or
+ * relabel a flow behind the author's back. It needs a Save to be committed.
+ */
+function adoptPreferences(incoming?: FlowPreferences) {
+  const declared = incoming?.entry?.form?.schema
+  if (!declared || !Object.keys(declared).length) return
+  if (preferences.value?.entry?.form?.schema) return
+  preferences.value = incoming
+  prefsPending.value = incoming
+  dirty.value = true
 }
 
 /**
@@ -150,13 +182,16 @@ async function onImport({
   title: fileTitle,
   tags: fileTags,
   plugins,
+  preferences: filePrefs,
 }: {
   patch: AiGraphPatch
   mode: 'add' | 'replace'
   title?: string
   tags?: string[]
   plugins?: PluginManifestEntry[]
+  preferences?: FlowPreferences
 }) {
+  adoptPreferences(filePrefs)
   if (mode === 'replace') {
     canvas.value?.loadGraph({ nodes: [], edges: [] })
     await nextTick()
@@ -240,7 +275,7 @@ async function exportJson() {
     subdir: r.subdir,
   }))
   downloadFile(
-    new Blob([workflowExportJson(title.value, graph, available, normalizeTags(tagsText.value.split(',')))], {
+    new Blob([workflowExportJson(title.value, graph, available, normalizeTags(tagsText.value.split(',')), preferences.value)], {
       type: 'application/json',
     }),
     `${fileBase(title.value)}.flow.json`,
@@ -287,8 +322,11 @@ async function save() {
       title: title.value.trim() || UNTITLED,
       view_flow: graph,
       tags: normalizeTags(tagsText.value.split(',')),
+      preferences: prefsPending.value,
     })
     tagsText.value = (record.tags ?? []).join(', ')
+    preferences.value = record.preferences ?? preferences.value
+    prefsPending.value = undefined
     lastSelfSaveAt = Date.now()
     dirty.value = false
     // The log drawer names nodes/edges by resolving ids against the saved graph;
@@ -375,6 +413,15 @@ async function save() {
 
         <span class="tool-sep" />
 
+        <FlowEntryButton
+          :flow-id="currentId"
+          @saved="
+            (p) => {
+              preferences = p
+              prefsPending = undefined
+            }
+          "
+        />
         <WorkflowImporter :resolve-graph="currentGraph" @apply="onImport" />
         <ToolButton
           icon="export"
