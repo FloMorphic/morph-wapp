@@ -155,6 +155,15 @@ const isUnrecognized = computed(
   () => isPluginAction.value && !!pluginActionName.value && candidatesLoaded.value && !isBound.value,
 )
 
+/**
+ * True when the node was installed with its plugin choice deliberately
+ * withheld (`bindPlugin: "manual"`) — an installer that knew several local
+ * plugins serve this action and would not guess which one the flow meant. The
+ * pick below is then the point of the node's state, not a symptom of something
+ * uninstalled, so the helper says so instead of "nothing provides this yet".
+ */
+const withheldPlugin = computed(() => String(data().bindPlugin ?? '').trim() === 'manual')
+
 /** Name + repo the file recorded for the missing plugin (display only). */
 const missingPlugin = computed<MissingPlugin | null>(() => {
   const m = data().missingPlugin
@@ -1219,9 +1228,14 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
       >
         <p class="flex items-start gap-1.5 text-[12px] font-semibold text-warning">
           <Icon name="alert-triangle" :size="14" class="mt-px shrink-0" />
-          Unrecognized plugin — {{ missingName }}
+          {{ withheldPlugin ? 'Pick a plugin for this node' : 'Unrecognized plugin' }} — {{ missingName }}
         </p>
-        <p class="text-[11.5px] leading-relaxed text-fg-muted">
+        <p v-if="withheldPlugin" class="text-[11.5px] leading-relaxed text-fg-muted">
+          This flow was installed with the plugin for <code class="font-mono">{{ pluginActionName }}</code> left to
+          you: more than one plugin here can serve it, so nothing guessed which one this flow means. Pick it below —
+          every node using {{ missingName }} follows. A run errors until one is picked.
+        </p>
+        <p v-else class="text-[11.5px] leading-relaxed text-fg-muted">
           Nothing installed here provides <code class="font-mono">{{ pluginActionName }}</code> yet.
           <template v-if="missingPlugin?.repo">Install it from its repo</template>
           <template v-else>Register or start its plugin in Extensions — a dev plugin ships no repo to fetch</template

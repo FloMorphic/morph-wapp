@@ -392,6 +392,13 @@ async function applyPatch(patch: PlannedPatch, plugins: PluginManifestEntry[] = 
 function stampPluginRef(data: Record<string, unknown>, actions: PluginActionEntry[]): void {
   const pluginId = String(data.pluginId ?? '').trim()
   const action = String(data.action ?? '').trim()
+  // `bindPlugin: "manual"` opts this node out of the action-only match below:
+  // an installer that knows several local plugins serve the action (SurfStat,
+  // where every channel is its own plugin) withheld the choice rather than let
+  // it be guessed, so the node stays unbound and its drawer offers the pick.
+  // An exact pluginId still binds — that IS the drawer's pick — and clears the
+  // marker, so one hand-bound node never unbinds itself on the next pass.
+  const manual = String(data.bindPlugin ?? '').trim() === 'manual'
   // Clear any incoming identity BEFORE resolving. A plugin node compiles its NATS
   // subject straight from `data.pluginId` (backend pluginUniqId), so a foreign or
   // stale id that survives to compile publishes to a subject nothing answers on —
@@ -409,8 +416,11 @@ function stampPluginRef(data: Record<string, unknown>, actions: PluginActionEntr
   // otherwise any local plugin exposing this method resolves it.
   const hit =
     (pluginId && actions.find((a) => a.pluginId === pluginId && a.action === action)) ||
-    actions.find((a) => a.action === action)
+    (manual ? undefined : actions.find((a) => a.action === action))
+  // The marker is left in place when nothing bound, so the next pass — and the
+  // next re-install — withholds the choice again.
   if (!hit) return
+  delete data.bindPlugin
   data.extensionId = hit.ref.extensionId
   data.pluginId = hit.ref.pluginId
   data.action = hit.action
