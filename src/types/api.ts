@@ -144,13 +144,17 @@ export interface CompiledFlow {
  * One finding of the backend's graph check (flomorphic-api `inflow` package,
  * over inflow-fusion's depends guard).
  *
- * It is **advice**: the backend never refuses a save, a launch or a resume over
- * one of these, because the checks reason about a single traversal from the
- * flow's start node while a run may enter anywhere (a resumed human task picks
- * up mid-graph, on several nodes at once). What they are good for is pointing an
- * author at the exact canvas objects to change, which is why every issue carries
- * `nodeId` and, where the fix is a rewire, `edgeId` plus the ids that edge may
- * legally point at instead.
+ * A save is never refused over one of these. A RUN is, for some of them: the
+ * guard's whole-graph verdicts (`depend_*`, `node_unreachable`) are advice only,
+ * because they reason about a single traversal from the flow's start node while a
+ * run may enter anywhere (a resumed human task picks up mid-graph, on several
+ * nodes at once) — but a node that did not lower (`node_build_failed`,
+ * `plugin_account_unresolved`, `start_node_missing`) leaves the engine with no
+ * graph to run, so the flow stays saved and unrunnable until it is fixed.
+ *
+ * Either way they point an author at the exact canvas objects to change, which is
+ * why every issue carries `nodeId` and, where the fix is a rewire, `edgeId` plus
+ * the ids that edge may legally point at instead.
  */
 export interface FlowValidationIssue {
   /** `depend_deadlock`, `depend_self`, `node_unreachable`, `node_build_failed`, … */
@@ -173,7 +177,8 @@ export interface FlowValidationIssue {
  *  what `GET /flow/id/:id/compile?validate=true` returns beside the nodes. */
 export interface FlowValidation {
   /** False when at least one error-severity issue was found. The flow is saved
-   *  and runnable either way — see {@link FlowValidationIssue}. */
+   *  either way; whether it can still run depends on which errors they are —
+   *  see {@link FlowValidationIssue}. */
   ok: boolean
   startNodeId?: string
   issues: FlowValidationIssue[]
