@@ -136,7 +136,55 @@ export interface FlowEntryView {
 export interface CompiledFlow {
   startNodeId: string
   nodes: Record<string, unknown>
+  /** Present when the compile was asked to validate (`?validate=true`). */
+  validation?: FlowValidation
 }
+
+/**
+ * One finding of the backend's graph check (flomorphic-api `inflow` package,
+ * over inflow-fusion's depends guard).
+ *
+ * It is **advice**: the backend never refuses a save, a launch or a resume over
+ * one of these, because the checks reason about a single traversal from the
+ * flow's start node while a run may enter anywhere (a resumed human task picks
+ * up mid-graph, on several nodes at once). What they are good for is pointing an
+ * author at the exact canvas objects to change, which is why every issue carries
+ * `nodeId` and, where the fix is a rewire, `edgeId` plus the ids that edge may
+ * legally point at instead.
+ */
+export interface FlowValidationIssue {
+  /** `depend_deadlock`, `depend_self`, `node_unreachable`, `node_build_failed`, … */
+  code: string
+  severity: 'error' | 'warning'
+  /** The node the finding sits on — the one to select on the canvas. */
+  nodeId?: string
+  /** The offending entry of that node's blocking input, for the `depend_*` family. */
+  dependsOn?: string
+  /** The edge to re-point, when there is one. */
+  edgeId?: string
+  message: string
+  /** A human-readable fix, written to be shown as-is. */
+  suggestion?: string
+  /** Node ids the offending edge may target instead. */
+  suggestedTargets?: string[]
+}
+
+/** The graph check as a whole: what `POST /flow` returns with a saved record and
+ *  what `GET /flow/id/:id/compile?validate=true` returns beside the nodes. */
+export interface FlowValidation {
+  /** False when at least one error-severity issue was found. The flow is saved
+   *  and runnable either way — see {@link FlowValidationIssue}. */
+  ok: boolean
+  startNodeId?: string
+  issues: FlowValidationIssue[]
+  errorCount: number
+  warningCount: number
+}
+
+/** The record as `POST /flow` answers it: the saved flow plus the check the save
+ *  ran over it. `validation` is absent in local (no-backend) mode, where there is
+ *  no compiler to run. */
+export type SavedFlow = FlowRecord & { validation?: FlowValidation }
 
 /* ---- Palette extensions / node registry (backed by `/extension`) ----
  * Every row is one node in the canvas palette. `kind` separates admin-managed

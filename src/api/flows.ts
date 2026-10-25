@@ -5,6 +5,7 @@ import type {
   FlowRecord,
   Page,
   PaginationParams,
+  SavedFlow,
   VueFlowGraph,
 } from '@/types/api'
 import { apiEnabled, http, list } from './client'
@@ -126,14 +127,26 @@ export const flowsApi = {
    * node graph — a debug/introspection view of what the Vue Flow canvas becomes
    * on the engine. Backend-only: compilation lives in the Go engine layer, so
    * there is nothing to return in local (no-backend) mode.
+   *
+   * `validate` adds the graph check to the answer (`validation`) without saving
+   * anything — the "check this flow now" action, for a design the author has not
+   * just saved. It never changes the status: a flow with findings still compiles
+   * and still runs, so this resolves normally and the issues are in the payload.
    */
-  compile(id: string): Promise<CompiledFlow> {
+  compile(id: string, opts?: { validate?: boolean }): Promise<CompiledFlow> {
     if (!apiEnabled()) return Promise.reject(new Error('Compiling a flow requires a connected backend'))
-    return http.get<CompiledFlow>(`/flow/id/${id}/compile`)
+    const q = opts?.validate ? '?validate=true' : ''
+    return http.get<CompiledFlow>(`/flow/id/${id}/compile${q}`)
   },
 
-  save(input: SaveFlowInput): Promise<FlowRecord> {
-    if (apiEnabled()) return http.post<FlowRecord>('/flow', input)
+  /**
+   * Save a flow. The backend compiles the saved graph on the way out and returns
+   * its findings as `validation` — advice for the author, never a refusal (the
+   * record in the response is already saved). Local mode has no compiler, so it
+   * answers the record alone.
+   */
+  save(input: SaveFlowInput): Promise<SavedFlow> {
+    if (apiEnabled()) return http.post<SavedFlow>('/flow', input)
     return Promise.resolve(localSave(input))
   },
 

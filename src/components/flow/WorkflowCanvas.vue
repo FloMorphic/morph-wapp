@@ -766,6 +766,34 @@ async function captureImage(): Promise<string | null> {
   )
 }
 
+/**
+ * Put a node (and/or an edge) in front of the author: select it, open its
+ * drawer, and pan/zoom so it is on screen. It is what the validation banner's
+ * "Show node" / "Show connection" does — a finding that names a node is only
+ * useful if the canvas can take you there, and in a graph of forty nodes
+ * reading an id off a message is not finding it.
+ *
+ * Selection is set directly on the model rather than through a Vue Flow helper
+ * because the same assignment has to CLEAR whatever was selected before: two
+ * highlighted nodes would leave the author guessing which one the finding meant.
+ * Nothing here is an edit, so no `dirty` is emitted.
+ */
+function reveal(target: { nodeId?: string; edgeId?: string }) {
+  const { nodeId, edgeId } = target
+  nodes.value.forEach((n) => (n.selected = !!nodeId && n.id === nodeId))
+  edges.value.forEach((e) => (e.selected = !!edgeId && e.id === edgeId))
+
+  // What to frame: the node when there is one, otherwise both ends of the edge,
+  // so a connection to re-point is shown with the nodes it runs between.
+  const edge = edgeId ? edges.value.find((e) => e.id === edgeId) : undefined
+  const ids = nodeId ? [nodeId] : edge ? [edge.source, edge.target] : []
+  const framed = ids.filter((id) => findNode(id))
+  if (framed.length) fitView({ nodes: framed, padding: 0.5, duration: 300, maxZoom: 1.2 })
+
+  const node = nodeId ? findNode(nodeId) : undefined
+  emit('select', node ?? null)
+}
+
 function removeSelected(node: GraphNode | null) {
   if (!node) return
   nodes.value = nodes.value.filter((n) => n.id !== node.id)
@@ -815,6 +843,7 @@ defineExpose({
   autoArrange,
   captureImage,
   removeSelected,
+  reveal,
   fitView,
   showMinimap,
   toggleMinimap,

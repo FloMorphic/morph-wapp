@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { FlowRecord, VueFlowGraph } from '@/types/api'
+import type { FlowRecord, SavedFlow, VueFlowGraph } from '@/types/api'
 import { flowsApi, normalizeTags, type SaveFlowInput } from '@/api/flows'
 
 /**
@@ -115,7 +115,9 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     await fetchPage(targetPage)
   }
 
-  async function save(input: SaveFlowInput): Promise<FlowRecord> {
+  /** Save a flow and hand back what the backend answered — the record plus the
+   *  graph check it ran over it (see SavedFlow). */
+  async function save(input: SaveFlowInput): Promise<SavedFlow> {
     return flowsApi.save(input)
   }
 

@@ -6,6 +6,7 @@ import WorkflowCanvas from '@/components/flow/WorkflowCanvas.vue'
 import NodeSettingDetails from '@/components/flow/NodeSettingDetails.vue'
 import FlowProcessesButton from '@/components/flow/FlowProcessesButton.vue'
 import FlowInflightBanner from '@/components/flow/FlowInflightBanner.vue'
+import FlowValidationBanner from '@/components/flow/FlowValidationBanner.vue'
 import FlowLogDrawer from '@/components/flow/FlowLogDrawer.vue'
 import FlowRunHud from '@/components/flow/FlowRunHud.vue'
 import RunFlowButton from '@/components/flow/RunFlowButton.vue'
@@ -24,8 +25,8 @@ import { downloadFile, fileBase, workflowExportJson, type AvailablePlugin, type 
 import { fetchPluginRegistrations } from '@/lib/nodeExtRefs'
 import { nodeUniqId, usesSettingsProfile } from '@/lib/nodeSettings'
 import { nodeSettingsApi } from '@/api/nodeSettings'
-import { normalizeTags } from '@/api/flows'
-import type { FlowPreferences, NodeSetting } from '@/types/api'
+import { flowsApi, normalizeTags } from '@/api/flows'
+import type { FlowPreferences, FlowValidation, NodeSetting } from '@/types/api'
 
 const props = defineProps<{ id?: string }>()
 const router = useRouter()
@@ -308,6 +309,47 @@ async function snapshot() {
   }
 }
 
+/**
+ * What the backend's graph check last found, and where it came from.
+ *
+ * It rides on the save response (the backend compiles what it just stored) and
+ * can also be asked for on demand with Check. Either way it is advice — the save
+ * already happened, runs are never blocked by it — so it lives in a dismissible
+ * banner and nothing in the editor gates on it. See FlowValidationBanner.
+ */
+const validation = ref<FlowValidation | null>(null)
+const validationSource = ref<'save' | 'check'>('save')
+const checking = ref(false)
+
+/**
+ * Check the saved design now, without saving: the backend compiles the stored
+ * graph and reports what it finds (`?validate=true`). For a flow opened from the
+ * list — whose findings no save in this session has surfaced — this is how the
+ * author sees them, and after an edit it reads the LAST SAVED graph, which is why
+ * it says so when there are unsaved changes.
+ */
+async function check() {
+  if (!currentId.value) return
+  checking.value = true
+  try {
+    const res = await flowsApi.compile(currentId.value, { validate: true })
+    validationSource.value = 'check'
+    validation.value = res.validation ?? null
+    if (res.validation && res.validation.issues.length === 0) {
+      notifications.notify({
+        level: 'success',
+        title: 'Nothing to fix',
+        message: dirty.value ? 'The last saved version of this flow checks out.' : 'This flow checks out.',
+      })
+    }
+  } catch (err) {
+    // A graph that would not lower at all answers 422 with the same payload.
+    notifications.notify({ level: 'error', title: 'Check failed', message: (err as Error).message })
+  } finally {
+    checking.value = false
+  }
+}
+
 async function save() {
   const graph = canvas.value?.getGraph()
   if (!graph) return
@@ -326,6 +368,9 @@ async function save() {
     })
     tagsText.value = (record.tags ?? []).join(', ')
     preferences.value = record.preferences ?? preferences.value
+    // The check the save ran over the graph it just stored (absent in local mode).
+    validationSource.value = 'save'
+    validation.value = record.validation ?? null
     prefsPending.value = undefined
     lastSelfSaveAt = Date.now()
     dirty.value = false
@@ -455,6 +500,14 @@ async function save() {
         <span class="tool-sep" />
 
         <ToolButton
+          v-if="currentId && store.isRemote"
+          icon="shield"
+          :label="checking ? 'Checking…' : 'Check'"
+          :disabled="checking"
+          title="Check this design — compile the saved graph and report what the engine would find (deadlocked joins, unbound nodes, nodes nothing reaches). Saves nothing, blocks nothing."
+          @click="check"
+        />
+        <ToolButton
           tone="primary"
           icon="save"
           :label="saving ? 'Saving…' : 'Save'"
@@ -470,6 +523,16 @@ async function save() {
     <!-- Non-blocking heads-up when the flow being edited still has runs or human
          tasks in flight (e.g. an unfinished Human-in-the-Loop session). -->
     <FlowInflightBanner :flow-id="currentId" />
+
+    <!-- What compiling the graph found: advice an author can act on, never a
+         refusal (the flow is saved and runnable regardless). Each row can take
+         the canvas to the node or connection it is about. -->
+    <FlowValidationBanner
+      :validation="validation"
+      :source="validationSource"
+      @reveal="(t) => canvas?.reveal(t)"
+      @dismiss="validation = null"
+    />
 
     <!-- Canvas + inspector -->
     <div class="flex min-h-0 flex-1">
