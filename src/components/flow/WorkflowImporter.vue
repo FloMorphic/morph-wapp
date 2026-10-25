@@ -69,6 +69,13 @@ const input = ref<HTMLInputElement | null>(null)
 // which is exactly the note a user with no plugins needs to see.
 const installedActions = ref<Set<string>>(new Set())
 
+// The plugins serving each action, by name — the other half of the same listing.
+// An action two plugins answer cannot be bound from the file, which names the
+// action and never the plugin, so the import leaves those nodes unbound rather
+// than guess (see WorkflowCanvas.stampPluginRef). That is worth saying before
+// the import, not discovering afterwards.
+const providersByAction = ref<Map<string, string[]>>(new Map())
+
 // Snapshotted on open like the AI dialog does: the review is planned against
 // this graph, so it must not shift under the dialog while it is up.
 const snapshot = ref<VueFlowGraph>({ nodes: [], edges: [] })
@@ -79,8 +86,22 @@ function openDialog() {
   reset()
   open.value = true
   void fetchPluginActions()
-    .then((rows) => (installedActions.value = new Set(rows.map((r) => r.action))))
-    .catch(() => (installedActions.value = new Set()))
+    .then((rows) => {
+      installedActions.value = new Set(rows.map((r) => r.action))
+      const byAction = new Map<string, Map<string, string>>()
+      for (const r of rows) {
+        // Keyed by pluginId: two registrations of one plugin are two plugins
+        // here, and are exactly the pair a guess gets wrong.
+        const seen = byAction.get(r.action) ?? new Map<string, string>()
+        seen.set(r.pluginId, r.pluginName || r.pluginId)
+        byAction.set(r.action, seen)
+      }
+      providersByAction.value = new Map([...byAction].map(([a, seen]) => [a, [...seen.values()].sort()]))
+    })
+    .catch(() => {
+      installedActions.value = new Set()
+      providersByAction.value = new Map()
+    })
 }
 
 function reset() {
@@ -158,6 +179,24 @@ const missingPlugins = computed<PluginManifestEntry[]>(() => {
   }
   for (const [ns, actions] of orphans) out.push({ name: ns, actions })
   return out
+})
+
+/**
+ * Actions this flow calls that more than one installed plugin serves.
+ *
+ * The file names the action, never the plugin — a pluginId is a per-install
+ * address — so with two plugins answering one action nothing in the file says
+ * which this node meant. The import keeps the node and leaves it unbound rather
+ * than bind the first that answers, which would look settled and run against
+ * the wrong one. Shown here so the pick is expected rather than stumbled on:
+ * the node lands badged, and its drawer offers these plugins.
+ */
+const ambiguousActions = computed<{ action: string; plugins: string[] }[]>(() => {
+  if (!patch.value) return []
+  return referencedActions(patch.value)
+    .map((action) => ({ action, plugins: providersByAction.value.get(action) ?? [] }))
+    .filter((a) => a.plugins.length > 1)
+    .sort((a, b) => a.action.localeCompare(b.action))
 })
 
 function apply(mode: 'add' | 'replace') {
@@ -275,6 +314,32 @@ function apply(mode: 'add' | 'replace') {
                 >{{ a }}</span
               >
             </div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Actions more than one installed plugin can serve ---------------- -->
+      <section
+        v-if="plan && ambiguousActions.length"
+        class="rounded-xl border p-3 text-[12px]"
+        :style="{
+          borderColor: 'color-mix(in srgb, var(--warning) 40%, var(--line))',
+          background: 'color-mix(in srgb, var(--warning) 8%, transparent)',
+        }"
+      >
+        <p class="flex items-start gap-1.5 font-semibold text-warning">
+          <Icon name="alert-triangle" :size="14" class="mt-px shrink-0" />
+          {{ ambiguousActions.length }} action{{ ambiguousActions.length === 1 ? '' : 's' }} here
+          {{ ambiguousActions.length === 1 ? 'is' : 'are' }} served by more than one plugin
+        </p>
+        <p class="mt-1 text-fg-muted">
+          The file names the action, not the plugin, so nothing in it says which of these this flow meant. Those nodes
+          land unbound rather than bound to a guess — open each one and pick its plugin. Not required to import.
+        </p>
+        <ul class="mt-2 space-y-1.5">
+          <li v-for="a in ambiguousActions" :key="a.action" class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span class="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10.5px] text-fg">{{ a.action }}</span>
+            <span class="text-fg-muted">{{ a.plugins.join(' / ') }}</span>
           </li>
         </ul>
       </section>

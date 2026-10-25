@@ -393,9 +393,11 @@ function stampPluginRef(data: Record<string, unknown>, actions: PluginActionEntr
   const pluginId = String(data.pluginId ?? '').trim()
   const action = String(data.action ?? '').trim()
   // `bindPlugin: "manual"` opts this node out of the action-only match below:
-  // an installer that knows several local plugins serve the action (SurfStat,
-  // where every channel is its own plugin) withheld the choice rather than let
-  // it be guessed, so the node stays unbound and its drawer offers the pick.
+  // an installer that knows several local plugins serve the action withheld the
+  // choice rather than let it be guessed, so the node stays unbound and its
+  // drawer offers the pick. SurfStat sets it where a package's plugin maps to
+  // one of several channels; Venapce, which has no such entity to map against,
+  // sets it on every ambiguous node of an operation it installs.
   // An exact pluginId still binds — that IS the drawer's pick — and clears the
   // marker, so one hand-bound node never unbinds itself on the next pass.
   const manual = String(data.bindPlugin ?? '').trim() === 'manual'
@@ -413,13 +415,28 @@ function stampPluginRef(data: Record<string, unknown>, actions: PluginActionEntr
   // Match on the action method — the key that survives across installs (a
   // pluginId is a per-install address). Prefer the exact pair when the incoming
   // pluginId also names a local row (a same-install re-import or an AI patch);
-  // otherwise any local plugin exposing this method resolves it.
-  const hit =
-    (pluginId && actions.find((a) => a.pluginId === pluginId && a.action === action)) ||
-    (manual ? undefined : actions.find((a) => a.action === action))
-  // The marker is left in place when nothing bound, so the next pass — and the
-  // next re-install — withholds the choice again.
-  if (!hit) return
+  // otherwise the one local plugin exposing this method resolves it.
+  //
+  // One, not the first of several. Two plugins answering `mssql.query` means
+  // the file — which names the action, never the plugin — does not say which
+  // one this node meant, so binding either is a guess that looks settled and
+  // runs against the wrong database. The node stays unbound and its drawer
+  // offers the pick, the same way the API's import leaves it (stampIdentities)
+  // and for the same reason: deciding it here is what keeps every installer
+  // from having to detect it separately.
+  const exact = pluginId ? actions.find((a) => a.pluginId === pluginId && a.action === action) : undefined
+  const serving = actions.filter((a) => a.action === action)
+  const byPlugin = new Set(serving.map((a) => a.pluginId))
+  const hit = exact || (manual || byPlugin.size > 1 ? undefined : serving[0])
+  // Nothing bound. A node held back because several plugins serve it carries
+  // the marker, so its drawer offers the pick instead of reporting a plugin
+  // that is not missing; a node whose action nothing here provides carries
+  // none, and planPatch's missingPlugin marker speaks for it.
+  if (!hit) {
+    if (byPlugin.size > 1) data.bindPlugin = 'manual'
+    else if (!serving.length) delete data.bindPlugin
+    return
+  }
   delete data.bindPlugin
   data.extensionId = hit.ref.extensionId
   data.pluginId = hit.ref.pluginId

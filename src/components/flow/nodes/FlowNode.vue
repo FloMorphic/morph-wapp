@@ -65,6 +65,33 @@ const missingPlugin = computed(() => {
   const info = m && typeof m === 'object' ? (m as { name?: string; repo?: string }) : null
   return { name: info?.name || namespaceOf(nodeAction.value), repo: info?.repo }
 })
+// Provided here, but bound to nothing: the action IS installed and the node
+// still carries no local plugin id, so it has no plugin to call.
+//
+// `pluginId` is the one thing that answers "is this node bound to a plugin
+// registered on THIS FloMorphic": every path that binds a node writes it (the
+// API import's stampIdentities, the canvas's stampPluginRef, the drawer's pick,
+// a palette drop) and no path leaves it behind when nothing was bound — a
+// foreign id is cleared before resolving, because a plugin node compiles its
+// NATS subject straight from it. So the question is answered from the graph,
+// without asking who installed the flow. That matters: the withheld-choice
+// marker (`bindPlugin: "manual"`) is an instruction to an IMPORTER, and reading
+// it here would mean every app that installs flows needs its own marker to get
+// a badge. This reads the state instead, so SurfStat, Venapce and whatever
+// comes next are all covered by it, as is a node left unbound by anything else
+// — a cleared pick, a patch that could not stamp, an app that forgets to mark.
+//
+// The check above keeps its own badge: an action nothing here provides is a
+// missing plugin whatever the node carries, which also covers a plugin removed
+// after the flow was saved (its id is still on the node).
+const isUnboundPlugin = computed(
+  () =>
+    props.type === 'plugin' &&
+    !!nodeAction.value &&
+    installedActions.value !== null &&
+    installedActions.value.has(nodeAction.value) &&
+    !String((props.data as Record<string, unknown>)?.pluginId ?? '').trim(),
+)
 const accent = computed(() => {
   const data = props.data as Record<string, unknown>
   const pluginId = data?.pluginId
@@ -80,7 +107,7 @@ const accent = computed(() => {
 const iconTileStyle = computed(() => {
   // An unrecognized plugin reads as a warning, not its plugin hue — there is no
   // plugin here yet to take a color from.
-  if (missingPlugin.value)
+  if (missingPlugin.value || isUnboundPlugin.value)
     return {
       background: 'color-mix(in srgb, var(--warning) 14%, transparent)',
       color: 'var(--warning)',
@@ -391,6 +418,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
         <p v-if="missingPlugin" class="flex items-center gap-1 truncate text-[10.5px] font-semibold leading-tight text-warning">
           <Icon name="alert-triangle" :size="10" class="shrink-0" />
           <span class="truncate">Plugin not installed{{ missingPlugin.name ? ` · ${missingPlugin.name}` : '' }}</span>
+        </p>
+        <p
+          v-else-if="isUnboundPlugin"
+          class="flex items-center gap-1 truncate text-[10.5px] font-semibold leading-tight text-warning"
+        >
+          <Icon name="alert-triangle" :size="10" class="shrink-0" />
+          <span class="truncate">Pick a plugin · {{ namespaceOf(nodeAction) || 'unbound' }}</span>
         </p>
         <p v-else class="truncate text-[11px] leading-tight text-fg-subtle">{{ spec?.label }}</p>
       </div>

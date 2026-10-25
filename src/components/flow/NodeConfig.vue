@@ -157,9 +157,10 @@ const isUnrecognized = computed(
 
 /**
  * True when the node was installed with its plugin choice deliberately
- * withheld (`bindPlugin: "manual"`) — an installer that knew several local
- * plugins serve this action and would not guess which one the flow meant. The
- * pick below is then the point of the node's state, not a symptom of something
+ * withheld (`bindPlugin: "manual"`) — an installer (SurfStat installing a
+ * framework, Venapce installing an operation) that knew several local plugins
+ * serve this action and would not guess which one the flow meant. The pick
+ * below is then the point of the node's state, not a symptom of something
  * uninstalled, so the helper says so instead of "nothing provides this yet".
  */
 const withheldPlugin = computed(() => String(data().bindPlugin ?? '').trim() === 'manual')
