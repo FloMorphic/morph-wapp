@@ -21,7 +21,7 @@ import {
 } from '@/lib/pluginForm'
 import { fetchPluginActions, type PluginActionEntry } from '@/lib/nodeExtRefs'
 import { namespaceOf, type MissingPlugin } from '@/lib/exportFlow'
-import type { FlowRecord, McpTool } from '@/types/api'
+import type { FlowSummary, McpTool } from '@/types/api'
 
 /**
  * Tailored configuration editor for the code / logic / LLM nodes, mirroring the
@@ -990,7 +990,10 @@ interface NodeOption {
 const route = useRoute()
 const currentFlowId = computed(() => String(route.params.id ?? ''))
 
-const flows = ref<FlowRecord[]>([])
+// The Goto picker needs a title per flow, nothing of the graph — so the list
+// rows (summaries) are exactly what it holds; the chosen target's nodes are
+// fetched on their own below.
+const flows = ref<FlowSummary[]>([])
 const flowsLoading = ref(false)
 const targetNodes = ref<NodeOption[]>([])
 const nodesLoading = ref(false)

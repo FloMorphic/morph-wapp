@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorkflowsStore } from '@/stores/workflows'
-import type { FlowRecord } from '@/types/api'
+import type { FlowSummary } from '@/types/api'
 import PageShell from '@/components/ui/PageShell.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Button from '@/components/ui/Button.vue'
@@ -29,11 +29,11 @@ function onTag(tag: string, e: Event) {
   void store.toggleTag(tag)
 }
 
-function open(w: FlowRecord) {
+function open(w: FlowSummary) {
   router.push({ name: 'workflow-edit', params: { id: w.id } })
 }
 
-async function remove(w: FlowRecord, e: Event) {
+async function remove(w: FlowSummary, e: Event) {
   e.stopPropagation()
   if (!window.confirm(`Delete "${w.title || 'Untitled'}"?`)) return
   await store.remove(w.id)
@@ -42,15 +42,15 @@ async function remove(w: FlowRecord, e: Event) {
 // Clone a workflow (graph only — triggers are per-flow, so the copy starts with
 // none) and open the copy. Useful when a flow needs a second trigger: one
 // trigger per workflow, so another entry point means another workflow.
-async function clone(w: FlowRecord, e: Event) {
+async function clone(w: FlowSummary, e: Event) {
   e.stopPropagation()
-  const copy = await store.save({ title: `${w.title || 'Untitled'} (copy)`, view_flow: w.view_flow })
+  // The graph comes from a fetch of the source flow, not from the list row: a
+  // row is a summary and carries none, so cloning from it would save an empty
+  // canvas over a real flow's name.
+  const src = await store.get(w.id)
+  const copy = await store.save({ title: `${w.title || 'Untitled'} (copy)`, view_flow: src.view_flow })
   await store.refresh()
   router.push({ name: 'workflow-edit', params: { id: copy.id } })
-}
-
-function nodeCount(w: FlowRecord): number {
-  return w.view_flow?.nodes?.length ?? 0
 }
 
 function formatDate(ts?: number): string {
@@ -167,7 +167,7 @@ function formatDate(ts?: number): string {
           </span>
         </div>
         <div class="mt-1 flex items-center gap-3 text-xs text-fg-subtle">
-          <span>{{ nodeCount(w) }} node{{ nodeCount(w) === 1 ? '' : 's' }}</span>
+          <span>{{ w.nodeCount }} node{{ w.nodeCount === 1 ? '' : 's' }}</span>
           <span>·</span>
           <span>Updated {{ formatDate(w.updatedAt) }}</span>
         </div>

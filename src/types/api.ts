@@ -76,9 +76,84 @@ export interface FlowRecord {
   /** Flow-level, non-graph choices — today the entry form the flow asks to have
    *  filled in before it runs. Absent for a flow that asks for nothing. */
   preferences?: FlowPreferences
+  /** The flow's plugin bill of materials — DERIVED, never sent: the backend
+   *  recomputes it from the saved graph on every save and replaces whatever a
+   *  client put here (see {@link FlowPlugin}). Absent for a flow whose wired-up
+   *  nodes need no plugin. */
+  plugins?: FlowPlugin[]
   createdAt: number
   updatedAt: number
   view_flow: VueFlowGraph
+}
+
+/**
+ * One row of the flow list: a {@link FlowRecord} without its graph.
+ *
+ * `GET /flow` answers with these. The graph is the whole weight of a record —
+ * a real flow's `view_flow` is tens of kilobytes — and the list draws none of
+ * it, so the backend neither reads nor sends it per row; `nodeCount` is counted
+ * in SQL for the badge, and the editor loads the graph of the one flow it opens
+ * with `GET /flow/id/:id` (`flowsApi.get`). Anything that needs a listed flow's
+ * graph — cloning it, reading its nodes — fetches that record first.
+ */
+export interface FlowSummary {
+  id: string
+  title: string
+  tags?: string[]
+  preferences?: FlowPreferences
+  /** The plugins the flow runs through — the one thing about a flow's graph a
+   *  list could not work out without loading every graph it shows, which is why
+   *  the backend stores it beside the flow and sends it per row. */
+  plugins?: FlowPlugin[]
+  /** How many nodes the saved graph holds. 0 for a flow never drawn on. */
+  nodeCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * One plugin a saved flow runs work through, and how — an entry of the flow's
+ * plugin bill of materials (`plugins` on {@link FlowRecord} and
+ * {@link FlowSummary}).
+ *
+ * A plugin-backed node is the one kind of node whose work happens outside the
+ * backend: a process the operator has to have running for the flow to work.
+ * That makes "which plugins does this flow need" a question asked away from the
+ * canvas — by the flow list, by whatever installed the flow, by an operator
+ * about to launch one — so the backend derives the answer from the graph on
+ * every save and stores it beside the flow. It is never authored: a `plugins`
+ * field a save sends is replaced by what the saved graph says, and only nodes
+ * with at least one edge on them are counted (a plugin node sitting unwired on
+ * the canvas cannot run, so nothing is to be installed for it).
+ *
+ * There is deliberately no display name: the palette row is the authority on
+ * what a plugin is called and what icon it draws, and a name copied in at save
+ * time is the one field that goes stale when a plugin is renamed. What
+ * identifies the entry is {@link type} for a builtin and {@link pluginId} for
+ * an imported plugin — or, while nothing binds it, its {@link actions}.
+ */
+export interface FlowPlugin {
+  /** Which side the plugin comes from: `builtin` for the ones that ship with
+   *  FloMorphic (the LLM, MCP, Cast, HTTP and AI-Decision nodes), `extension`
+   *  for a plugin imported through the Extensions portal. */
+  kind: ExtensionKind
+  /** The node type behind the entry: the specific builtin kind (`llm`, `mcp`,
+   *  `cast`, `http`, `ai-decision`) for a builtin, the generic `plugin` for an
+   *  imported plugin's action node. Nodes saved under the retired `jev` type
+   *  are reported as `ai-decision` — same plugin, former name. */
+  type: ExtensionType
+  /** The inflowv1 PLUGIN_ID the nodes are bound to. Empty/absent means they are
+   *  NOT bound on this install — an imported flow whose plugin is missing here,
+   *  or one whose action several local plugins serve — which is the most useful
+   *  entry in the list, since it is what the operator has to install or pick. */
+  pluginId?: string
+  /** The plugin's action methods this flow calls, sorted and de-duplicated.
+   *  They are the portable half of a plugin's identity (an `@actions` method
+   *  name is the same on every install), so they label an entry with no
+   *  `pluginId`. Absent for a builtin, whose action its type implies. */
+  actions?: string[]
+  /** How many of the flow's nodes this plugin serves. */
+  nodeCount: number
 }
 
 /** A flow's preferences. One field today; an object so the next flow-level
@@ -222,6 +297,11 @@ export type ExtensionType =
   | 'opa'
   | 'until'
   | 'cast'
+  | 'http'
+  | 'ai-decision'
+  /** The AI-Decision node's former name, kept so flows and extension rows saved
+   *  under it still resolve (see nodeCatalog's LEGACY_TYPES). */
+  | 'jev'
 
 export interface ExtensionIcon {
   class: string

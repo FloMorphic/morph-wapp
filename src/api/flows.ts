@@ -1,8 +1,12 @@
 import type {
   CompiledFlow,
+  ExtensionKind,
+  ExtensionType,
   FlowEntryView,
+  FlowPlugin,
   FlowPreferences,
   FlowRecord,
+  FlowSummary,
   Page,
   PaginationParams,
   SavedFlow,
@@ -11,6 +15,7 @@ import type {
 import { apiEnabled, http, list } from './client'
 import { readCollection, writeCollection } from '@/lib/localStore'
 import { resolveEntryViewLocally } from '@/lib/flowEntry'
+import { namespaceOf } from '@/lib/exportFlow'
 import { createId, now } from '@/lib/id'
 
 /**
@@ -37,7 +42,7 @@ export interface SaveFlowInput {
 
 // ---- Local backend ----------------------------------------------------------
 
-function localList(params?: PaginationParams): Page<FlowRecord> {
+function localList(params?: PaginationParams): Page<FlowSummary> {
   const all = readCollection<FlowRecord>(LOCAL_KEY).sort((a, b) => b.updatedAt - a.updatedAt)
   const search = params?.search?.toLowerCase()
   const wanted = normalizeTags(params?.tags?.split(','))
@@ -50,7 +55,7 @@ function localList(params?: PaginationParams): Page<FlowRecord> {
   const perPage = params?.per_page ?? 12
   const page = Math.max(1, params?.page ?? 1)
   const start = (page - 1) * perPage
-  const list = filtered.slice(start, start + perPage)
+  const list = filtered.slice(start, start + perPage).map(summarize)
   return {
     list,
     total: filtered.length,
@@ -60,10 +65,27 @@ function localList(params?: PaginationParams): Page<FlowRecord> {
   }
 }
 
+/** The list row of a stored record — the backend's FlowSummary, derived here so
+ *  local mode answers the same shape (graph out, node count in). */
+function summarize(f: FlowRecord): FlowSummary {
+  return {
+    id: f.id,
+    title: f.title,
+    tags: f.tags,
+    preferences: f.preferences,
+    plugins: collectFlowPlugins(f.view_flow),
+    nodeCount: f.view_flow?.nodes?.length ?? 0,
+    createdAt: f.createdAt,
+    updatedAt: f.updatedAt,
+  }
+}
+
 function localGet(id: string): FlowRecord {
   const found = readCollection<FlowRecord>(LOCAL_KEY).find((f) => f.id === id)
   if (!found) throw new Error(`Workflow ${id} not found`)
-  return found
+  // Derived on the way out, like the backend recomputes it on the way in — a
+  // record written before the field existed still answers the current shape.
+  return { ...found, plugins: collectFlowPlugins(found.view_flow) }
 }
 
 function localSave(input: SaveFlowInput): FlowRecord {
@@ -76,6 +98,9 @@ function localSave(input: SaveFlowInput): FlowRecord {
         ...all[idx],
         title: input.title,
         view_flow: input.view_flow,
+        // Derived from the graph being saved, never from the input, exactly as
+        // the backend's save does (see models.CollectFlowPlugins).
+        plugins: collectFlowPlugins(input.view_flow),
         // undefined keeps the stored tags, like the backend's upsert.
         tags: input.tags === undefined ? all[idx].tags : normalizeTags(input.tags),
         preferences: input.preferences === undefined ? all[idx].preferences : normalizePreferences(input.preferences),
@@ -90,6 +115,7 @@ function localSave(input: SaveFlowInput): FlowRecord {
     id: input.id ?? createId('flow'),
     title: input.title,
     view_flow: input.view_flow,
+    plugins: collectFlowPlugins(input.view_flow),
     tags: normalizeTags(input.tags),
     preferences: normalizePreferences(input.preferences),
     createdAt: ts,
@@ -112,8 +138,14 @@ function localRemove(id: string): void {
 export const flowsApi = {
   isRemote: apiEnabled,
 
-  list(params?: PaginationParams): Promise<Page<FlowRecord>> {
-    if (apiEnabled()) return list<FlowRecord>('/flow', params)
+  /**
+   * The flow list. A row is a {@link FlowSummary} — no graph: `view_flow` is
+   * tens of kilobytes per flow and nothing in a list renders it, so it is
+   * neither read nor sent per row (the node count comes along instead). Need a
+   * listed flow's graph — to clone it, to read its nodes — and {@link get} it.
+   */
+  list(params?: PaginationParams): Promise<Page<FlowSummary>> {
+    if (apiEnabled()) return list<FlowSummary>('/flow', params)
     return Promise.resolve(localList(params))
   },
 
@@ -226,6 +258,99 @@ function normalizePreferences(prefs?: FlowPreferences): FlowPreferences | undefi
   const schema = prefs?.entry?.form?.schema
   if (!schema || !Object.keys(schema).length) return undefined
   return prefs
+}
+
+/**
+ * The plugin-backed node types and the identity each reports, mirroring the
+ * backend's models.PluginBackedNodeType: the node kinds the compiler lowers to
+ * an inflow Plugin node. The rest of the palette — a JS node, a rule, a HITL, a
+ * store node — is run by the backend or the engine, so none of it belongs in a
+ * flow's plugin list even though some of those nodes do reach outside.
+ */
+const PLUGIN_BACKED_TYPES: Record<string, { type: ExtensionType; kind: ExtensionKind }> = {
+  plugin: { type: 'plugin', kind: 'extension' },
+  llm: { type: 'llm', kind: 'builtin' },
+  mcp: { type: 'mcp', kind: 'builtin' },
+  cast: { type: 'cast', kind: 'builtin' },
+  http: { type: 'http', kind: 'builtin' },
+  'ai-decision': { type: 'ai-decision', kind: 'builtin' },
+  // The decision node's former name. One plugin, so one entry: a flow mixing
+  // nodes saved under both names must not list it twice.
+  jev: { type: 'ai-decision', kind: 'builtin' },
+}
+
+/**
+ * The backend's models.CollectFlowPlugins, for the local (no-backend) path: one
+ * {@link FlowPlugin} per plugin behind the graph's wired-up plugin-backed nodes.
+ *
+ * Only a node with at least one edge on it is counted — a plugin node sitting
+ * unwired on the canvas is one an author is still placing, so nothing about the
+ * flow depends on the plugin behind it. Sorted the same way the backend sorts
+ * (builtins first, then type, plugin id, actions) so a client diffing the list
+ * across the two paths sees no churn.
+ */
+function collectFlowPlugins(graph: VueFlowGraph | undefined): FlowPlugin[] | undefined {
+  const connected = new Set<string>()
+  for (const e of graph?.edges ?? []) {
+    if (e.source) connected.add(e.source)
+    if (e.target) connected.add(e.target)
+  }
+
+  const groups = new Map<string, { entry: FlowPlugin; actions: Set<string> }>()
+  for (const n of graph?.nodes ?? []) {
+    const backing = PLUGIN_BACKED_TYPES[String(n.type ?? '').trim()]
+    if (!backing || !connected.has(n.id)) continue
+    const data = n.data as Record<string, unknown> | undefined
+    const pluginId = String(data?.pluginId ?? '').trim()
+    const action = String(data?.action ?? '').trim()
+
+    // Keyed by the plugin, not the node: a builtin by its type (one builtin
+    // kind is one plugin on an install, which keeps a legacy node carrying no
+    // stamped pluginId in the same entry as a freshly dropped one), an imported
+    // plugin by its id, falling back to the action's namespace while nothing
+    // binds it — `jira.add_task` and `jira.update_task` on an uninstalled
+    // plugin are one plugin to install, not two.
+    let key = `builtin:${backing.type}`
+    if (backing.kind === 'extension') {
+      if (pluginId) key = `plugin:${pluginId}`
+      else if (action) key = `action:${namespaceOf(action)}`
+      // Neither bound nor named: nothing says which plugin the node means, and
+      // it cannot compile either.
+      else continue
+    }
+
+    let g = groups.get(key)
+    if (!g) {
+      g = { entry: { kind: backing.kind, type: backing.type, nodeCount: 0 }, actions: new Set<string>() }
+      if (pluginId) g.entry.pluginId = pluginId
+      groups.set(key, g)
+    }
+    g.entry.nodeCount++
+    // A builtin's action is its type (`run`, `call_tool`, … are the node's own
+    // request field, not a plugin the operator picks), so only an imported
+    // plugin's methods are listed.
+    if (backing.kind === 'extension' && action) g.actions.add(action)
+    // One stamped node is enough to bind the group: a graph can hold a node
+    // that was never stamped (hand-authored, or imported while the plugin was
+    // missing) next to one that was.
+    if (!g.entry.pluginId && pluginId) g.entry.pluginId = pluginId
+  }
+  if (!groups.size) return undefined
+
+  const out = [...groups.values()].map(({ entry, actions }) =>
+    actions.size ? { ...entry, actions: [...actions].sort() } : entry,
+  )
+  out.sort((a, b) => {
+    const builtinA = a.kind === 'builtin'
+    const builtinB = b.kind === 'builtin'
+    if (builtinA !== builtinB) return builtinA ? -1 : 1
+    return (
+      a.type.localeCompare(b.type) ||
+      (a.pluginId ?? '').localeCompare(b.pluginId ?? '') ||
+      (a.actions ?? []).join(',').localeCompare((b.actions ?? []).join(','))
+    )
+  })
+  return out
 }
 
 /**

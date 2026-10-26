@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { FlowRecord, SavedFlow, VueFlowGraph } from '@/types/api'
+import type { FlowRecord, FlowSummary, SavedFlow, VueFlowGraph } from '@/types/api'
 import { flowsApi, normalizeTags, type SaveFlowInput } from '@/api/flows'
 
 /**
@@ -8,7 +8,9 @@ import { flowsApi, normalizeTags, type SaveFlowInput } from '@/api/flows'
  * records directly through {@link flowsApi} to keep its lifecycle self-contained.
  */
 export const useWorkflowsStore = defineStore('workflows', () => {
-  const items = ref<FlowRecord[]>([])
+  // Summaries, not records: the list endpoint sends every row without its
+  // graph (see flowsApi.list), and `get` is how a view that needs one asks.
+  const items = ref<FlowSummary[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const search = ref('')
