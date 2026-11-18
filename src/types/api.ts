@@ -312,6 +312,7 @@ export interface ExtensionIcon {
 export interface FormParameters {
   schema: Record<string, unknown>
   ui: Record<string, unknown>
+  renderer?: string | Record<string, unknown> | null
 }
 
 export interface ExtensionBind {
@@ -390,6 +391,17 @@ export interface PluginFormBuilder {
   submit_to?: string
   jsonui?: string
   jsonschema?: string
+  /**
+   * Which engine should draw this form (`sdkv1.FormBuilder.Renderer`).
+   *
+   * Absent — as in every plugin that predates it — this reads as `jsonforms`
+   * and the drawer renders the schema as it always has. A plugin whose dialog
+   * is not expressible as a schema may instead name a code renderer and ship a
+   * module, which `@inflowenger/plugin-sandbox` runs in a Worker or a
+   * null-origin frame. Carried through untouched; the sandbox package parses
+   * and defaults it.
+   */
+  renderer?: string | Record<string, unknown> | null
 }
 
 /** `@intro` — who the plugin is, plus the settings it needs before any action

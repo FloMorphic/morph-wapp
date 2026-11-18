@@ -210,7 +210,7 @@ async function save() {
       <!-- The plugin advertised a form: render exactly what it asked for. -->
       <div v-if="hasFields" class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Plugin settings</label>
-        <PluginForm :form="form!" v-model="values" :plugin-id="plugin?.pluginId" :settings="values" />
+        <PluginForm :form="form!" v-model="values" :plugin-id="plugin?.pluginId" method="@settings" :settings="values" />
       </div>
 
       <!-- It didn't. Either it needs nothing, or it couldn't tell us — both look

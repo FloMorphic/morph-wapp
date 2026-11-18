@@ -16,3 +16,5 @@ minimumReleaseAgeExclude:
   - '@inflowenger/flow-trace@0.2.3'
   - '@inflowenger/flow-trace@0.2.4'
   - '@inflowenger/plugin-form-builder@0.2.2'
+  - '@inflowenger/plugin-form-builder@0.2.3'
+  - '@inflowenger/plugin-sandbox@0.1.1'

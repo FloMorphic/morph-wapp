@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "FloMorphic — Contract-Driven AI. A workflow-centric runtime for building AI-powered systems from explicit primitives, built on the Inflowenger context runtime.",
+  "description": "FloMorphic \u2014 Contract-Driven AI. A workflow-centric runtime for building AI-powered systems from explicit primitives, built on the Inflowenger context runtime.",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
@@ -20,7 +20,8 @@
     "@codemirror/view": "^6.43.6",
     "@iconify/vue": "^5.0.1",
     "@inflowenger/flow-trace": "^0.2.4",
-    "@inflowenger/plugin-form-builder": "v0.2.2",
+    "@inflowenger/plugin-form-builder": "^0.2.3",
+    "@inflowenger/plugin-sandbox": "^0.1.1",
     "@jsonforms/core": "^3.8.0",
     "@jsonforms/vue": "^3.8.0",
     "@jsonforms/vue-vanilla": "^3.8.0",

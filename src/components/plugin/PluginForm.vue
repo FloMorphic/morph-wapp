@@ -1,6 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { vanillaRenderers } from '@jsonforms/vue-vanilla'
 import { InflowForm } from '@inflowenger/plugin-form-builder'
+import {
+  InflowSandboxForm,
+  resolveRenderer,
+  type GuestNotification,
+} from '@inflowenger/plugin-sandbox'
+import { nodeRegistryApi } from '@/api/nodeRegistry'
+import { useNotificationsStore, type NotificationLevel } from '@/stores/notifications'
 import type { PluginForm } from '@/lib/pluginForm'
 
 /**
@@ -37,6 +45,32 @@ import type { PluginForm } from '@/lib/pluginForm'
  * re-seeds its core from its props whenever `data` changes, so a schema a
  * plugin pushed in would be reverted by the next keystroke; `<InflowForm>` owns
  * schema/uischema/data above it, which is what makes a re-render stick.
+ *
+ * ## When the dialog is not a form
+ *
+ * Some dialogs cannot be said in JSON Schema — a query builder, a diff, a table
+ * of rows to pick from, anything that draws. Expressing those declaratively
+ * means inventing a widget vocabulary for each one and shipping it *here*,
+ * which puts FloMorphic on the critical path of every plugin's UI.
+ *
+ * So a form document may name a `renderer`, and when it names a code one the
+ * plugin's own module is run in a sandbox — a Web Worker whose output is
+ * mirrored into this document as ordinary host nodes, or a null-origin frame.
+ * All of that lives in `@inflowenger/plugin-sandbox`; what this component
+ * supplies is the same three things it supplies the declarative renderer: the
+ * transport, the look, and somewhere to put the messages.
+ *
+ * Two properties of that arrangement are worth stating because they are what
+ * make it acceptable to run a third party's code in our drawer at all:
+ *
+ *  - **The settings profile crosses only when the form explicitly asks.** The
+ *    sandbox passes it to the guest only for `renderer.exposeSettings: true`;
+ *    otherwise a guest reaches its service through `call` below, where *we*
+ *    attach the credentials. It can use a token it is never handed.
+ *  - **A failed renderer is not a failed node.** Every plugin ships its
+ *    declarative form alongside, and the `fallback` slot draws it. A blocked
+ *    CDN, a browser without Workers or a plugin's own bug degrades the dialog,
+ *    never the ability to configure the node.
  */
 const props = defineProps<{
   form: PluginForm
@@ -50,10 +84,75 @@ const props = defineProps<{
   /** The settings profile an action needs to reach the plugin's service
    *  (credentials, endpoint). Sent with every call as `settings`. */
   settings?: Record<string, unknown>
+  /** The action or `@settings` being configured; labels the sandbox and is
+   *  handed to a guest that was explicitly allowed to see it. */
+  method?: string
   readonly?: boolean
 }>()
 
 const emit = defineEmits<{ (e: 'update:modelValue', v: Record<string, unknown>): void }>()
+
+/**
+ * Which engine this document asked for.
+ *
+ * Resolved by the sandbox package rather than read here, because "absent",
+ * "unknown" and "malformed" all have to mean the same safe thing — the
+ * declarative renderer — and that decision belongs in one place.
+ */
+const renderer = computed(() => resolveRenderer(props.form.renderer as never))
+
+const notifications = useNotificationsStore()
+
+/**
+ * The guest's only way out.
+ *
+ * Deliberately the same transport `x-inflow-ui`'s `pluginFn` action uses, so a
+ * plugin's meta functions serve both renderers unchanged and a dialog can be
+ * rewritten from one to the other without touching the backend. The settings
+ * profile is attached here, in our realm — the guest supplies the method name
+ * and a body, and never sees the credentials the call is made with.
+ */
+async function callPlugin(fn: string, body?: Record<string, unknown>) {
+  if (!props.pluginId) throw new Error('this form is not bound to a plugin')
+  return nodeRegistryApi.pluginFn(props.pluginId, fn, {
+    ...(body ?? {}),
+    settings: props.settings ?? {},
+  })
+}
+
+/**
+ * A guest's message → somewhere the user will see it.
+ *
+ * The same policy main.ts applies to the declarative renderer's messages:
+ * only the ones that asked to be a toast or a dialog become one. The
+ * difference is where the rest go. A declarative form has a *field* to put an
+ * inline message under, because the host drew that field; a sandboxed guest
+ * drew its own, and the host has no idea which node "the collection field"
+ * refers to.
+ *
+ * So anything not claimed as a toast is raised as one anyway, at a quieter
+ * level. That is a deliberate trade: slightly noisier than ideal, and never
+ * the alternative, which is a plugin's only explanation of what went wrong
+ * being addressed to a field nobody can find and therefore dropped.
+ */
+const GUEST_TOAST_LEVEL: Record<string, NotificationLevel> = {
+  success: 'success',
+  error: 'error',
+  warning: 'warning',
+  info: 'info',
+  help: 'info',
+}
+
+function onGuestNotification(notification: GuestNotification | string) {
+  const value = typeof notification === 'string' ? { message: notification } : notification
+  if (!value.message) return
+
+  notifications.notify({
+    level: GUEST_TOAST_LEVEL[value.severity ?? 'info'] ?? 'info',
+    title: value.title,
+    message: value.message,
+  })
+}
 
 /**
  * A plugin may answer a button with a whole new form. That is a live document,
@@ -69,7 +168,54 @@ function onData(next: unknown) {
 
 <template>
   <div class="plugin-form">
+    <!--
+      A plugin that ships code gets to draw its own dialog. The sandbox package
+      withholds `settings` unless the form asked for it with
+      `renderer.exposeSettings: true`; calls always carry it.
+    -->
+    <InflowSandboxForm
+      v-if="renderer.type !== 'jsonforms'"
+      :renderer="(props.form.renderer as any)"
+      :schema="props.form.schema"
+      :uischema="props.form.uischema"
+      :data="props.modelValue"
+      :plugin-id="props.pluginId"
+      :method="props.method"
+      :settings="props.settings"
+      :readonly="props.readonly"
+      :call="callPlugin"
+      @update:data="onData"
+      @notification="onGuestNotification"
+    >
+      <template #loading>
+        <p class="mt-1 text-[11px] text-fg-subtle">Loading the plugin's interface…</p>
+      </template>
+
+      <!--
+        The contract this host owes a plugin: when its renderer will not run,
+        the declarative form it also shipped is drawn instead. A node must not
+        become unconfigurable because a bundle failed to load.
+      -->
+      <template #fallback="{ error }">
+        <p class="mt-1 mb-2 text-[11px] text-warning">
+          This plugin's own interface could not be loaded, so its standard form is shown instead.
+          <span class="block text-fg-subtle">{{ error }}</span>
+        </p>
+        <InflowForm
+          :schema="(props.form.schema as any)"
+          :uischema="(props.form.uischema as any)"
+          :data="props.modelValue"
+          :renderers="vanillaRenderers"
+          :plugin-id="props.pluginId"
+          :settings="props.settings"
+          :readonly="props.readonly"
+          @update:data="onData"
+        />
+      </template>
+    </InflowSandboxForm>
+
     <InflowForm
+      v-else
       :schema="(props.form.schema as any)"
       :uischema="(props.form.uischema as any)"
       :data="props.modelValue"

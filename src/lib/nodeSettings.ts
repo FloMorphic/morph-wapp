@@ -34,7 +34,11 @@ export interface NodeExtRef {
    * palette groups it. Empty ⇒ the node uses the plugin's base color.
    */
   className?: string
-  form?: { schema: Record<string, unknown>; ui: Record<string, unknown> }
+  form?: {
+    schema: Record<string, unknown>
+    ui: Record<string, unknown>
+    renderer?: string | Record<string, unknown> | null
+  }
   /**
    * The action's optional declared branch ports (SDK Action.Outbound). Carried
    * onto the node so it renders one output port per entry the moment it lands,

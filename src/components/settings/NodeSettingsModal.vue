@@ -484,7 +484,7 @@ async function submit() {
 
       <div v-else-if="pluginForm" class="space-y-1">
         <label class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Plugin settings</label>
-        <PluginForm :form="pluginForm" v-model="pluginValues" :plugin-id="pluginId" :settings="pluginValues" />
+        <PluginForm :form="pluginForm" v-model="pluginValues" :plugin-id="pluginId" method="@settings" :settings="pluginValues" />
       </div>
 
       <!-- Typed editor: kinds with a finalized settings model (e.g. LLM). -->

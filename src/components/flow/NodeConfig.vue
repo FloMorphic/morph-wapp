@@ -85,7 +85,7 @@ const livePluginForm = ref<PluginFormSpec | null>(null)
 const pluginFormStale = ref(false)
 
 const pluginForm = computed<PluginFormSpec | null>(
-  () => livePluginForm.value ?? toStoredPluginForm(data().form as { schema?: unknown; ui?: unknown } | undefined),
+  () => livePluginForm.value ?? toStoredPluginForm(data().form as { schema?: unknown; ui?: unknown; renderer?: unknown } | undefined),
 )
 
 const pluginHasFields = computed(() => !!pluginForm.value)
@@ -106,7 +106,7 @@ async function loadPluginForm() {
         livePluginForm.value = live
         // Keep the node's copy in step, so the next open (and an offline one)
         // starts from what the plugin last said.
-        data().form = { schema: live.schema, ui: live.uischema ?? {} }
+        data().form = { schema: live.schema, ui: live.uischema ?? {}, renderer: live.renderer }
       }
     } catch {
       // Down, or no runtime. The stamped copy still renders; say it may be old.
@@ -767,6 +767,10 @@ const DECISION_TYPES: { value: DecisionType; label: string; hint: string }[] = [
   { value: 'score', label: 'Score', hint: 'place on ordered levels, lowest first (2–10)' },
   { value: 'noul', label: 'Yes / No', hint: 'is the statement true?' },
 ]
+const decisionTypeOptions = DECISION_TYPES
+function decisionTypeHint(type: unknown): string {
+  return DECISION_TYPES.find((entry) => entry.value === type)?.hint ?? ''
+}
 interface DecisionOption {
   id: string
   name: string
@@ -1310,6 +1314,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           :form="pluginForm!"
           v-model="pluginBody"
           :plugin-id="String(data().pluginId ?? '')"
+          :method="pluginActionName"
           :settings="pluginSettings"
         />
       </div>
@@ -1972,7 +1977,7 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
           <div class="flex items-center gap-2">
             <input v-model="q.id" class="input w-32 font-mono text-xs" placeholder="id (e.g. category)" />
             <select v-model="q.type" class="input w-28 text-xs" title="Question type" @change="onDecisionTypeChange(q)">
-              <option v-for="t in DECISION_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+              <option v-for="t in decisionTypeOptions" :key="t.value" :value="t.value">{{ t.label }}</option>
             </select>
             <label
               class="flex items-center gap-1 text-[11px] text-fg-subtle"
@@ -1994,8 +1999,8 @@ const targetFlows = computed(() => flows.value.filter((f) => f.id !== currentFlo
             class="input w-full text-xs"
             placeholder="instructions — the question the model evaluates the state against (required)"
           />
-          <div class="flex items-center gap-2" :title="DECISION_TYPES.find((t) => t.value === q.type)?.hint">
-            <span class="text-[11px] text-fg-subtle">{{ DECISION_TYPES.find((t) => t.value === q.type)?.hint }}</span>
+          <div class="flex items-center gap-2" :title="decisionTypeHint(q.type)">
+            <span class="text-[11px] text-fg-subtle">{{ decisionTypeHint(q.type) }}</span>
             <label
               v-if="q.route"
               class="ml-auto flex items-center gap-1 text-[11px] text-fg-subtle"

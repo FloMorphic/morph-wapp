@@ -358,6 +358,14 @@
   color: var(--fg-subtle);
 }
 
+.plugin-form input.if-input:disabled,
+.plugin-form select.if-input:disabled,
+.plugin-form textarea.if-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--surface-2);
+}
+
 /* Size and colour only: vanilla-fixes undoes the `flex: 1` that would zero the
    basis of these two and smear them across the drawer, and re-places the rows
    as "box, then label, on one line". */
@@ -618,10 +626,24 @@
   transition: background 0.15s, border-color 0.15s;
 }
 
-.plugin-form .if-btn:hover,
-.if-dialog .if-btn:hover {
+.plugin-form .if-btn:hover:not(:disabled),
+.if-dialog .if-btn:hover:not(:disabled) {
   background: var(--accent);
   color: var(--accent-fg);
+}
+
+.plugin-form .if-btn:focus-visible,
+.if-dialog .if-btn:focus-visible,
+.plugin-form .if-btn-icon:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.plugin-form .if-btn:disabled,
+.if-dialog .if-btn:disabled,
+.plugin-form .if-btn-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .plugin-form .if-btn-icon {

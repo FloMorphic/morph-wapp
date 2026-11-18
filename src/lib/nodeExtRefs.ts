@@ -172,7 +172,11 @@ async function loadActions(): Promise<PluginActionEntry[]> {
           label: row.name,
           icon: row.icon?.name || undefined,
           className: className || undefined,
-          form: { schema: row.params?.schema ?? {}, ui: row.params?.ui ?? {} },
+          form: {
+            schema: row.params?.schema ?? {},
+            ui: row.params?.ui ?? {},
+            renderer: row.params?.renderer,
+          },
           outbound: row.outbound ?? [],
         },
         action: row.action as string,

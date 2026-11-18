@@ -29,6 +29,11 @@ import '@vue-flow/minimap/dist/style.css'
 // Importing it is how we say we use that renderer set.
 import '@jsonforms/vue-vanilla/vanilla.css'
 import '@inflowenger/plugin-form-builder/style.css'
+// The sandbox's own styles: the frame's box and the two states a guest can be
+// in that are the host's to draw. Deliberately almost empty — a `remote`
+// guest's nodes are host nodes and are styled by style.css above, exactly as
+// hand-written markup in the same drawer would be.
+import '@inflowenger/plugin-sandbox/style.css'
 import '@inflowenger/plugin-form-builder/vanilla-fixes.css'
 
 // FloMorphic Vue Flow overrides (themed to design tokens)

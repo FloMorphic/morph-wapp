@@ -28,6 +28,16 @@ export interface PluginForm {
   /** Absent when the plugin shipped no UI schema — JSON Forms then generates a
    *  layout from the schema itself, which is the sane default. */
   uischema?: Record<string, unknown>
+  /**
+   * What the plugin asked to draw this form with, carried verbatim.
+   *
+   * Nothing here interprets it: `@inflowenger/plugin-sandbox` owns the
+   * vocabulary and resolves anything absent, unknown or malformed back to the
+   * declarative renderer. Keeping it uninterpreted here is what lets a plugin
+   * name a renderer this build has never heard of and still get its form
+   * drawn.
+   */
+  renderer?: string | Record<string, unknown> | null
 }
 
 /**
@@ -66,7 +76,7 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
  */
 export function toPluginForm(form: PluginFormBuilder | null | undefined): PluginForm | null {
   if (!form) return null
-  return buildForm(parseFormDoc(form.jsonschema), parseFormDoc(form.jsonui))
+  return buildForm(parseFormDoc(form.jsonschema), parseFormDoc(form.jsonui), form.renderer)
 }
 
 /**
@@ -74,20 +84,39 @@ export function toPluginForm(form: PluginFormBuilder | null | undefined): Plugin
  * rather than the SDK's strings. Used for the form stamped onto a canvas node,
  * which is what its drawer falls back to when the plugin is down.
  */
-export function toStoredPluginForm(params: { schema?: unknown; ui?: unknown } | null | undefined): PluginForm | null {
+export function toStoredPluginForm(
+  params: { schema?: unknown; ui?: unknown; renderer?: unknown } | null | undefined,
+): PluginForm | null {
   if (!params) return null
-  return buildForm(parseFormDoc(params.schema), parseFormDoc(params.ui))
+  return buildForm(
+    parseFormDoc(params.schema),
+    parseFormDoc(params.ui),
+    params.renderer as PluginForm['renderer'],
+  )
 }
 
 function buildForm(
   schema: Record<string, unknown> | undefined,
   uischema: Record<string, unknown> | undefined,
+  renderer?: PluginForm['renderer'],
 ): PluginForm | null {
+  // Still gated on the schema, deliberately, even for a code renderer.
+  //
+  // A plugin that ships a renderer and no schema has described a dialog with
+  // no data contract behind it and nothing to fall back to — so a failed
+  // bundle would leave a node that cannot be configured at all. The SDK builds
+  // both together (`formkit.Form.Renderer`), so this is a malformed document
+  // rather than a shape anyone needs.
   if (!schema || !hasFields(schema)) return null
+
   // A UI schema is only usable if it names a JSON Forms element type; a plugin
   // that sent `{}` (or the backend's empty-object placeholder) gets the
   // generated layout instead of an element JSON Forms cannot dispatch.
-  return uischema && typeof uischema.type === 'string' ? { schema, uischema } : { schema }
+  const form: PluginForm =
+    uischema && typeof uischema.type === 'string' ? { schema, uischema } : { schema }
+
+  if (renderer) form.renderer = renderer
+  return form
 }
 
 /** Whether a JSON Schema actually asks for anything. */
