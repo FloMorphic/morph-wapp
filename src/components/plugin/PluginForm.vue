@@ -10,6 +10,8 @@ import {
 import { nodeRegistryApi } from '@/api/nodeRegistry'
 import { useNotificationsStore, type NotificationLevel } from '@/stores/notifications'
 import type { PluginForm } from '@/lib/pluginForm'
+import { entry as typedEnumControlEntry } from '@/components/plugin/TypedEnumControlRenderer.vue'
+import { entry as typedOneOfEnumControlEntry } from '@/components/plugin/TypedOneOfEnumControlRenderer.vue'
 
 /**
  * The renderer for everything a plugin asks a user to fill in.
@@ -91,6 +93,15 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ (e: 'update:modelValue', v: Record<string, unknown>): void }>()
+
+/**
+ * The widget set every form is drawn with: vanilla's renderers, plus our enum
+ * selects. A <select> only ever yields strings, so vanilla's enum renderer
+ * hands an integer/boolean enum the string "2" and the schema rejects it;
+ * ours ranks above it (rank 6 vs vanilla's 2/5) and maps the choice back to
+ * the original enum member, keeping its type.
+ */
+const formRenderers = [...vanillaRenderers, typedEnumControlEntry, typedOneOfEnumControlEntry]
 
 /**
  * Which engine this document asked for.
@@ -205,7 +216,7 @@ function onData(next: unknown) {
           :schema="(props.form.schema as any)"
           :uischema="(props.form.uischema as any)"
           :data="props.modelValue"
-          :renderers="vanillaRenderers"
+          :renderers="formRenderers"
           :plugin-id="props.pluginId"
           :settings="props.settings"
           :readonly="props.readonly"
@@ -219,7 +230,7 @@ function onData(next: unknown) {
       :schema="(props.form.schema as any)"
       :uischema="(props.form.uischema as any)"
       :data="props.modelValue"
-      :renderers="vanillaRenderers"
+      :renderers="formRenderers"
       :plugin-id="props.pluginId"
       :settings="props.settings"
       :readonly="props.readonly"
