@@ -13,7 +13,7 @@ import { specForType, type BaseNodeData } from '@/data/nodeCatalog'
 import { pluginColor } from '@/lib/pluginColor'
 import { HITL_DATA_KEYS } from '@/lib/hitl'
 import { SETTINGS_DATA_KEYS, NODE_REF_DATA_KEYS, usesSettingsProfile } from '@/lib/nodeSettings'
-import type { MemoryType } from '@/types/api'
+import type { MemoryType, NodeSetting } from '@/types/api'
 
 // Kinds with a bespoke editor (NodeConfig). Their kind-specific data keys are
 // managed there, so the generic field list drops to the universal fields only.
@@ -30,7 +30,12 @@ const CUSTOM_EDITOR_KINDS = new Set(['js', 'opa', 'rule', 'llm', 'ai-decision', 
  * areas — so every node kind is editable without a bespoke form.
  */
 const props = defineProps<{ node: GraphNode | null }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'delete', node: GraphNode): void; (e: 'resolved'): void }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'delete', node: GraphNode): void
+  (e: 'resolved'): void
+  (e: 'profile-saved', record: NodeSetting): void
+}>()
 
 const spec = computed(() => (props.node ? specForType(props.node.type) : undefined))
 // Plugin nodes carry the action's own icon on their data; builtins fall back to
@@ -330,7 +335,7 @@ onBeforeUnmount(stopResize)
 
     <!-- Compact settings-profile picker, in the drawer head. Plugin nodes only. -->
     <div v-if="showSettingsProfile" class="border-b px-4 py-2">
-      <NodeSettingsSelector :key="node.id" :node="node" />
+      <NodeSettingsSelector :key="node.id" :node="node" @profile-saved="emit('profile-saved', $event)" />
     </div>
 
     <div class="flex-1 space-y-4 overflow-y-auto p-4">

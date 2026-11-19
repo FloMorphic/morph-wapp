@@ -76,6 +76,7 @@ const loadError = ref<string | null>(null)
 async function init() {
   loadError.value = null
   selected.value = null
+  let refreshed = 0
   if (props.id) {
     try {
       const record = await store.get(props.id)
@@ -84,7 +85,12 @@ async function init() {
       preferences.value = record.preferences
       prefsPending.value = undefined
       currentId.value = record.id
-      canvas.value?.loadGraph(record.view_flow ?? { nodes: [], edges: [] })
+      const graph = record.view_flow ?? { nodes: [], edges: [] }
+      // A saved graph freezes its profile copies at save time — re-resolve
+      // them against the store BEFORE painting, so an opened flow never shows
+      // config older than the profiles it binds (see resolveProfileRefs).
+      refreshed = await resolveProfileRefs(graph.nodes ?? [])
+      canvas.value?.loadGraph(graph)
     } catch (err) {
       loadError.value = (err as Error).message
     }
@@ -97,6 +103,17 @@ async function init() {
     canvas.value?.loadGraph({ nodes: [], edges: [] }, true)
   }
   dirty.value = false
+  // A refreshed profile means the canvas now differs from what was saved —
+  // the same contract syncSettingsProfile has on edit: flag it so one Save
+  // persists the synced copies into the stored graph.
+  if (refreshed > 0) {
+    dirty.value = true
+    notifications.notify({
+      level: 'info',
+      title: 'Settings profiles refreshed',
+      message: `${refreshed} node${refreshed === 1 ? '' : 's'} re-synced from their profiles — save to persist the updates.`,
+    })
+  }
 }
 
 onMounted(init)
@@ -203,24 +220,40 @@ async function onImport({
 }
 
 /**
- * Re-attach settings profiles a file carried by *reference*.
+ * Re-attach settings profiles a graph carries by *reference*.
  *
- * An export writes only a node's `settingsId`, never the profile's resolved
- * values (see lib/exportFlow) — the token stays out of the file. So on the way
- * in we resolve each id against *this* install's own profiles: a match has its
- * values denormalized back onto the node (`data.settings` / `data.settingsName`,
- * the shape the compiler and canvas tag read), and an id this install doesn't
- * have is left dangling — the import review already flags such a node as needing
- * a profile picked in the drawer. Mirrors NodeSettingsSelector's applyProfile,
- * done up front so a matching profile works without opening every node.
+ * A node's profile copy is denormalized onto its `data` (`data.settings` /
+ * `data.settingsName`, the shape the compiler and canvas tag read) — and there
+ * it freezes: an export writes only the `settingsId` (the token stays out of
+ * the file, see lib/exportFlow), and a saved flow keeps whatever its profiles
+ * held at save time. So whenever a graph arrives — from storage on open, or
+ * from a file on import — each `settingsId` is re-resolved against *this*
+ * install's profile store, the authority on the current values. Two call sites:
+ *
+ *   an opened flow (init) — a profile edited anywhere since the last save
+ *     (another flow's drawer, the Node Settings page) left the stored copies
+ *     stale; resolving before the canvas paints means an opened flow never
+ *     shows config older than the profiles it binds.
+ *   an imported file — the id is matched against this install's own profiles
+ *     on the way in, so a matching profile works without opening every node;
+ *     an id nothing answers to is left visibly dangling (name cleared, values
+ *     emptied) — the import review flags it for a pick in the drawer.
+ *
+ * These keys are managed by the settings selector and never hand-edited, so
+ * re-stamping can only bring a node up to date, never overwrite author data. A
+ * node that only *references* a profile (hitl — the chat service reads the
+ * store at run time) takes the refreshed name and never the values. Returns
+ * how many nodes changed, so a caller that loaded a stored graph can flag the
+ * difference against what was saved.
  */
-async function resolveImportedProfiles(planned: PlannedPatch): Promise<void> {
+async function resolveProfileRefs(nodes: Array<{ type: string; data: unknown }>): Promise<number> {
   const byUniq = new Map<string, Promise<NodeSetting[]>>()
+  let changed = 0
   await Promise.all(
-    planned.nodes.map(async (node) => {
+    nodes.map(async (node) => {
       const data = node.data as Record<string, unknown>
       const id = String(data.settingsId ?? '').trim()
-      if (!id || !usesSettingsProfile(node.type, data)) return
+      if (!id) return
       const uniq = nodeUniqId(node.type, data)
       let profiles = byUniq.get(uniq)
       if (!profiles) {
@@ -228,10 +261,18 @@ async function resolveImportedProfiles(planned: PlannedPatch): Promise<void> {
         byUniq.set(uniq, profiles)
       }
       const match = (await profiles).find((p) => p.id === id) ?? null
-      data.settingsName = match?.title ?? ''
-      data.settings = match ? { ...match.settings } : {}
+      const name = match?.title ?? ''
+      const next = match ? { ...match.settings } : {}
+      const denormalizes = usesSettingsProfile(node.type, data)
+      const sameName = String(data.settingsName ?? '') === name
+      const sameValues = !denormalizes || JSON.stringify(data.settings ?? null) === JSON.stringify(next)
+      if (sameName && sameValues) return
+      data.settingsName = name
+      if (denormalizes) data.settings = next
+      changed++
     }),
   )
+  return changed
 }
 
 async function applyImport(
@@ -241,7 +282,7 @@ async function applyImport(
   fileTags?: string[],
   plugins?: PluginManifestEntry[],
 ) {
-  await resolveImportedProfiles(planned)
+  await resolveProfileRefs(planned.nodes)
   await canvas.value?.applyPatch(planned, plugins)
   if (mode === 'replace' && fileTitle && isUnnamed(title.value)) title.value = fileTitle
   // The file's labels are adopted only when this flow has none of its own, for
@@ -548,6 +589,7 @@ async function save() {
         @close="selected = null"
         @delete="onDelete"
         @resolved="canvas?.rebindPluginNodes()"
+        @profile-saved="(record) => canvas?.syncSettingsProfile(record)"
       />
     </div>
   </div>

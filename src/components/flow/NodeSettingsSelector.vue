@@ -18,6 +18,10 @@ import NodeSettingsModal from '@/components/settings/NodeSettingsModal.vue'
  * profile store, keeping the two sides independent).
  */
 const props = defineProps<{ node: GraphNode }>()
+// The saved record rides along so the editor can re-stamp every OTHER canvas
+// node bound to the same profile — this component only sees its own node, but
+// all of them carry the same denormalized copy (see WorkflowCanvas).
+const emit = defineEmits<{ (e: 'profile-saved', record: NodeSetting): void }>()
 
 const uniqId = computed(() => computeNodeUniqId(props.node.type, props.node.data as Record<string, unknown>))
 
@@ -103,6 +107,7 @@ function openEdit() {
 async function onSaved(record: NodeSetting) {
   await load()
   onPick(record.id) // select the just-created / just-edited profile
+  emit('profile-saved', record)
 }
 </script>
 

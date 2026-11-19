@@ -17,8 +17,8 @@ import {
   type NodeSpec,
   type NodeKind,
 } from '@/data/nodeCatalog'
-import type { VueFlowGraph } from '@/types/api'
-import type { NodeExtRef } from '@/lib/nodeSettings'
+import type { NodeSetting, VueFlowGraph } from '@/types/api'
+import { usesSettingsProfile, type NodeExtRef } from '@/lib/nodeSettings'
 import { fetchNodeExtRefs, fetchPluginActions, INSTALLED_PLUGIN_ACTIONS, type PluginActionEntry } from '@/lib/nodeExtRefs'
 import { OPEN_NODE_SCOPE, type NodeScopeProbe } from '@/lib/nodeScopeProbe'
 import NodeScopeDialog from './NodeScopeDialog.vue'
@@ -834,12 +834,38 @@ async function rebindPluginNodes(): Promise<void> {
   }
 }
 
+/**
+ * Re-stamp a freshly saved settings profile into every canvas node bound to it.
+ *
+ * A profile's values are denormalized onto each bound node's `data` (see
+ * NodeSettingsSelector) so the backend compiler can ship them as the plugin
+ * body's `settings` without reading the profile store — which means an edit
+ * made in one node's drawer leaves every OTHER node on the canvas holding a
+ * stale copy. This walks the graph and re-stamps each node whose `settingsId`
+ * matches, mirroring the selector's applyProfile: the name always, the values
+ * only where the node denormalizes them (a reference-only node — hitl — takes
+ * the name and never carries the values). The flow is marked dirty when any
+ * node matched: the synced copies only persist on save.
+ */
+function syncSettingsProfile(record: NodeSetting): void {
+  let touched = false
+  for (const n of nodes.value) {
+    const data = n.data as Record<string, unknown>
+    if (String(data.settingsId ?? '') !== record.id) continue
+    data.settingsName = record.title
+    if (usesSettingsProfile(n.type, data)) data.settings = { ...record.settings }
+    touched = true
+  }
+  if (touched) emit('dirty')
+}
+
 defineExpose({
   addNode,
   loadGraph,
   getGraph,
   applyPatch,
   rebindPluginNodes,
+  syncSettingsProfile,
   autoArrange,
   captureImage,
   removeSelected,
