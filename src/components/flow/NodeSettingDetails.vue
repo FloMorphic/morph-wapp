@@ -35,6 +35,7 @@ const emit = defineEmits<{
   (e: 'delete', node: GraphNode): void
   (e: 'resolved'): void
   (e: 'profile-saved', record: NodeSetting): void
+  (e: 'dirty'): void
 }>()
 
 const spec = computed(() => (props.node ? specForType(props.node.type) : undefined))
@@ -335,7 +336,12 @@ onBeforeUnmount(stopResize)
 
     <!-- Compact settings-profile picker, in the drawer head. Plugin nodes only. -->
     <div v-if="showSettingsProfile" class="border-b px-4 py-2">
-      <NodeSettingsSelector :key="node.id" :node="node" @profile-saved="emit('profile-saved', $event)" />
+      <NodeSettingsSelector
+        :key="node.id"
+        :node="node"
+        @profile-saved="emit('profile-saved', $event)"
+        @dirty="emit('dirty')"
+      />
     </div>
 
     <div class="flex-1 space-y-4 overflow-y-auto p-4">

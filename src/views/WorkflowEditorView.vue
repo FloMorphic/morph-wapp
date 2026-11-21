@@ -23,8 +23,7 @@ import { useNotificationsStore } from '@/stores/notifications'
 import { offsetPatch, planPatch, summarize, type AiGraphPatch, type PlannedPatch } from '@/lib/aiGraph'
 import { downloadFile, fileBase, workflowExportJson, type AvailablePlugin, type PluginManifestEntry } from '@/lib/exportFlow'
 import { fetchPluginRegistrations } from '@/lib/nodeExtRefs'
-import { nodeUniqId, usesSettingsProfile } from '@/lib/nodeSettings'
-import { nodeSettingsApi } from '@/api/nodeSettings'
+import { resolveNodeSettingsProfiles } from '@/lib/profileSync'
 import { flowsApi, normalizeTags } from '@/api/flows'
 import type { FlowPreferences, FlowValidation, NodeSetting } from '@/types/api'
 
@@ -68,29 +67,54 @@ const tagsText = ref('')
  */
 const preferences = ref<FlowPreferences | undefined>(undefined)
 const prefsPending = ref<FlowPreferences | undefined>(undefined)
+/** The flow id `preferences` was loaded/saved for — so an export during a fast
+ *  navigation cannot ship the previous flow's form (see preferencesForExport). */
+let prefsOwner: string | undefined
 const currentId = ref<string | undefined>(props.id)
 const dirty = ref(false)
 const saving = ref(false)
 const loadError = ref<string | null>(null)
+/** Counts author edits, so a background save knows not to clear a newer one. */
+let editEpoch = 0
+
+/** Mark the flow as edited (and remember it, for background-save coordination). */
+function markDirty() {
+  dirty.value = true
+  editEpoch++
+}
+
+/** Bumped by every load/save-sync pass, so a slow background answer cannot
+ *  repaint or persist a flow the editor has already navigated away from. */
+let syncSeq = 0
+/** The open flow's in-flight profile sweep, awaited before an author save so a
+ *  fast Save cannot write the pre-sync copies back to the API. */
+let profileSweep: Promise<void> | null = null
 
 async function init() {
   loadError.value = null
   selected.value = null
-  let refreshed = 0
+  const seq = ++syncSeq
   if (props.id) {
     try {
       const record = await store.get(props.id)
+      if (seq !== syncSeq) return
       title.value = record.title || UNTITLED
       tagsText.value = (record.tags ?? []).join(', ')
       preferences.value = record.preferences
       prefsPending.value = undefined
+      prefsOwner = record.id
       currentId.value = record.id
       const graph = record.view_flow ?? { nodes: [], edges: [] }
-      // A saved graph freezes its profile copies at save time — re-resolve
-      // them against the store BEFORE painting, so an opened flow never shows
-      // config older than the profiles it binds (see resolveProfileRefs).
-      refreshed = await resolveProfileRefs(graph.nodes ?? [])
+      // Paint the saved graph immediately. Its profile copies are frozen at
+      // save time, so they are re-resolved in the background (see
+      // syncProfilesInBackground) and the canvas repaints as answers land.
       canvas.value?.loadGraph(graph)
+      dirty.value = false
+      const sweeping = syncProfilesInBackground(record.id, graph.nodes ?? [], seq)
+      profileSweep = sweeping
+      void sweeping.finally(() => {
+        if (profileSweep === sweeping) profileSweep = null
+      })
     } catch (err) {
       loadError.value = (err as Error).message
     }
@@ -99,20 +123,70 @@ async function init() {
     tagsText.value = ''
     preferences.value = undefined
     prefsPending.value = undefined
+    prefsOwner = undefined
     currentId.value = undefined
     canvas.value?.loadGraph({ nodes: [], edges: [] }, true)
+    dirty.value = false
   }
-  dirty.value = false
-  // A refreshed profile means the canvas now differs from what was saved —
-  // the same contract syncSettingsProfile has on edit: flag it so one Save
-  // persists the synced copies into the stored graph.
-  if (refreshed > 0) {
-    dirty.value = true
-    notifications.notify({
-      level: 'info',
-      title: 'Settings profiles refreshed',
-      message: `${refreshed} node${refreshed === 1 ? '' : 's'} re-synced from their profiles — save to persist the updates.`,
+}
+
+/**
+ * Lazy profile refresh for an opened flow.
+ *
+ * The saved graph is already on screen, so this never blocks the editor: it
+ * fetches each distinct bound profile, re-stamps the matching nodes (whose
+ * `data` objects are the ones the canvas paints) and only then, if something
+ * actually changed, persists the corrected copies.
+ *
+ * Persisting matters. A sync that stopped at the canvas would make the next
+ * refresh fetch the same stale graph from the API, detect the same difference
+ * and report it again forever — the loop this replaces. The write is
+ * deliberately silent: derived profile copies are not an edit the author made,
+ * so they get no toast and no "unsaved changes" marker on open. A pass that
+ * lands while the author is already editing leaves the canvas updated and lets
+ * their own Save carry it, rather than persisting a half-finished change.
+ */
+async function syncProfilesInBackground(
+  id: string,
+  nodes: Array<{ type: string; data: unknown }>,
+  seq: number,
+): Promise<void> {
+  const changed = await resolveNodeSettingsProfiles(nodes)
+  if (!changed || seq !== syncSeq || currentId.value !== id) return
+  // The author touched the flow while profiles were being read — keep their
+  // edits (and the refreshed copies) in memory; their Save commits both.
+  if (dirty.value || saving.value) return
+  await persistSyncedGraph(id, seq)
+}
+
+/**
+ * Save the current graph without touching title/tags/preferences the sync did
+ * not change (`undefined` keeps the stored values). Used by the background
+ * profile refresh, so a corrected copy reaches the API and the next open is
+ * clean. Failing softly is right here: the canvas already shows the new copy,
+ * and the next open tries again — this is not a user action to report.
+ */
+async function persistSyncedGraph(id: string, seq: number): Promise<void> {
+  const graph = canvas.value?.getGraph()
+  if (!graph || currentId.value !== id) return
+  const editEpochAtStart = editEpoch
+  lastSelfSaveAt = Date.now()
+  try {
+    const record = await store.save({
+      id,
+      title: title.value.trim() || UNTITLED,
+      view_flow: graph,
+      tags: normalizeTags(tagsText.value.split(',')),
     })
+    if (seq !== syncSeq || currentId.value !== id) return
+    lastSelfSaveAt = Date.now()
+    validationSource.value = 'save'
+    validation.value = record.validation ?? null
+    graphs.invalidate(record.id)
+    // Only clear the marker when the author did not start editing mid-save.
+    if (editEpoch === editEpochAtStart) dirty.value = false
+  } catch {
+    // Silent: leave the refreshed copy on the canvas; the next open retries.
   }
 }
 
@@ -167,17 +241,22 @@ async function onAiPatch(patch: PlannedPatch) {
 }
 
 /**
- * Take on an entry form a patch or a file brought with it — but only when this
- * flow has none of its own, for the same reason an import does not rename or
- * relabel a flow behind the author's back. It needs a Save to be committed.
+ * Take on an entry form a patch or a file brought with it.
+ *
+ * `replace` is for the file dialog's "Replace canvas" mode: the file is being
+ * opened *as* this workflow, so its entry form replaces the current one — the
+ * way its graph replaces the canvas. Everywhere else (Add, an AI patch) the
+ * form is adopted only when this flow has none of its own, for the same reason
+ * an import does not rename or relabel a flow behind the author's back. It
+ * needs a Save to be committed.
  */
-function adoptPreferences(incoming?: FlowPreferences) {
+function adoptPreferences(incoming?: FlowPreferences, replace = false) {
   const declared = incoming?.entry?.form?.schema
   if (!declared || !Object.keys(declared).length) return
-  if (preferences.value?.entry?.form?.schema) return
+  if (!replace && preferences.value?.entry?.form?.schema) return
   preferences.value = incoming
   prefsPending.value = incoming
-  dirty.value = true
+  markDirty()
 }
 
 /**
@@ -209,7 +288,7 @@ async function onImport({
   plugins?: PluginManifestEntry[]
   preferences?: FlowPreferences
 }) {
-  adoptPreferences(filePrefs)
+  adoptPreferences(filePrefs, mode === 'replace')
   if (mode === 'replace') {
     canvas.value?.loadGraph({ nodes: [], edges: [] })
     await nextTick()
@@ -220,61 +299,14 @@ async function onImport({
 }
 
 /**
- * Re-attach settings profiles a graph carries by *reference*.
+ * Re-attach settings profiles on an imported graph.
  *
- * A node's profile copy is denormalized onto its `data` (`data.settings` /
- * `data.settingsName`, the shape the compiler and canvas tag read) — and there
- * it freezes: an export writes only the `settingsId` (the token stays out of
- * the file, see lib/exportFlow), and a saved flow keeps whatever its profiles
- * held at save time. So whenever a graph arrives — from storage on open, or
- * from a file on import — each `settingsId` is re-resolved against *this*
- * install's profile store, the authority on the current values. Two call sites:
- *
- *   an opened flow (init) — a profile edited anywhere since the last save
- *     (another flow's drawer, the Node Settings page) left the stored copies
- *     stale; resolving before the canvas paints means an opened flow never
- *     shows config older than the profiles it binds.
- *   an imported file — the id is matched against this install's own profiles
- *     on the way in, so a matching profile works without opening every node;
- *     an id nothing answers to is left visibly dangling (name cleared, values
- *     emptied) — the import review flags it for a pick in the drawer.
- *
- * These keys are managed by the settings selector and never hand-edited, so
- * re-stamping can only bring a node up to date, never overwrite author data. A
- * node that only *references* a profile (hitl — the chat service reads the
- * store at run time) takes the refreshed name and never the values. Returns
- * how many nodes changed, so a caller that loaded a stored graph can flag the
- * difference against what was saved.
+ * An export writes only each node's `settingsId` (the values hold secrets), so
+ * the id is resolved against *this* install's store before the patch lands. A
+ * match denormalizes the current profile onto the node; an id nothing answers
+ * to is left visibly dangling — the import review flags it for a pick. See
+ * lib/profileSync for the shared lookup and reference-only rules.
  */
-async function resolveProfileRefs(nodes: Array<{ type: string; data: unknown }>): Promise<number> {
-  const byUniq = new Map<string, Promise<NodeSetting[]>>()
-  let changed = 0
-  await Promise.all(
-    nodes.map(async (node) => {
-      const data = node.data as Record<string, unknown>
-      const id = String(data.settingsId ?? '').trim()
-      if (!id) return
-      const uniq = nodeUniqId(node.type, data)
-      let profiles = byUniq.get(uniq)
-      if (!profiles) {
-        profiles = nodeSettingsApi.listForNode(uniq).catch(() => [])
-        byUniq.set(uniq, profiles)
-      }
-      const match = (await profiles).find((p) => p.id === id) ?? null
-      const name = match?.title ?? ''
-      const next = match ? { ...match.settings } : {}
-      const denormalizes = usesSettingsProfile(node.type, data)
-      const sameName = String(data.settingsName ?? '') === name
-      const sameValues = !denormalizes || JSON.stringify(data.settings ?? null) === JSON.stringify(next)
-      if (sameName && sameValues) return
-      data.settingsName = name
-      if (denormalizes) data.settings = next
-      changed++
-    }),
-  )
-  return changed
-}
-
 async function applyImport(
   planned: PlannedPatch,
   mode: 'add' | 'replace',
@@ -282,19 +314,48 @@ async function applyImport(
   fileTags?: string[],
   plugins?: PluginManifestEntry[],
 ) {
-  await resolveProfileRefs(planned.nodes)
+  await resolveNodeSettingsProfiles(planned.nodes)
   await canvas.value?.applyPatch(planned, plugins)
   if (mode === 'replace' && fileTitle && isUnnamed(title.value)) title.value = fileTitle
   // The file's labels are adopted only when this flow has none of its own, for
   // the same reason as the title: an import must not relabel a flow behind the
   // author's back. They still need a Save to be committed.
   if (fileTags?.length && !tagsText.value.trim()) tagsText.value = normalizeTags(fileTags).join(', ')
-  dirty.value = true
+  markDirty()
   notifications.notify({
     level: 'success',
     title: mode === 'replace' ? 'Workflow imported' : 'Workflow merged in',
     message: `${summarize(planned)} — review and save.`,
   })
+}
+
+/**
+ * The entry form an export should carry.
+ *
+ * The in-memory copy is normally right, but it is only set once the record has
+ * loaded and when the Entry dialog saves. Export can be pressed while that is
+ * still in flight — or after the form was changed elsewhere — and a file that
+ * silently drops the flow's entry form is worse than a short wait. A pending
+ * (imported, not yet saved) form wins, because the file describes the canvas as
+ * it stands; then the stored form, so a stale in-memory copy cannot erase it;
+ * then whatever the editor holds.
+ */
+async function preferencesForExport(): Promise<FlowPreferences | undefined> {
+  if (prefsPending.value) return prefsPending.value
+  if (!currentId.value) return preferences.value
+  // Ask the store rather than trusting the editor's copy: the form is edited on
+  // its own route (FlowEntryButton), so another tab or client can have changed
+  // it since this flow was opened, and an export that ships an old form is
+  // exactly the bug this guards. The copy in memory is the offline fallback.
+  try {
+    const stored = await flowsApi.getPreferences(currentId.value)
+    const hasForm = !!stored.entry?.form?.schema && Object.keys(stored.entry.form.schema).length > 0
+    preferences.value = hasForm ? stored : undefined
+    prefsOwner = currentId.value
+    return hasForm ? stored : undefined
+  } catch {
+    return prefsOwner === currentId.value ? preferences.value : undefined
+  }
 }
 
 /**
@@ -308,7 +369,10 @@ async function exportJson() {
   // The plugins this install has registered, so the file can name each plugin
   // the flow uses (and its repo) for a target install that is missing one. Fails
   // soft to none — the manifest then just lists actions without a name/repo.
-  const registrations = await fetchPluginRegistrations().catch(() => [])
+  const [registrations, prefs] = await Promise.all([
+    fetchPluginRegistrations().catch(() => []),
+    preferencesForExport(),
+  ])
   const available: AvailablePlugin[] = registrations.map((r) => ({
     pluginId: r.pluginId,
     name: r.name,
@@ -317,7 +381,7 @@ async function exportJson() {
     subdir: r.subdir,
   }))
   downloadFile(
-    new Blob([workflowExportJson(title.value, graph, available, normalizeTags(tagsText.value.split(',')), preferences.value)], {
+    new Blob([workflowExportJson(title.value, graph, available, normalizeTags(tagsText.value.split(',')), prefs)], {
       type: 'application/json',
     }),
     `${fileBase(title.value)}.flow.json`,
@@ -391,15 +455,40 @@ async function check() {
   }
 }
 
+/**
+ * A settings profile was saved from a node's drawer.
+ *
+ * Every canvas node bound to the same `settingsId` still holds the profile's
+ * old values, so the canvas re-stamps all of them at once. When the flow was
+ * clean before this, the only difference is that derived copy — persist it in
+ * the background so a refresh cannot fetch the stale version back. If the
+ * author already had unsaved edits, leave them theirs to save: the synced
+ * copies are on the canvas and their Save writes both.
+ */
+async function onProfileSaved(record: NodeSetting) {
+  const wasClean = !dirty.value && !saving.value
+  canvas.value?.syncSettingsProfile(record)
+  if (!wasClean || !currentId.value) return
+  // Let an open-flow sweep land first (it now sees the flow as edited and will
+  // leave the write to this pass), so the two never race the API.
+  await profileSweep?.catch(() => undefined)
+  await persistSyncedGraph(currentId.value, ++syncSeq)
+}
+
 async function save() {
-  const graph = canvas.value?.getGraph()
-  if (!graph) return
   saving.value = true
   // Arm the self-save guard before the await: the server echoes `flow.changed`
   // over the socket, which can beat this HTTP response back, and an echo seen
   // before the guard is armed looks like an external edit.
   lastSelfSaveAt = Date.now()
   try {
+    // A profile sweep still resolving would re-stamp nodes mid-read; let it
+    // finish first so this save writes the refreshed copies, not the ones the
+    // graph was opened with. (`saving` is already set, so the sweep's own
+    // persist pass steps back and lets this one own the write.)
+    await profileSweep?.catch(() => undefined)
+    const graph = canvas.value?.getGraph()
+    if (!graph) return
     const record = await store.save({
       id: currentId.value,
       title: title.value.trim() || UNTITLED,
@@ -409,6 +498,7 @@ async function save() {
     })
     tagsText.value = (record.tags ?? []).join(', ')
     preferences.value = record.preferences ?? preferences.value
+    prefsOwner = record.id
     // The check the save ran over the graph it just stored (absent in local mode).
     validationSource.value = 'save'
     validation.value = record.validation ?? null
@@ -446,7 +536,7 @@ async function save() {
         v-model="title"
         class="min-w-0 max-w-xs flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-sm font-semibold text-fg outline-none hover:border-line focus:border-accent"
         placeholder="Workflow name"
-        @input="dirty = true"
+        @input="markDirty"
       />
 
       <!-- Tags: free text, comma-separated, normalized on save (the saved form
@@ -461,7 +551,7 @@ async function save() {
           v-model="tagsText"
           class="min-w-0 flex-1 bg-transparent text-xs text-fg outline-none"
           placeholder="tags, comma separated"
-          @input="dirty = true"
+          @input="markDirty"
         />
       </label>
 
@@ -578,7 +668,7 @@ async function save() {
     <!-- Canvas + inspector -->
     <div class="flex min-h-0 flex-1">
       <div class="relative min-w-0 flex-1">
-        <WorkflowCanvas ref="canvas" :flow-id="currentId" @select="onSelect" @dirty="dirty = true" />
+        <WorkflowCanvas ref="canvas" :flow-id="currentId" @select="onSelect" @dirty="markDirty" />
         <!-- Which run the node/edge overlays belong to, and the control for
              switching between the runs live on this flow. -->
         <FlowRunHud :flow-id="currentId" />
@@ -589,7 +679,8 @@ async function save() {
         @close="selected = null"
         @delete="onDelete"
         @resolved="canvas?.rebindPluginNodes()"
-        @profile-saved="(record) => canvas?.syncSettingsProfile(record)"
+        @profile-saved="onProfileSaved"
+        @dirty="markDirty"
       />
     </div>
   </div>

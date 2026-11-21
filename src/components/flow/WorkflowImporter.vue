@@ -111,6 +111,9 @@ function reset() {
   error.value = null
   newerVersion.value = undefined
   fileTags.value = undefined
+  // The file's entry form is part of the file state: leaving it behind made the
+  // NEXT import (of a file that declares none) adopt the previous file's form.
+  filePrefs.value = undefined
   filePlugins.value = []
   dragging.value = false
   if (input.value) input.value.value = ''
@@ -256,6 +259,12 @@ function apply(mode: 'add' | 'replace') {
         <span v-if="plan" class="text-fg-subtle">
           {{ plan.nodes.length }} node{{ plan.nodes.length === 1 ? '' : 's' }} ·
           {{ plan.edges.length }} edge{{ plan.edges.length === 1 ? '' : 's' }}
+        </span>
+        <!-- The entry form is part of the file, not of the graph — say it is
+             there, so "did the form come with it?" is answered before applying. -->
+        <span v-if="filePrefs?.entry" class="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent">
+          <Icon name="prompt" :size="11" />
+          Entry form{{ filePrefs.entry.title ? `: ${filePrefs.entry.title}` : '' }}
         </span>
       </div>
 

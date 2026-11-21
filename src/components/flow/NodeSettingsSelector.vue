@@ -21,7 +21,11 @@ const props = defineProps<{ node: GraphNode }>()
 // The saved record rides along so the editor can re-stamp every OTHER canvas
 // node bound to the same profile — this component only sees its own node, but
 // all of them carry the same denormalized copy (see WorkflowCanvas).
-const emit = defineEmits<{ (e: 'profile-saved', record: NodeSetting): void }>()
+const emit = defineEmits<{
+  (e: 'profile-saved', record: NodeSetting): void
+  /** A selection change is an edit to the flow, same as any field. */
+  (e: 'dirty'): void
+}>()
 
 const uniqId = computed(() => computeNodeUniqId(props.node.type, props.node.data as Record<string, unknown>))
 
@@ -85,13 +89,17 @@ async function load() {
 watch(uniqId, load, { immediate: true })
 
 function onPick(id: string) {
+  if (id === selectedId.value) return
   data().settingsId = id
   applyProfile(profiles.value.find((p) => p.id === id) ?? null)
+  emit('dirty')
 }
 
 function clearSelection() {
+  if (!selectedId.value) return
   data().settingsId = ''
   applyProfile(null)
+  emit('dirty')
 }
 
 function openNew() {
@@ -104,9 +112,19 @@ function openEdit() {
   showModal.value = true
 }
 
-async function onSaved(record: NodeSetting) {
-  await load()
-  onPick(record.id) // select the just-created / just-edited profile
+/**
+ * A profile was just saved. The response is the authority, so it is written
+ * onto the picker and emitted for the editor IMMEDIATELY — no round trip in
+ * between. Waiting for a reload first left a window where the modal had closed,
+ * every node still held the old values and a Save in that window wrote the
+ * stale copies back.
+ */
+function onSaved(record: NodeSetting) {
+  const at = profiles.value.findIndex((p) => p.id === record.id)
+  if (at >= 0) profiles.value = profiles.value.map((p) => (p.id === record.id ? record : p))
+  else profiles.value = [...profiles.value, record]
+  if (data().settingsId !== record.id) data().settingsId = record.id
+  applyProfile(record)
   emit('profile-saved', record)
 }
 </script>

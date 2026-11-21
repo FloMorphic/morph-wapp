@@ -19,6 +19,7 @@ import {
 } from '@/data/nodeCatalog'
 import type { NodeSetting, VueFlowGraph } from '@/types/api'
 import { usesSettingsProfile, type NodeExtRef } from '@/lib/nodeSettings'
+import { applySettingsProfileCopy } from '@/lib/profileSync'
 import { fetchNodeExtRefs, fetchPluginActions, INSTALLED_PLUGIN_ACTIONS, type PluginActionEntry } from '@/lib/nodeExtRefs'
 import { OPEN_NODE_SCOPE, type NodeScopeProbe } from '@/lib/nodeScopeProbe'
 import NodeScopeDialog from './NodeScopeDialog.vue'
@@ -209,6 +210,19 @@ onNodesChange((changes) => {
   scheduleReroute()
   if (changes.some((c) => c.type === 'remove')) emit('select', null)
 })
+
+/**
+ * Which node/edge changes are actual author edits.
+ *
+ * Vue Flow also reports non-edits through the same event: `dimensions` when the
+ * canvas first measures a node, and `select` on every click. Treating those as
+ * "dirty" marked a freshly opened flow as unsaved (and stopped the background
+ * profile sync from persisting its corrected copies). Only add/remove/position
+ * (and Vue Flow's own `reset`) are the author changing the flow.
+ */
+function isEditChange(changes: Array<{ type?: string }>): boolean {
+  return changes.some((c) => c.type !== 'dimensions' && c.type !== 'select')
+}
 
 onNodeClick(({ node }) => emit('select', node))
 onPaneClick(() => emit('select', null))
@@ -852,9 +866,7 @@ function syncSettingsProfile(record: NodeSetting): void {
   for (const n of nodes.value) {
     const data = n.data as Record<string, unknown>
     if (String(data.settingsId ?? '') !== record.id) continue
-    data.settingsName = record.title
-    if (usesSettingsProfile(n.type, data)) data.settings = { ...record.settings }
-    touched = true
+    touched = applySettingsProfileCopy(data, record, usesSettingsProfile(n.type, data)) || touched
   }
   if (touched) emit('dirty')
 }
@@ -884,7 +896,9 @@ defineExpose({
       :delete-key-code="['Delete', 'Backspace']" :default-viewport="{ zoom: 1 }" :min-zoom="0.2" :max-zoom="2.5"
       :connection-line-type="ConnectionLineType.SmoothStep"
       :elevate-edges-on-select="true" :elevate-nodes-on-select="true"
-      class="h-full w-full" @nodes-change="emit('dirty')" @edges-change="emit('dirty')">
+      class="h-full w-full"
+      @nodes-change="(changes) => isEditChange(changes) && emit('dirty')"
+      @edges-change="(changes) => isEditChange(changes) && emit('dirty')">
       <Background :gap="18" :size="1.4" pattern-color="var(--canvas-dots)" />
       <Controls position="bottom-right" />
       <MiniMap v-if="showMinimap" pannable zoomable />
