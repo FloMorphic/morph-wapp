@@ -28,8 +28,7 @@
 </template>
 
 <script lang="ts">
-import { rankWith, isOneOfEnumControl } from '@jsonforms/core';
-import type { ControlElement, JsonFormsRendererRegistryEntry } from '@jsonforms/core';
+import type { ControlElement } from '@jsonforms/core';
 import { defineComponent } from 'vue';
 import { rendererProps, useJsonFormsOneOfEnumControl } from '@jsonforms/vue';
 import type { RendererProps } from '@jsonforms/vue';
@@ -62,9 +61,4 @@ const controlRenderer = defineComponent({
 });
 
 export default controlRenderer;
-
-export const entry: JsonFormsRendererRegistryEntry = {
-  renderer: controlRenderer,
-  tester: rankWith(6, isOneOfEnumControl),
-};
 </script>

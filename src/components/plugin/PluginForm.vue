@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { rankWith, isEnumControl, isOneOfEnumControl } from '@jsonforms/core'
+import type { JsonFormsRendererRegistryEntry } from '@jsonforms/core'
 import { vanillaRenderers } from '@jsonforms/vue-vanilla'
 import { InflowForm } from '@inflowenger/plugin-form-builder'
 import {
@@ -10,8 +12,8 @@ import {
 import { nodeRegistryApi } from '@/api/nodeRegistry'
 import { useNotificationsStore, type NotificationLevel } from '@/stores/notifications'
 import type { PluginForm } from '@/lib/pluginForm'
-import { entry as typedEnumControlEntry } from '@/components/plugin/TypedEnumControlRenderer.vue'
-import { entry as typedOneOfEnumControlEntry } from '@/components/plugin/TypedOneOfEnumControlRenderer.vue'
+import TypedEnumControlRenderer from '@/components/plugin/TypedEnumControlRenderer.vue'
+import TypedOneOfEnumControlRenderer from '@/components/plugin/TypedOneOfEnumControlRenderer.vue'
 
 /**
  * The renderer for everything a plugin asks a user to fill in.
@@ -100,8 +102,21 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: Record<string, unknown>):
  * hands an integer/boolean enum the string "2" and the schema rejects it;
  * ours ranks above it (rank 6 vs vanilla's 2/5) and maps the choice back to
  * the original enum member, keeping its type.
+ *
+ * The registry entries are built here, from the components' **default**
+ * exports, rather than exported by each `.vue` file as a ready-made `entry`.
+ * That is load-bearing in a production build: an SFC's template render is
+ * attached by plugin-vue through the default export (`_export_sfc`), and a
+ * bundler is free to drop that expression when only a named export is used.
+ * The component would then render nothing — silently, since a missing render
+ * is only warned about in dev — which is exactly how these selects vanished
+ * from the built app while working under `vite dev`.
  */
-const formRenderers = [...vanillaRenderers, typedEnumControlEntry, typedOneOfEnumControlEntry]
+const formRenderers: JsonFormsRendererRegistryEntry[] = [
+  ...vanillaRenderers,
+  { renderer: TypedEnumControlRenderer, tester: rankWith(6, isEnumControl) },
+  { renderer: TypedOneOfEnumControlRenderer, tester: rankWith(6, isOneOfEnumControl) },
+]
 
 /**
  * Which engine this document asked for.
